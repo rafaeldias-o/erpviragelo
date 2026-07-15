@@ -6,7 +6,7 @@
 // - Versão do cache abaixo: mude o número sempre que publicar uma atualização. Isso invalida o cache antigo
 //   automaticamente e dispara o aviso de "nova versão disponível" no app, sem quebrar a sessão de quem já está usando.
 
-const CACHE_VERSION = 'viragelo-v1';
+const CACHE_VERSION = 'viragelo-v2';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -57,7 +57,8 @@ self.addEventListener('fetch', (event) => {
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request).then((resp) => {
         if (resp && resp.ok) {
-          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, resp.clone()));
+          const respClone = resp.clone(); // clonar IMEDIATAMENTE, antes de qualquer passo assíncrono
+          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, respClone));
         }
         return resp;
       }).catch(() => cached);
