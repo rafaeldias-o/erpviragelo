@@ -2,16 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ViraGelo — ERP</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1C7FA3">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="ViraGelo">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -212,8 +203,9 @@ tr:last-child td{border-bottom:none;}
 
 <div id="loginOverlay">
   <div class="login-card">
-    <div class="login-brand" style="flex-direction:column;">
-      <img src="logo-full.png" alt="ViraGelo" style="width:100%;max-width:220px;height:auto;">
+    <div class="login-brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17" stroke="#4FC3E0" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#0E2438" stroke="#4FC3E0" stroke-width="1.5"/></svg>
+      <span>ViraGelo ERP</span>
     </div>
     <div class="login-error" id="loginError"></div>
     <div class="field"><label>E-mail</label><input id="login-email" type="email" placeholder="voce@empresa.com"></div>
@@ -226,7 +218,7 @@ tr:last-child td{border-bottom:none;}
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <img class="brand-mark" src="icons/icon-192.png" alt="ViraGelo" style="border-radius:6px;">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17" stroke="#4FC3E0" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#0E2438" stroke="#4FC3E0" stroke-width="1.5"/></svg>
       <span>ViraGelo ERP</span>
     </div>
     <nav class="nav" id="navList">
@@ -257,6 +249,7 @@ tr:last-child td{border-bottom:none;}
 
       <!-- DASHBOARD -->
       <section class="view active" id="view-dashboard">
+        <div id="coberturaBox"></div>
         <div class="stat-grid" id="dashStats"></div>
         <div class="two-col">
           <div class="panel">
@@ -276,6 +269,21 @@ tr:last-child td{border-bottom:none;}
         <div class="two-col">
           <div class="panel"><div class="panel-head"><div class="section-title">Últimos pedidos</div></div><div id="lastOrders"></div></div>
           <div class="panel"><div class="panel-head"><div class="section-title">Últimas movimentações de estoque</div></div><div id="lastMovements"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Evolução do estoque de produtos acabados (mês atual)</div></div>
+          <div class="stat-grid" id="estoqueEvolStats" style="margin-bottom:16px;"></div>
+          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Quantidade em estoque</div>
+          <div id="estoqueQtyChart" style="margin-bottom:22px;"></div>
+          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Valor em estoque (R$)</div>
+          <div class="bars" id="estoqueValueChart" style="height:130px;"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Produção × Vendas (mês atual)</div></div>
+          <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:12px;"></div>
+          <div id="producaoVendasWarnBox"></div>
+          <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
+          <div class="bars" id="producaoVendasChart" style="height:130px;"></div>
         </div>
       </section>
 
@@ -608,6 +616,7 @@ async function loadAll(){
     id: s.id, code: s.code, name: s.name, category: s.category, unit: s.unit,
     qty: Number(s.qty), minQty: Number(s.min_qty), costPrice: Number(s.cost_price),
     salePrice: s.sale_price!=null ? Number(s.sale_price) : 0, supplierId: s.supplier_id,
+    weightKg: s.weight_kg!=null ? Number(s.weight_kg) : null,
     lastIn: null, lastOut: null, createdAt: (s.created_at||'').slice(0,10)
   }));
 
@@ -650,7 +659,8 @@ async function loadAll(){
     email: c.email, instagram: c.instagram, city: c.city, state: c.state, cep: c.cep, address: c.address,
     neighborhood: c.neighborhood, status: c.status, hasFreezer: c.has_freezer, freezerModel: c.freezer_model,
     freezerAssetNumber: c.freezer_asset_number, freezerInstallDate: c.freezer_install_date, freezerNotes: c.freezer_notes,
-    notes: c.notes, fromLeadId: c.from_lead_id, createdAt: (c.created_at||'').slice(0,10)
+    notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
+    createdAt: (c.created_at||'').slice(0,10)
   }));
 
   const historyByLead = {};
@@ -679,7 +689,7 @@ async function loadAll(){
   }));
 
   const co = (coRes.data||[])[0];
-  state.company = co ? { name:co.name, cnpj:co.cnpj, phone:co.phone, email:co.email, address:co.address } : {};
+  state.company = co ? { name:co.name, cnpj:co.cnpj, phone:co.phone, email:co.email, address:co.address, lat:co.lat, lng:co.lng, geocodedAddress:co.geocoded_address } : {};
 }
 
 // ================= THEME =================
@@ -763,7 +773,11 @@ function openStockModal(category, id){
     </div>
     <div id="newSupplierWrap" style="display:none;margin-top:-6px;"><div class="field"><label>Nome do novo fornecedor</label><input id="s-newsupplier" placeholder="Ex: Distribuidora Central"></div></div>
     ${isFinished ? `
-    <div class="field"><label>Preço de venda (R$)</label><input id="s-price" type="number" step="0.01" value="${it?it.salePrice:''}" oninput="updateMarginPreview()" placeholder="0,00"></div>
+    <div class="field-row">
+      <div class="field"><label>Preço de venda (R$)</label><input id="s-price" type="number" step="0.01" value="${it?it.salePrice:''}" oninput="updateMarginPreview()" placeholder="0,00"></div>
+      <div class="field"><label>Peso por unidade (kg)</label><input id="s-weightkg" type="number" step="0.01" value="${it&&it.weightKg!=null?it.weightKg:''}" placeholder="Ex: 3"></div>
+    </div>
+    <div class="hint" style="margin-top:-8px;margin-bottom:8px;">Usado no gráfico Produção × Vendas do Painel, pra converter unidades vendidas em kg.</div>
     <div class="hint" id="marginPreview" style="margin-bottom:12px;"></div>` : ''}
     <div class="modal-foot">
       ${it?`<button class="btn btn-danger-ghost" onclick="deleteStockItem('${it.id}')">Excluir</button>`:''}
@@ -807,7 +821,11 @@ async function saveStockItem(id){
     cost_price: parseFloat(document.getElementById('s-cost').value)||0,
     supplier_id: supplierId,
   };
-  if(category==='produto_acabado'){ data.sale_price = parseFloat(document.getElementById('s-price').value)||0; }
+  if(category==='produto_acabado'){
+    data.sale_price = parseFloat(document.getElementById('s-price').value)||0;
+    const w = document.getElementById('s-weightkg').value;
+    data.weight_kg = w ? parseFloat(w) : null;
+  }
   const { error } = id
     ? await sb.from('stock_items').update(data).eq('id', id)
     : await sb.from('stock_items').insert(data);
@@ -1721,6 +1739,21 @@ function setHasFreezer(v){
   document.getElementById('opt-freezer-nao').classList.toggle('selected', !v);
   document.getElementById('freezerFields').style.display = v?'block':'none';
 }
+// ---- Geocodificação (Nominatim/OpenStreetMap) — usado pra localizar clientes e a fábrica no mapa ----
+// Serviço público e gratuito, sem necessidade de chave de API. Só geocodificamos quando o endereço
+// realmente muda (comparando com geocoded_address salvo), respeitando o uso ocasional da política deles.
+async function geocodeAddress(query){
+  if(!query || !query.trim()) return null;
+  try{
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=' + encodeURIComponent(query);
+    const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!data || !data.length) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  }catch(e){ console.warn('Geocodificação falhou:', e); return null; }
+}
+
 async function saveClientDetail(id){
   const name = document.getElementById('c-name').value.trim();
   if(!name){ toast('Informe o nome do cliente', true); return; }
@@ -1736,6 +1769,13 @@ async function saveClientDetail(id){
     freezer_install_date: document.getElementById('c-freezerdate')?.value || null,
     freezer_notes: document.getElementById('c-freezernotes')?.value.trim() || null,
   };
+  const addressQuery = [data.address, data.city].filter(Boolean).join(', ');
+  const existing = id ? state.clients.find(c=>c.id===id) : null;
+  if(addressQuery && addressQuery !== existing?.geocodedAddress){
+    const coords = await geocodeAddress(addressQuery + ', Brasil');
+    if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = addressQuery; }
+    else { toast('Endereço salvo, mas não localizei ele no mapa — esse cliente ficará de fora da rota otimizada até o endereço ser encontrado.', true); }
+  }
   const { error } = id
     ? await sb.from('clients').update(data).eq('id', id)
     : await sb.from('clients').insert(data);
@@ -1884,6 +1924,7 @@ function renderWeekAgenda(){
     const list = state.deliveries.filter(dl=>dl.date===iso).sort((a,b)=> (a.time||'99:99').localeCompare(b.time||'99:99'));
     return `<div class="kanban-col" style="min-width:190px;width:190px;${isToday?'outline:2px solid var(--accent-2);':''}" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onDeliveryDrop(event,'${iso}')">
       <div class="kanban-col-head"><span>${dayNames[i]}${isToday?' · hoje':''}<div style="color:var(--muted);font-weight:500;font-size:10.5px;">${d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</div></span><span class="kanban-count">${list.length}</span></div>
+      ${list.length>=2 ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:6px;font-size:11px;padding:5px;" onclick="openRouteModal('${iso}')">🗺️ Rota otimizada</button>` : ''}
       <div class="kanban-cards">
         ${list.length===0 ? '<div class="hint" style="text-align:center;padding:8px 0;">Vazio</div>' : list.map(dl=>{
           const c = state.clients.find(x=>x.id===dl.clientId);
@@ -1903,6 +1944,194 @@ function renderWeekAgenda(){
       </div>
     </div>`;
   }).join('');
+}
+
+// ---- Rota otimizada do dia (OSRM — dados e roteamento OpenStreetMap) ----
+function fmtKm(meters){ return (meters/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' km'; }
+function fmtMin(seconds){ return Math.round(seconds/60) + ' min'; }
+function buildGoogleMapsUrl(orderedStops, origin){
+  const originStr = origin ? `${origin.lat},${origin.lng}` : `${orderedStops[0].client.lat},${orderedStops[0].client.lng}`;
+  const destStr = origin ? originStr : `${orderedStops[orderedStops.length-1].client.lat},${orderedStops[orderedStops.length-1].client.lng}`;
+  const waypointStops = origin ? orderedStops : orderedStops.slice(1, -1);
+  const waypoints = waypointStops.map(s=>`${s.client.lat},${s.client.lng}`).join('|');
+  return `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
+}
+async function openRouteModal(dateIso){
+  openModal(`
+    <div class="modal-head"><h3>🗺️ Rota otimizada — ${fmtDate(dateIso)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" id="routeLoading">Calculando a melhor ordem de visita...</div>
+    <div id="routeResultWrap"></div>
+  `, 'wide');
+  try{
+    await computeAndRenderRoute(dateIso);
+  }catch(e){
+    console.error(e);
+    document.getElementById('routeLoading').textContent = 'Não foi possível calcular a rota. Tente novamente em alguns segundos.';
+  }
+}
+async function computeAndRenderRoute(dateIso){
+  const deliveries = state.deliveries.filter(d=>d.date===dateIso && d.status!=='cancelada');
+  const withClient = deliveries.map(d=>({ delivery: d, client: state.clients.find(c=>c.id===d.clientId) }));
+  const withCoords = withClient.filter(x=>x.client && x.client.lat!=null && x.client.lng!=null);
+  const missing = withClient.length - withCoords.length;
+
+  if(withCoords.length===0){
+    document.getElementById('routeLoading').textContent = '';
+    document.getElementById('routeResultWrap').innerHTML = emptyState('Nenhum cliente dessas entregas tem endereço localizado no mapa ainda. Edite o cliente e confira se o campo Endereço/Cidade está preenchido.', null);
+    return;
+  }
+  if(withCoords.length===1){
+    document.getElementById('routeLoading').textContent = '';
+    document.getElementById('routeResultWrap').innerHTML = `<div class="hint">Só há uma entrega localizável nesse dia — não há o que otimizar. <a href="${buildGoogleMapsUrl(withCoords, companyOrigin())}" target="_blank">Abrir no Google Maps</a></div>`;
+    return;
+  }
+
+  const origin = companyOrigin();
+  // Entregas com horário marcado mantêm a ordem cronológica entre si — o cliente escolheu aquele horário
+  // por um motivo. As sem horário são encaixadas depois, na ordem mais próxima (rota livre).
+  const timed = withCoords.filter(x=>x.delivery.time).sort((a,b)=> a.delivery.time.localeCompare(b.delivery.time));
+  const untimed = withCoords.filter(x=>!x.delivery.time);
+
+  let ordered, trip, legs, legOffset;
+
+  if(timed.length===0){
+    // ninguém tem horário marcado: otimização livre de distância via OSRM Trip (comportamento original)
+    const points = origin ? [origin, ...withCoords.map(x=>({lat:x.client.lat,lng:x.client.lng}))] : withCoords.map(x=>({lat:x.client.lat,lng:x.client.lng}));
+    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+    const params = origin ? 'source=first&roundtrip=true&overview=false' : 'roundtrip=true&overview=false';
+    const url = `https://router.project-osrm.org/trip/v1/driving/${coordStr}?${params}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    document.getElementById('routeLoading').textContent = '';
+    if(json.code !== 'Ok'){
+      document.getElementById('routeResultWrap').innerHTML = emptyState('Não foi possível calcular a rota (' + json.code + '). Os endereços podem estar fora de uma região com mapeamento de ruas.', null);
+      return;
+    }
+    const offset = origin ? 1 : 0;
+    ordered = json.waypoints
+      .map((wp, i) => ({ wp, stop: i>=offset ? withCoords[i-offset] : null }))
+      .filter(x => x.stop)
+      .sort((a,b) => a.wp.waypoint_index - b.wp.waypoint_index)
+      .map(x => x.stop);
+    trip = json.trips[0];
+    renderRouteResult(dateIso, ordered, trip, missing, origin, []);
+    return;
+  }
+
+  // há entregas com horário: fixamos a ordem (cronológica + encaixe das sem-horário) e usamos OSRM Route
+  // (não o Trip) só pra medir distância/tempo real dessa ordem específica — sem deixar a OSRM reordenar.
+  const lastTimedPoint = { lat: timed[timed.length-1].client.lat, lng: timed[timed.length-1].client.lng };
+  const untimedOrdered = nearestNeighborOrder(lastTimedPoint, untimed);
+  ordered = [...timed, ...untimedOrdered];
+
+  const points = origin
+    ? [origin, ...ordered.map(x=>({lat:x.client.lat,lng:x.client.lng})), origin]
+    : ordered.map(x=>({lat:x.client.lat,lng:x.client.lng}));
+  const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`;
+  const res = await fetch(url);
+  const json = await res.json();
+  document.getElementById('routeLoading').textContent = '';
+  if(json.code !== 'Ok'){
+    document.getElementById('routeResultWrap').innerHTML = emptyState('Não foi possível calcular a rota (' + json.code + '). Os endereços podem estar fora de uma região com mapeamento de ruas.', null);
+    return;
+  }
+  const route = json.routes[0];
+  trip = { distance: route.distance, duration: route.duration };
+  legs = route.legs;
+  legOffset = origin ? 1 : 0;
+
+  // avisa quando há mais de 30 min de folga entre duas entregas com horário marcado consecutivas
+  const warnings = [];
+  for(let i=0; i<ordered.length-1; i++){
+    const a = ordered[i], b = ordered[i+1];
+    if(a.delivery.time && b.delivery.time){
+      const travelMin = legs[legOffset+i].duration/60;
+      const gapMin = timeDiffMinutes(a.delivery.time, b.delivery.time);
+      const slack = gapMin - travelMin;
+      if(slack > 30){
+        warnings.push({ a, b, travelMin, gapMin, slack, suggestedTime: addMinutesToTime(a.delivery.time, Math.round(travelMin)+10) });
+      }
+    }
+  }
+
+  renderRouteResult(dateIso, ordered, trip, missing, origin, warnings);
+}
+function renderRouteResult(dateIso, ordered, trip, missing, origin, warnings){
+  const mapsUrl = buildGoogleMapsUrl(ordered, origin);
+  const warningsHtml = warnings.length ? `
+    <div class="panel" id="routeWarningsPanel" style="background:var(--warn-bg);border-color:transparent;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--ink);">⏱️ Horários com mais de 30 min de folga</div>
+      ${warnings.map(w=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(0,0,0,.08);font-size:12.5px;gap:10px;flex-wrap:wrap;">
+          <div>Entre <strong>${esc(w.a.client.name)}</strong> (${w.a.delivery.time}) e <strong>${esc(w.b.client.name)}</strong> (${w.b.delivery.time}): ${Math.round(w.slack)} min de folga (a viagem entre eles leva só ${Math.round(w.travelMin)} min).</div>
+          <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="applyEarlierTime('${w.b.delivery.id}','${w.suggestedTime}','${dateIso}')">Adiantar ${esc(w.b.client.name)} para ${w.suggestedTime}</button>
+        </div>
+      `).join('')}
+      <div style="margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="document.getElementById('routeWarningsPanel').style.display='none'">Iniciar rota sem adiantar entrega</button></div>
+    </div>
+  ` : '';
+
+  document.getElementById('routeResultWrap').innerHTML = `
+    ${warningsHtml}
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Paradas</div><div class="stat-value">${ordered.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Distância total</div><div class="stat-value">${fmtKm(trip.distance)}</div></div>
+      <div class="stat-card"><div class="stat-label">Tempo estimado</div><div class="stat-value">${fmtMin(trip.duration)}</div></div>
+    </div>
+    ${missing>0 ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${missing} entrega(s) desse dia ficaram de fora por não terem endereço localizado no mapa.</div>` : ''}
+    ${!origin ? `<div class="hint" style="margin-bottom:10px;">Cadastre o endereço da fábrica em Configurações para a rota já começar e terminar por lá.</div>` : ''}
+    <ol style="padding-left:20px;margin:0 0 14px 0;">
+      ${ordered.map((s,i)=>`<li style="margin-bottom:8px;font-size:13px;"><strong>${esc(s.client.name)}</strong>${s.delivery.time?' · '+s.delivery.time:' · sem horário definido'}${clientBadge(s.client)}<div style="color:var(--muted);font-size:12px;">${esc(s.client.address||'')}${s.client.city?', '+esc(s.client.city):''}</div></li>`).join('')}
+    </ol>
+    <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
+    <div class="hint" style="margin-top:12px;">Rota calculada com dados © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a>.</div>
+  `;
+}
+async function applyEarlierTime(deliveryId, newTime, dateIso){
+  const { error } = await sb.from('deliveries').update({ time: newTime }).eq('id', deliveryId);
+  if(error){ dbErr(error, 'Erro ao adiantar entrega'); return; }
+  toast('Horário atualizado — recalculando rota');
+  await loadAll();
+  document.getElementById('routeResultWrap').innerHTML = '';
+  document.getElementById('routeLoading').textContent = 'Recalculando...';
+  await computeAndRenderRoute(dateIso);
+  renderWeekAgenda();
+}
+function timeDiffMinutes(t1, t2){
+  const [h1,m1] = t1.split(':').map(Number);
+  const [h2,m2] = t2.split(':').map(Number);
+  return (h2*60+m2) - (h1*60+m1);
+}
+function addMinutesToTime(t, mins){
+  const [h,m] = t.split(':').map(Number);
+  let total = h*60+m+mins;
+  total = Math.round(total/5)*5; // arredonda pra múltiplo de 5 min
+  total = ((total % 1440) + 1440) % 1440;
+  return String(Math.floor(total/60)).padStart(2,'0') + ':' + String(total%60).padStart(2,'0');
+}
+function haversineKm(a, b){
+  const R = 6371;
+  const dLat = (b.lat-a.lat)*Math.PI/180;
+  const dLng = (b.lng-a.lng)*Math.PI/180;
+  const lat1 = a.lat*Math.PI/180, lat2 = b.lat*Math.PI/180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function nearestNeighborOrder(startPoint, points){
+  const remaining = [...points];
+  const orderedList = [];
+  let current = startPoint;
+  while(remaining.length){
+    let bestIdx = 0, bestDist = Infinity;
+    remaining.forEach((p,i)=>{ const d = haversineKm(current, {lat:p.client.lat,lng:p.client.lng}); if(d<bestDist){ bestDist=d; bestIdx=i; } });
+    current = { lat: remaining[bestIdx].client.lat, lng: remaining[bestIdx].client.lng };
+    orderedList.push(remaining.splice(bestIdx,1)[0]);
+  }
+  return orderedList;
+}
+function companyOrigin(){
+  return (state.company.lat!=null && state.company.lng!=null) ? { lat: state.company.lat, lng: state.company.lng } : null;
 }
 
 function openDeliveryEditModal(id){
@@ -1975,6 +2204,7 @@ function renderCRM(){ renderCrmStats(); renderKanban(); renderClientsTable(); re
 // DASHBOARD
 // =========================================================
 function renderDashboard(){
+  renderCoberturaEstoque();
   const now = new Date();
   const monthKey = now.toISOString().slice(0,7);
   const yearKey = String(now.getFullYear());
@@ -2057,6 +2287,212 @@ function renderDashboard(){
   const lm = document.getElementById('lastMovements');
   lm.innerHTML = state.movements.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma movimentação ainda.</p></div>' :
     state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
+
+  renderEstoqueEvolucao();
+}
+
+// ---- Evolução do Estoque (Gráfico 1: quantidade / Gráfico 2: valor) ----
+// Consolida o saldo diário a partir da view v_estoque_diario (que por sua vez lê stock_movements),
+// sem duplicar dado nenhum. Dias sem movimentação repetem o saldo do dia anterior (saldo consolidado).
+function buildMonthSeries(rawSeries, year, month){
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+  let lastQty = 0, lastValue = 0;
+  const beforeMonth = rawSeries.filter(r => r.date < monthPrefix+'01');
+  if(beforeMonth.length){
+    const last = beforeMonth[beforeMonth.length-1];
+    lastQty = Number(last.saldo_qty); lastValue = Number(last.saldo_valor);
+  }
+  const byDate = {};
+  rawSeries.forEach(r=> byDate[r.date] = r);
+  const series = [];
+  for(let d=1; d<=daysInMonth; d++){
+    const iso = monthPrefix + String(d).padStart(2,'0');
+    if(byDate[iso]){ lastQty = Number(byDate[iso].saldo_qty); lastValue = Number(byDate[iso].saldo_valor); }
+    series.push({ day:d, date:iso, qty:lastQty, value:lastValue });
+  }
+  return series;
+}
+function buildLineChartSvg(values, labels){
+  const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
+  const max = Math.max(1, ...values);
+  const min = Math.min(0, ...values);
+  const range = (max-min) || 1;
+  const stepX = (w-padL-padR) / Math.max(1, values.length-1);
+  const xOf = i => padL + i*stepX;
+  const yOf = v => padT + (h-padT-padB) * (1 - (v-min)/range);
+  const points = values.map((v,i)=> `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
+  const lastI = values.length-1;
+  const labelIdxs = [0];
+  for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
+  if(!labelIdxs.includes(lastI)) labelIdxs.push(lastI);
+  const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
+    <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
+    <polyline points="${points}" style="fill:none;stroke:var(--accent-2);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;"/>
+    <circle cx="${xOf(lastI)}" cy="${yOf(values[lastI])}" r="3.5" style="fill:var(--accent-2);"/>
+    ${axisLabels}
+  </svg>`;
+}
+async function renderEstoqueEvolucao(){
+  const statsBox = document.getElementById('estoqueEvolStats');
+  if(!statsBox) return; // só existe na tela Painel
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+  const { data, error } = await sb.from('v_estoque_diario').select('*').gte('date', cutoff.toISOString().slice(0,10)).order('date');
+  if(error){ dbErr(error, 'Erro ao carregar evolução do estoque'); return; }
+  const now = new Date();
+  const series = buildMonthSeries(data||[], now.getFullYear(), now.getMonth());
+  const qtys = series.map(s=>s.qty);
+  const values = series.map(s=>s.value);
+  const atual = qtys[qtys.length-1] || 0;
+  const valorAtual = values[values.length-1] || 0;
+  const maior = qtys.length ? Math.max(...qtys) : 0;
+  const menor = qtys.length ? Math.min(...qtys) : 0;
+  const media = qtys.length ? (qtys.reduce((a,b)=>a+b,0)/qtys.length) : 0;
+
+  statsBox.innerHTML = `
+    <div class="stat-card"><div class="stat-label">📦 Pacotes disponíveis</div><div class="stat-value">${atual}</div></div>
+    <div class="stat-card"><div class="stat-label">💰 Valor atual</div><div class="stat-value">${fmtMoney(valorAtual)}</div></div>
+    <div class="stat-card"><div class="stat-label">📈 Maior no mês</div><div class="stat-value">${maior}</div></div>
+    <div class="stat-card"><div class="stat-label">📉 Menor no mês</div><div class="stat-value">${menor}</div></div>
+    <div class="stat-card"><div class="stat-label">📊 Média diária</div><div class="stat-value">${media.toFixed(0)}</div></div>
+  `;
+  document.getElementById('estoqueQtyChart').innerHTML = buildLineChartSvg(qtys, series.map(s=>s.day));
+  const maxVal = Math.max(1, ...values);
+  document.getElementById('estoqueValueChart').innerHTML = series.map(s=>`
+    <div class="bar-group"><div class="bar-pair" style="justify-content:center;"><div class="bar" style="width:5px;background:var(--accent);height:${Math.round(s.value/maxVal*100)}%" title="Dia ${s.day}: ${fmtMoney(s.value)}"></div></div>${s.day%5===0||s.day===1?`<div class="bar-label" style="font-size:8px;">${s.day}</div>`:'<div class="bar-label"></div>'}</div>
+  `).join('');
+
+  renderProducaoVendas();
+}
+
+// ---- Produção × Vendas (Gráfico 3) ----
+function inferWeightKg(stockItem){
+  if(!stockItem) return null;
+  if(stockItem.weightKg != null) return stockItem.weightKg;
+  const m = stockItem.name.match(/(\d+(\.\d+)?)\s*kg/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+// ---- Cobertura de Estoque (indicador estratégico) ----
+// Não faz nenhuma consulta nova ao banco: usa só o que o Dashboard já carregou (produção, pedidos, estoque).
+function renderCoberturaEstoque(){
+  const box = document.getElementById('coberturaBox');
+  if(!box) return;
+  const today = todayStr();
+
+  const finished = state.stockItems.filter(s=>s.category==='produto_acabado');
+  let estoqueKg = 0, semPeso = 0;
+  finished.forEach(s=>{
+    const w = inferWeightKg(s);
+    if(w==null){ semPeso++; return; }
+    estoqueKg += s.qty * w;
+  });
+
+  // janela de cálculo: últimos 30 dias, ou todo o histórico se o negócio for mais novo que isso
+  const deliveredDates = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt).map(o=>o.deliveredAt);
+  const earliest = deliveredDates.length ? deliveredDates.reduce((a,b)=> a<b?a:b) : null;
+  const d30 = new Date(); d30.setDate(d30.getDate()-30);
+  const d30str = d30.toISOString().slice(0,10);
+  let windowStart = d30str, windowDays = 30;
+  if(earliest && earliest > d30str){ windowStart = earliest; windowDays = Math.max(1, daysSince(earliest) + 1); }
+
+  let consumoTotalKg = 0;
+  state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=windowStart).forEach(o=>{
+    o.items.forEach(it=>{
+      const w = inferWeightKg(state.stockItems.find(s=>s.id===it.productId));
+      if(w!=null) consumoTotalKg += it.qty*w;
+    });
+  });
+  const mediaDiaria = consumoTotalKg / windowDays;
+  const cobertura = mediaDiaria > 0 ? (estoqueKg / mediaDiaria) : null;
+
+  let nivelClass = '', nivelLabel = 'Ainda não há vendas suficientes pra calcular', emoji = '⚪', borderColor = 'var(--border)';
+  if(cobertura != null){
+    if(cobertura > 7){ nivelClass='success'; nivelLabel='Operação confortável'; emoji='🟢'; borderColor='var(--success)'; }
+    else if(cobertura >= 3){ nivelClass='warn'; nivelLabel='Necessário acompanhar'; emoji='🟡'; borderColor='var(--warn)'; }
+    else { nivelClass='danger'; nivelLabel='Estoque crítico'; emoji='🔴'; borderColor='var(--danger)'; }
+  }
+
+  const ultimaProducao = state.production[0]; // já vem ordenado por data desc
+  const proximaEntrega = state.deliveries
+    .filter(d=>d.date>=today && d.status!=='cancelada')
+    .sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')))[0];
+  const proximaEntregaClient = proximaEntrega ? state.clients.find(c=>c.id===proximaEntrega.clientId) : null;
+  const fmtKgNum = n => n.toLocaleString('pt-BR',{maximumFractionDigits:1});
+
+  box.innerHTML = `
+    <div class="panel" style="border-left:4px solid ${borderColor};margin-bottom:16px;">
+      <div class="panel-head"><div class="section-title">${emoji} Cobertura de Estoque</div></div>
+      <div style="font-size:32px;font-weight:700;margin-bottom:2px;">${cobertura!=null ? cobertura.toFixed(1)+' dias' : '—'}</div>
+      <div class="stat-note ${nivelClass}" style="font-size:13px;font-weight:600;margin-bottom:14px;">${nivelLabel}</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Estoque atual</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(estoqueKg)} kg</div></div>
+        <div class="stat-card"><div class="stat-label">Média diária vendida</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(mediaDiaria)} kg</div></div>
+        <div class="stat-card"><div class="stat-label">Consumo últimos ${windowDays}d</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(consumoTotalKg)} kg</div></div>
+        <div class="stat-card"><div class="stat-label">Última produção</div><div class="stat-value" style="font-size:14px;">${ultimaProducao?fmtDate(ultimaProducao.date)+' · '+fmtKgNum(Number(ultimaProducao.kg))+'kg':'—'}</div></div>
+        <div class="stat-card"><div class="stat-label">Próxima entrega</div><div class="stat-value" style="font-size:14px;">${proximaEntrega?fmtDate(proximaEntrega.date)+(proximaEntrega.time?' '+proximaEntrega.time:'')+(proximaEntregaClient?' · '+esc(proximaEntregaClient.name):''):'—'}</div></div>
+      </div>
+      ${semPeso>0?`<div class="hint" style="color:var(--warn);margin-top:10px;">⚠️ ${semPeso} produto(s) acabado(s) sem peso definido não entraram no cálculo do estoque em kg.</div>`:''}
+    </div>
+  `;
+}
+
+function buildProducaoVendasSeries(year, month){
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+  const producaoByDay = {};
+  state.production.forEach(p=>{
+    if(p.date && p.date.startsWith(monthPrefix)) producaoByDay[p.date] = (producaoByDay[p.date]||0) + Number(p.kg);
+  });
+  const vendasByDay = {};
+  let unconvertible = 0;
+  state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt.startsWith(monthPrefix)).forEach(o=>{
+    o.items.forEach(it=>{
+      const stockItem = state.stockItems.find(s=>s.id===it.productId);
+      const w = inferWeightKg(stockItem);
+      if(w==null){ unconvertible++; return; }
+      vendasByDay[o.deliveredAt] = (vendasByDay[o.deliveredAt]||0) + it.qty*w;
+    });
+  });
+  const series = [];
+  for(let d=1; d<=daysInMonth; d++){
+    const iso = monthPrefix + String(d).padStart(2,'0');
+    series.push({ day:d, date:iso, producao: producaoByDay[iso]||0, vendas: vendasByDay[iso]||0 });
+  }
+  return { series, unconvertible };
+}
+function renderProducaoVendas(){
+  const box = document.getElementById('producaoVendasStats');
+  if(!box) return;
+  const now = new Date();
+  const { series, unconvertible } = buildProducaoVendasSeries(now.getFullYear(), now.getMonth());
+  const totalProd = series.reduce((s,d)=>s+d.producao,0);
+  const totalVend = series.reduce((s,d)=>s+d.vendas,0);
+  const saldo = totalProd - totalVend;
+  const pct = totalProd>0 ? (totalVend/totalProd*100) : 0;
+  const fmtKgNum = n => n.toLocaleString('pt-BR',{maximumFractionDigits:1});
+
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Produção acumulada</div><div class="stat-value">${fmtKgNum(totalProd)} kg</div></div>
+    <div class="stat-card"><div class="stat-label">Total vendido</div><div class="stat-value">${fmtKgNum(totalVend)} kg</div></div>
+    <div class="stat-card"><div class="stat-label">Saldo</div><div class="stat-value">${fmtKgNum(saldo)} kg</div></div>
+    <div class="stat-card"><div class="stat-label">% comercializado</div><div class="stat-value">${pct.toFixed(1)}%</div></div>
+  `;
+  document.getElementById('producaoVendasWarnBox').innerHTML = unconvertible>0
+    ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${unconvertible} item(ns) vendido(s) não puderam ser convertidos pra kg (produto sem peso definido em Estoque) e ficaram fora do total de vendas.</div>`
+    : '';
+  const max = Math.max(1, ...series.map(s=>Math.max(s.producao,s.vendas)));
+  document.getElementById('producaoVendasChart').innerHTML = series.map(s=>`
+    <div class="bar-group">
+      <div class="bar-pair">
+        <div class="bar rev" style="width:4px;height:${Math.round(s.producao/max*100)}%" title="Dia ${s.day} — Produção: ${fmtKgNum(s.producao)}kg"></div>
+        <div class="bar exp" style="width:4px;height:${Math.round(s.vendas/max*100)}%" title="Dia ${s.day} — Vendas: ${fmtKgNum(s.vendas)}kg"></div>
+      </div>
+      ${s.day%5===0||s.day===1?`<div class="bar-label" style="font-size:8px;">${s.day}</div>`:'<div class="bar-label"></div>'}
+    </div>
+  `).join('');
 }
 
 // =========================================================
@@ -2132,6 +2568,11 @@ async function saveCompany(){
     email: document.getElementById('cfg-email').value.trim(),
     address: document.getElementById('cfg-address').value.trim(),
   };
+  if(data.address && data.address !== state.company.geocodedAddress){
+    const coords = await geocodeAddress(data.address + ', Brasil');
+    if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = data.address; }
+    else { toast('Endereço salvo, mas não localizei ele no mapa — a rota otimizada vai começar direto na primeira entrega até isso ser resolvido.', true); }
+  }
   const { error } = await sb.from('company_settings').upsert(data);
   if(error){ dbErr(error, 'Erro ao salvar dados da empresa'); return; }
   toast('Dados da empresa salvos'); await loadAll();
@@ -2150,37 +2591,6 @@ function renderAll(){
   const { data: { session } } = await sb.auth.getSession();
   if(session){ await afterLogin(session); }
 })();
-
-// ================= PWA: instalação, offline básico e aviso de nova versão =================
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        if(!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          // só avisa se já existia um service worker anterior controlando a página
-          // (ou seja: é uma atualização de verdade, não a primeira instalação)
-          if(newWorker.state === 'installed' && navigator.serviceWorker.controller){
-            showUpdateBanner(reg);
-          }
-        });
-      });
-    }).catch(err => console.warn('Falha ao registrar service worker:', err));
-  });
-}
-function showUpdateBanner(reg){
-  if(document.getElementById('swUpdateBar')) return;
-  const bar = document.createElement('div');
-  bar.id = 'swUpdateBar';
-  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:var(--accent);color:#fff;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;z-index:300;';
-  bar.textContent = '🔄 Nova versão do ViraGelo ERP disponível — clique para atualizar';
-  bar.onclick = () => {
-    if(reg.waiting) reg.waiting.postMessage('skipWaiting');
-    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
-  };
-  document.body.appendChild(bar);
-}
 </script>
 
 </body>
