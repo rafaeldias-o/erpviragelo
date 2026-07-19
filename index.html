@@ -437,6 +437,13 @@ tr:last-child td{border-bottom:none;}
           <div class="field"><label>Endereço</label><input id="cfg-address"></div>
           <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
         </div>
+        <div class="panel" style="max-width:640px;">
+          <div class="panel-head"><div class="section-title">Política de Frete</div></div>
+          <div class="hint" style="margin-bottom:12px;">Faixas de distância (km) e o valor de frete correspondente. Ordenadas automaticamente pela distância mínima. Sempre que você salvar ou excluir uma faixa, o frete de todos os clientes já calculados é atualizado sozinho.</div>
+          <div id="freightTiersWrap" class="table-scroll"></div>
+          <div id="freightTierFormWrap"></div>
+          <button class="btn btn-ghost btn-sm" onclick="showFreightTierForm()">+ Nova faixa</button>
+        </div>
         <div class="panel" style="max-width:520px;">
           <div class="panel-head"><div class="section-title">Sobre esta versão</div></div>
           <p style="font-size:12.5px;color:var(--muted);line-height:1.6;">
@@ -463,7 +470,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], company: {} };
 let currentStockTab = 'materia_prima';
 let currentCrmTab = 'funil';
 let orderDraftItems = [];
@@ -583,7 +590,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -599,13 +606,16 @@ async function loadAll(){
     sb.from('deliveries').select('*').is('deleted_at', null),
     sb.from('delivery_items').select('*'),
     sb.from('company_settings').select('*').limit(1),
+    sb.from('freight_tiers').select('*').is('deleted_at', null).order('min_km'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
-    ['itens de entrega',delItemsRes],['empresa',coRes]]){
+    ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  state.freightTiers = (freightRes.data||[]).map(f => ({ id:f.id, minKm:Number(f.min_km), maxKm:Number(f.max_km), price:Number(f.price) }));
 
   const stockById = {};
   (stockRes.data||[]).forEach(s => stockById[s.id] = s.name);
@@ -645,6 +655,7 @@ async function loadAll(){
   state.orders = (ordRes.data||[]).map(o => ({
     id: o.id, orderNumber: o.order_number, clientId: o.client_id, items: itemsByOrder[o.id] || [],
     discount: Number(o.discount), paymentMethod: o.payment_method, status: o.status, total: Number(o.total),
+    freightAmount: Number(o.freight_amount||0),
     stockApplied: o.stock_applied, deliveredAt: o.delivered_at ? o.delivered_at.slice(0,10) : null,
     createdAt: (o.created_at||'').slice(0,10)
   }));
@@ -656,10 +667,12 @@ async function loadAll(){
 
   state.clients = (cliRes.data||[]).map(c => ({
     id: c.id, name: c.name, company: c.company, cnpj: c.cnpj, cpf: c.cpf, phone: c.phone, whatsapp: c.whatsapp,
-    email: c.email, instagram: c.instagram, city: c.city, state: c.state, cep: c.cep, address: c.address,
+    email: c.email, instagram: c.instagram, city: c.city, state: c.state, cep: c.cep, address: c.address, number: c.number, complement: c.complement,
     neighborhood: c.neighborhood, status: c.status, hasFreezer: c.has_freezer, freezerModel: c.freezer_model,
     freezerAssetNumber: c.freezer_asset_number, freezerInstallDate: c.freezer_install_date, freezerNotes: c.freezer_notes,
     notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
+    distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
+    freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
     createdAt: (c.created_at||'').slice(0,10)
   }));
 
@@ -671,6 +684,7 @@ async function loadAll(){
     id: l.id, name: l.name, company: l.company, phone: l.phone, whatsapp: l.whatsapp, city: l.city,
     value: Number(l.value), stage: l.stage, owner: l.owner_name, notes: l.notes, lastInteraction: l.last_interaction,
     clientId: l.client_id, closedAt: l.closed_at ? l.closed_at.slice(0,10) : null,
+    cep: l.cep, address: l.address, number: l.number, complement: l.complement, neighborhood: l.neighborhood, state: l.state,
     createdAt: (l.created_at||'').slice(0,10), history: historyByLead[l.id] || []
   }));
 
@@ -1041,7 +1055,7 @@ function openOrderModal(id){
     }
     openModal(`
       <div class="modal-head"><h3>${o?'Pedido':'Novo pedido'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-      <div class="field"><label>Cliente</label><select id="o-client">${state.clients.map(c=>`<option value="${c.id}" ${o&&o.clientId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Cliente</label><select id="o-client" onchange="renderOrderItems()">${state.clients.map(c=>`<option value="${c.id}" ${o&&o.clientId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div id="orderItemsWrap"></div>
       <button class="btn btn-ghost btn-sm" onclick="addOrderItemRow()">+ Adicionar item</button>
       <div class="field-row" style="margin-top:12px;">
@@ -1050,7 +1064,7 @@ function openOrderModal(id){
       </div>
       <div class="field"><label>Status</label><select id="o-status">${ORDER_STATUSES.map(s=>`<option value="${s.v}" ${o&&o.status===s.v?'selected':(!o&&s.v==='orcamento'?'selected':'')}>${s.label}</option>`).join('')}</select></div>
       <div class="hint">Quando o status for definido como "Entregue", o estoque é baixado e a receita é criada automaticamente no Financeiro.</div>
-      <div style="text-align:right;font-size:15px;font-weight:700;margin-top:8px;" id="orderTotalLine"></div>
+      <div id="orderTotalLine" style="margin-top:8px;"></div>
       <div class="modal-foot">
         ${o?`<button class="btn btn-danger-ghost" onclick="deleteOrder('${o.id}')">Excluir</button>`:''}
         <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -1082,8 +1096,18 @@ function renderOrderItems(){
   const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
   const discountEl = document.getElementById('o-discount');
   const discount = discountEl ? (parseFloat(discountEl.value)||0) : 0;
+  const clientEl = document.getElementById('o-client');
+  const client = clientEl ? state.clients.find(c=>c.id===clientEl.value) : null;
+  const freight = client && client.freightValue!=null ? client.freightValue : 0;
+  const total = Math.max(0, subtotal - discount) + freight;
   const totalLine = document.getElementById('orderTotalLine');
-  if(totalLine) totalLine.textContent = `Total: ${fmtMoney(Math.max(0,subtotal-discount))}`;
+  if(totalLine){
+    totalLine.innerHTML = `
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Produtos</span><span>${fmtMoney(Math.max(0,subtotal-discount))}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>🚚 Frete${client&&client.freightValue==null?' (não calculado)':''}</span><span>${fmtMoney(freight)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);"><span>Total</span><span>${fmtMoney(total)}</span></div>
+    `;
+  }
 }
 async function saveOrder(id){
   const clientId = document.getElementById('o-client').value;
@@ -1093,7 +1117,9 @@ async function saveOrder(id){
   const paymentMethod = document.getElementById('o-payment').value;
   const desiredStatus = document.getElementById('o-status').value;
   const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
-  const total = Math.max(0, subtotal-discount);
+  const client = state.clients.find(c=>c.id===clientId);
+  const freightAmount = client && client.freightValue!=null ? client.freightValue : 0;
+  const total = Math.max(0, subtotal-discount) + freightAmount;
   const needsFulfillStep = desiredStatus === 'entregue'; // a baixa de estoque e a receita só disparam numa transição real de status (trigger do banco)
   let orderId;
   const _btn = lockButton(); // evita clique duplo criando pedido/receita repetidos
@@ -1103,7 +1129,7 @@ async function saveOrder(id){
     const alreadyDelivered = existing.stockApplied;
     const statusToSet = (needsFulfillStep && !alreadyDelivered) ? existing.status : desiredStatus;
     const { error: upErr } = await sb.from('orders').update({
-      client_id: clientId, discount, payment_method: paymentMethod, total, status: statusToSet
+      client_id: clientId, discount, payment_method: paymentMethod, total, freight_amount: freightAmount, status: statusToSet
     }).eq('id', id);
     if(upErr){ dbErr(upErr, 'Erro ao salvar pedido'); unlockButton(_btn); return; }
     await sb.from('order_items').delete().eq('order_id', id);
@@ -1116,7 +1142,7 @@ async function saveOrder(id){
     }
   } else {
     const { data: created, error: insErr } = await sb.from('orders').insert({
-      client_id: clientId, discount, payment_method: paymentMethod, total, status: needsFulfillStep ? 'confirmado' : desiredStatus
+      client_id: clientId, discount, payment_method: paymentMethod, total, freight_amount: freightAmount, status: needsFulfillStep ? 'confirmado' : desiredStatus
     }).select().single();
     if(insErr){ dbErr(insErr, 'Erro ao criar pedido'); unlockButton(_btn); return; }
     orderId = created.id;
@@ -1286,13 +1312,27 @@ function openLeadModal(id){
       <div class="field"><label>Telefone</label><input id="l-phone" value="${l?esc(l.phone||''):''}"></div>
       <div class="field"><label>WhatsApp</label><input id="l-whatsapp" value="${l?esc(l.whatsapp||''):''}"></div>
     </div>
-    <div class="field-row">
+    <div class="subhead" style="font-size:12px;">Endereço (aproveitado automaticamente se o lead virar cliente)</div>
+    <div class="field-row3">
+      <div class="field"><label>CEP</label><input id="l-cep" value="${l?esc(l.cep||''):''}"></div>
       <div class="field"><label>Cidade</label><input id="l-city" value="${l?esc(l.city||''):''}"></div>
-      <div class="field"><label>Valor estimado (R$)</label><input id="l-value" type="number" step="0.01" value="${l?l.value:''}"></div>
+      <div class="field"><label>Estado</label><input id="l-state" value="${l?esc(l.state||''):''}" maxlength="2"></div>
     </div>
     <div class="field-row">
+      <div class="field"><label>Endereço</label><input id="l-address" value="${l?esc(l.address||''):''}"></div>
+      <div class="field"><label>Número</label><input id="l-number" value="${l?esc(l.number||''):''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Complemento</label><input id="l-complement" value="${l?esc(l.complement||''):''}"></div>
+      <div class="field"><label>Bairro</label><input id="l-neighborhood" value="${l?esc(l.neighborhood||''):''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Valor estimado (R$)</label><input id="l-value" type="number" step="0.01" value="${l?l.value:''}"></div>
       <div class="field"><label>Etapa</label><select id="l-stage">${LEAD_STAGES.map(s=>`<option value="${s.v}" ${l&&l.stage===s.v?'selected':(!l&&s.v==='lead'?'selected':'')}>${s.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
       <div class="field"><label>Responsável</label><input id="l-owner" value="${l?esc(l.owner||''):''}"></div>
+      <div></div>
     </div>
     <div class="field"><label>Observações</label><textarea id="l-notes" rows="2">${l?esc(l.notes||''):''}</textarea></div>
     <div class="modal-foot">
@@ -1319,6 +1359,9 @@ async function saveLead(id){
     phone: document.getElementById('l-phone').value.trim(), whatsapp: document.getElementById('l-whatsapp').value.trim(),
     city: document.getElementById('l-city').value.trim(), value: parseFloat(document.getElementById('l-value').value)||0,
     owner_name: document.getElementById('l-owner').value.trim(), notes: document.getElementById('l-notes').value.trim(),
+    cep: document.getElementById('l-cep').value.trim(), address: document.getElementById('l-address').value.trim(),
+    number: document.getElementById('l-number').value.trim(), complement: document.getElementById('l-complement').value.trim(),
+    neighborhood: document.getElementById('l-neighborhood').value.trim(), state: document.getElementById('l-state').value.trim(),
   };
   const newStage = document.getElementById('l-stage').value;
   let convertedLeadId = null;
@@ -1376,6 +1419,12 @@ async function maybeOpenFirstOrderWizard(leadId){
   const hasOrders = state.orders.some(o=>o.clientId===clientId);
   if(hasOrders) return; // regra: nunca duplicar — só abre se for realmente o primeiro pedido do cliente
   wizardShownFor.add(clientId);
+  const client = state.clients.find(c=>c.id===clientId);
+  if(client && client.freightValue==null && (client.address||client.city)){
+    toast('Calculando frete do novo cliente...');
+    await ensureClientDistance(clientId, false);
+    await loadAll();
+  }
   openFirstOrderWizard(clientId);
 }
 function openFirstOrderWizard(clientId){
@@ -1455,8 +1504,17 @@ function renderWizardOrderItems(){
   const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
   const discountEl = document.getElementById('wz-discount');
   const discount = discountEl ? (parseFloat(discountEl.value)||0) : 0;
+  const client = state.clients.find(c=>c.id===wizardClientId);
+  const freight = client && client.freightValue!=null ? client.freightValue : 0;
+  const total = Math.max(0,subtotal-discount) + freight;
   const totalLine = document.getElementById('wizardTotalLine');
-  if(totalLine) totalLine.textContent = `Total: ${fmtMoney(Math.max(0,subtotal-discount))}`;
+  if(totalLine){
+    totalLine.innerHTML = `
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Produtos</span><span>${fmtMoney(Math.max(0,subtotal-discount))}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>🚚 Frete${client&&client.freightValue==null?' (não calculado)':''}</span><span>${fmtMoney(freight)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);"><span>Total</span><span>${fmtMoney(total)}</span></div>
+    `;
+  }
 }
 function addWizardDeliveryItem(){
   const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
@@ -1489,12 +1547,14 @@ async function finishWizard(){
   const dstatus = document.getElementById('wz-dstatus').value;
   const notes = document.getElementById('wz-notes').value.trim();
   const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
-  const total = Math.max(0, subtotal - wizardOrderMeta.discount);
+  const client = state.clients.find(c=>c.id===wizardClientId);
+  const freightAmount = client && client.freightValue!=null ? client.freightValue : 0;
+  const total = Math.max(0, subtotal - wizardOrderMeta.discount) + freightAmount;
   const _btn = lockButton();
 
   const { data: order, error: orderErr } = await sb.from('orders').insert({
     client_id: wizardClientId, discount: wizardOrderMeta.discount, payment_method: wizardOrderMeta.paymentMethod,
-    total, status: 'confirmado'
+    total, freight_amount: freightAmount, status: 'confirmado'
   }).select().single();
   if(orderErr){ dbErr(orderErr, 'Erro ao criar o primeiro pedido'); unlockButton(_btn); return; }
   const { error: itemsErr } = await sb.from('order_items').insert(orderDraftItems.map(it=>({ order_id: order.id, stock_item_id: it.productId, qty: it.qty, unit_price: it.unitPrice })));
@@ -1695,7 +1755,11 @@ function openClientDetailModal(id){
       <div class="field"><label>E-mail</label><input id="c-email" value="${c?esc(c.email||''):''}"></div>
       <div class="field"><label>Cidade</label><input id="c-city" value="${c?esc(c.city||''):''}"></div>
     </div>
-    <div class="field"><label>Endereço</label><input id="c-address" value="${c?esc(c.address||''):''}"></div>
+    <div class="field-row">
+      <div class="field"><label>Endereço</label><input id="c-address" value="${c?esc(c.address||''):''}"></div>
+      <div class="field"><label>Número</label><input id="c-number" value="${c?esc(c.number||''):''}"></div>
+    </div>
+    <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
     <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
     <div class="field"><label>Observações</label><textarea id="c-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
 
@@ -1722,6 +1786,9 @@ function openClientDetailModal(id){
     </div>
 
     ${c ? `
+    <div class="subhead">🚚 Frete</div>
+    <div id="clientFreightWrap"></div>
+
     <div class="subhead">Agenda de entregas</div>
     <div id="clientDeliveriesWrap"></div>
     <div id="deliveryFormWrap"></div>
@@ -1731,7 +1798,7 @@ function openClientDetailModal(id){
     <div id="clientOrdersWrap"></div>
     ` : ''}
   `, 'xwide');
-  if(c){ renderClientDeliveries(c.id); renderClientOrders(c.id); }
+  if(c){ renderClientDeliveries(c.id); renderClientOrders(c.id); renderClientFreight(c.id); }
 }
 function setHasFreezer(v){
   document.getElementById('c-hasfreezer').value = v?'true':'false';
@@ -1754,6 +1821,69 @@ async function geocodeAddress(query){
   }catch(e){ console.warn('Geocodificação falhou:', e); return null; }
 }
 
+// ---- Frete por distância ----
+// Reaproveita o mesmo par geocoding (Nominatim) + roteamento (OSRM) já usado na Rota Otimizada,
+// em vez de integrar um serviço novo — mesma infraestrutura, sem duplicar nada.
+async function routeDistanceKm(origin, dest){
+  try{
+    const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?overview=false`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if(json.code !== 'Ok') return null;
+    return json.routes[0].distance / 1000;
+  }catch(e){ console.warn('Cálculo de distância falhou:', e); return null; }
+}
+function pickFreightTier(distanceKm){
+  if(distanceKm==null || !state.freightTiers.length) return null;
+  for(let i=0;i<state.freightTiers.length;i++){
+    const t = state.freightTiers[i];
+    const isLast = i === state.freightTiers.length-1;
+    if(distanceKm >= t.minKm && (isLast ? distanceKm <= t.maxKm : distanceKm < t.maxKm)) return t;
+  }
+  return null;
+}
+// Calcula (ou recalcula) a distância e o frete de um cliente específico. Geocodifica o endereço se
+// ainda não tiver coordenada, mede a distância real de rota até a fábrica, e grava tudo no cliente.
+async function ensureClientDistance(clientId, force){
+  const client = state.clients.find(c=>c.id===clientId);
+  if(!client) return null;
+  const origin = companyOrigin();
+  if(!origin){ toast('Cadastre o endereço da fábrica em Configurações antes de calcular frete', true); return null; }
+
+  let lat = client.lat, lng = client.lng;
+  if(lat==null || lng==null || force){
+    const addressQuery = [client.address, client.number, client.city, client.state].filter(Boolean).join(', ');
+    if(!addressQuery){ toast('Esse cliente não tem endereço suficiente para calcular a distância', true); return null; }
+    const coords = await geocodeAddress(addressQuery + ', Brasil');
+    if(!coords){ toast('Não foi possível localizar o endereço desse cliente no mapa', true); return null; }
+    lat = coords.lat; lng = coords.lng;
+    await sb.from('clients').update({ lat, lng, geocoded_address: addressQuery }).eq('id', clientId);
+  }
+
+  const distanceKm = await routeDistanceKm(origin, {lat, lng});
+  if(distanceKm==null){ toast('Não foi possível calcular a distância até esse cliente', true); return null; }
+  const tier = pickFreightTier(distanceKm);
+  const freightValue = tier ? tier.price : null;
+  const { error } = await sb.from('clients').update({
+    distance_km: distanceKm, freight_tier_id: tier?tier.id:null, freight_value: freightValue,
+    freight_calculated_at: new Date().toISOString()
+  }).eq('id', clientId);
+  if(error){ dbErr(error, 'Erro ao salvar frete do cliente'); return null; }
+  return { distanceKm, freightValue };
+}
+// Chamada sempre que a Política de Frete muda: reaplica as faixas a todos os clientes que já têm
+// distância calculada, sem precisar geocodificar de novo (a distância até a fábrica não muda).
+async function recalculateAllClientFreights(){
+  const withDistance = state.clients.filter(c=>c.distanceKm!=null);
+  for(const c of withDistance){
+    const tier = pickFreightTier(c.distanceKm);
+    await sb.from('clients').update({
+      freight_tier_id: tier?tier.id:null, freight_value: tier?tier.price:null, freight_calculated_at: new Date().toISOString()
+    }).eq('id', c.id);
+  }
+  return withDistance.length;
+}
+
 async function saveClientDetail(id){
   const name = document.getElementById('c-name').value.trim();
   if(!name){ toast('Informe o nome do cliente', true); return; }
@@ -1761,7 +1891,8 @@ async function saveClientDetail(id){
     name, company: document.getElementById('c-company').value.trim(),
     phone: document.getElementById('c-phone').value.trim(), whatsapp: document.getElementById('c-whatsapp').value.trim(),
     email: document.getElementById('c-email').value.trim(), city: document.getElementById('c-city').value.trim(),
-    address: document.getElementById('c-address').value.trim(),
+    address: document.getElementById('c-address').value.trim(), number: document.getElementById('c-number').value.trim(),
+    complement: document.getElementById('c-complement').value.trim(),
     status: document.getElementById('c-status').value, notes: document.getElementById('c-notes').value.trim(),
     has_freezer: document.getElementById('c-hasfreezer').value === 'true',
     freezer_model: document.getElementById('c-freezermodel')?.value.trim() || null,
@@ -1769,18 +1900,25 @@ async function saveClientDetail(id){
     freezer_install_date: document.getElementById('c-freezerdate')?.value || null,
     freezer_notes: document.getElementById('c-freezernotes')?.value.trim() || null,
   };
-  const addressQuery = [data.address, data.city].filter(Boolean).join(', ');
+  const addressQuery = [data.address, data.number, data.city].filter(Boolean).join(', ');
   const existing = id ? state.clients.find(c=>c.id===id) : null;
-  if(addressQuery && addressQuery !== existing?.geocodedAddress){
+  const addressChanged = addressQuery && addressQuery !== existing?.geocodedAddress;
+  if(addressChanged){
     const coords = await geocodeAddress(addressQuery + ', Brasil');
     if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = addressQuery; }
-    else { toast('Endereço salvo, mas não localizei ele no mapa — esse cliente ficará de fora da rota otimizada até o endereço ser encontrado.', true); }
+    else { toast('Endereço salvo, mas não localizei ele no mapa — esse cliente ficará de fora da rota otimizada e do cálculo de frete até o endereço ser encontrado.', true); }
   }
-  const { error } = id
-    ? await sb.from('clients').update(data).eq('id', id)
-    : await sb.from('clients').insert(data);
-  if(error){ dbErr(error, 'Erro ao salvar cliente'); return; }
+  let savedId = id;
+  if(id){
+    const { error } = await sb.from('clients').update(data).eq('id', id);
+    if(error){ dbErr(error, 'Erro ao salvar cliente'); return; }
+  } else {
+    const { data: created, error } = await sb.from('clients').insert(data).select().single();
+    if(error){ dbErr(error, 'Erro ao salvar cliente'); return; }
+    savedId = created.id;
+  }
   closeModal(); toast('Cliente salvo'); await loadAll(); renderAll();
+  if(addressChanged && savedId){ await ensureClientDistance(savedId, true); await loadAll(); renderAll(); }
 }
 async function deleteClient(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir clientes', true); return; }
@@ -1795,6 +1933,30 @@ function renderClientOrders(clientId){
   const orders = state.orders.filter(o=>o.clientId===clientId);
   wrap.innerHTML = orders.length===0 ? '<div class="hint">Nenhum pedido vinculado ainda.</div>' :
     orders.map(o=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><span>${fmtDate(o.createdAt)} — ${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ')}</span><span class="badge ${orderStatusInfo(o.status).cls}">${orderStatusInfo(o.status).label}</span></div>`).join('');
+}
+function renderClientFreight(clientId){
+  const wrap = document.getElementById('clientFreightWrap');
+  if(!wrap) return;
+  const c = state.clients.find(x=>x.id===clientId);
+  if(!c) return;
+  const tier = c.freightTierId ? state.freightTiers.find(t=>t.id===c.freightTierId) : null;
+  wrap.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:10px;">
+      <div class="stat-card"><div class="stat-label">📍 Distância</div><div class="stat-value" style="font-size:16px;">${c.distanceKm!=null?c.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">Faixa</div><div class="stat-value" style="font-size:14px;">${tier?tier.minKm+'–'+tier.maxKm+' km':'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">🚚 Valor do frete</div><div class="stat-value" style="font-size:16px;">${c.freightValue!=null?fmtMoney(c.freightValue):'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">Último cálculo</div><div class="stat-value" style="font-size:13px;">${c.freightCalculatedAt?fmtDateTime(c.freightCalculatedAt):'—'}</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="btnRecalcFreight" onclick="recalcClientFreightUI('${clientId}')">Recalcular Frete</button>
+  `;
+}
+async function recalcClientFreightUI(clientId){
+  const btn = document.getElementById('btnRecalcFreight');
+  if(btn){ btn.disabled = true; btn.textContent = 'Calculando...'; }
+  const result = await ensureClientDistance(clientId, true);
+  await loadAll();
+  renderClientFreight(clientId);
+  if(result) toast('Frete recalculado: ' + fmtMoney(result.freightValue||0) + ' (' + result.distanceKm.toFixed(1) + ' km)');
 }
 
 // ---- Deliveries (Agenda de entregas — visão semanal) ----
@@ -2082,7 +2244,7 @@ function renderRouteResult(dateIso, ordered, trip, missing, origin, warnings){
     ${missing>0 ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${missing} entrega(s) desse dia ficaram de fora por não terem endereço localizado no mapa.</div>` : ''}
     ${!origin ? `<div class="hint" style="margin-bottom:10px;">Cadastre o endereço da fábrica em Configurações para a rota já começar e terminar por lá.</div>` : ''}
     <ol style="padding-left:20px;margin:0 0 14px 0;">
-      ${ordered.map((s,i)=>`<li style="margin-bottom:8px;font-size:13px;"><strong>${esc(s.client.name)}</strong>${s.delivery.time?' · '+s.delivery.time:' · sem horário definido'}${clientBadge(s.client)}<div style="color:var(--muted);font-size:12px;">${esc(s.client.address||'')}${s.client.city?', '+esc(s.client.city):''}</div></li>`).join('')}
+      ${ordered.map((s,i)=>`<li style="margin-bottom:8px;font-size:13px;"><strong>${esc(s.client.name)}</strong>${s.delivery.time?' · '+s.delivery.time:' · sem horário definido'}${clientBadge(s.client)}<div style="color:var(--muted);font-size:12px;">${esc(s.client.address||'')}${s.client.city?', '+esc(s.client.city):''}</div><div style="color:var(--muted);font-size:12px;margin-top:2px;">${s.client.distanceKm!=null?'📍 '+s.client.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'📍 distância não calculada'} · 🚚 Frete: ${s.client.freightValue!=null?(s.client.freightValue===0?'Isento':fmtMoney(s.client.freightValue)):'não calculado'}</div></li>`).join('')}
     </ol>
     <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
     <div class="hint" style="margin-top:12px;">Rota calculada com dados © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a>.</div>
@@ -2558,6 +2720,7 @@ function renderConfig(){
   document.getElementById('cfg-phone').value = state.company.phone || '';
   document.getElementById('cfg-email').value = state.company.email || '';
   document.getElementById('cfg-address').value = state.company.address || '';
+  renderFreightTiers();
 }
 async function saveCompany(){
   const data = {
@@ -2575,7 +2738,63 @@ async function saveCompany(){
   }
   const { error } = await sb.from('company_settings').upsert(data);
   if(error){ dbErr(error, 'Erro ao salvar dados da empresa'); return; }
-  toast('Dados da empresa salvos'); await loadAll();
+  toast('Dados da empresa salvos — se o endereço mudou, recalcule o frete de cada cliente em Clientes Ativos'); await loadAll();
+}
+
+// ---- Política de Frete (CRUD de faixas por distância) ----
+function renderFreightTiers(){
+  const wrap = document.getElementById('freightTiersWrap');
+  if(!wrap) return;
+  if(!canWrite('config') && myProfile?.role!=='admin'){ wrap.innerHTML = '<div class="hint">Somente administradores podem gerenciar a política de frete.</div>'; return; }
+  if(state.freightTiers.length===0){ wrap.innerHTML = emptyState('Nenhuma faixa de frete cadastrada ainda.', 'Nova faixa', 'showFreightTierForm()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>De (km)</th><th>Até (km)</th><th>Valor</th><th></th></tr></thead><tbody>
+    ${state.freightTiers.map(t=>`<tr>
+      <td>${t.minKm}</td><td>${t.maxKm}</td><td>${fmtMoney(t.price)}</td>
+      <td class="row-actions"><button class="icon-btn" onclick="showFreightTierForm('${t.id}')">${iconEdit}</button><button class="icon-btn" onclick="deleteFreightTier('${t.id}')">${iconTrash}</button></td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+function showFreightTierForm(id){
+  const t = id ? state.freightTiers.find(x=>x.id===id) : null;
+  document.getElementById('freightTierFormWrap').innerHTML = `
+    <div class="field-row3" style="margin-top:10px;align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>De (km)</label><input id="ft-min" type="number" step="0.1" value="${t?t.minKm:''}"></div>
+      <div class="field" style="margin-bottom:0;"><label>Até (km)</label><input id="ft-max" type="number" step="0.1" value="${t?t.maxKm:''}"></div>
+      <div class="field" style="margin-bottom:0;"><label>Valor (R$)</label><input id="ft-price" type="number" step="0.01" value="${t?t.price:''}"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin:10px 0;">
+      <button class="btn btn-primary btn-sm" onclick="saveFreightTier(${t?`'${t.id}'`:'null'})">Salvar faixa</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('freightTierFormWrap').innerHTML=''">Cancelar</button>
+    </div>
+  `;
+}
+async function saveFreightTier(id){
+  const minKm = parseFloat(document.getElementById('ft-min').value);
+  const maxKm = parseFloat(document.getElementById('ft-max').value);
+  const price = parseFloat(document.getElementById('ft-price').value);
+  if(isNaN(minKm) || isNaN(maxKm) || isNaN(price)){ toast('Preencha os 3 campos da faixa', true); return; }
+  if(maxKm <= minKm){ toast('O "até" precisa ser maior que o "de"', true); return; }
+  const data = { min_km: minKm, max_km: maxKm, price };
+  const { error } = id
+    ? await sb.from('freight_tiers').update(data).eq('id', id)
+    : await sb.from('freight_tiers').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar faixa de frete'); return; }
+  document.getElementById('freightTierFormWrap').innerHTML = '';
+  await loadAll();
+  const n = await recalculateAllClientFreights();
+  await loadAll();
+  renderFreightTiers();
+  toast(`Faixa salva — frete recalculado para ${n} cliente(s)`);
+}
+async function deleteFreightTier(id){
+  if(!confirm('Excluir esta faixa de frete? Clientes que usavam ela ficarão sem frete calculado até você recalcular ou criar uma faixa que os cubra.')) return;
+  const { error } = await sb.from('freight_tiers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir faixa'); return; }
+  await loadAll();
+  const n = await recalculateAllClientFreights();
+  await loadAll();
+  renderFreightTiers();
+  toast(`Faixa excluída — frete recalculado para ${n} cliente(s)`);
 }
 
 // ================= RENDER ALL =================
