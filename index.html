@@ -228,6 +228,7 @@ tr:last-child td{border-bottom:none;}
       <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
       <div class="nav-item" data-view="financeiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
       <div class="nav-item" data-view="crm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
+      <div class="nav-item" data-view="visitas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas Comerciais</span></div>
       <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
       <div class="nav-item" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
     </nav>
@@ -399,6 +400,35 @@ tr:last-child td{border-bottom:none;}
         </div>
       </section>
 
+      <!-- VISITAS COMERCIAIS -->
+      <section class="view" id="view-visitas">
+        <div class="tabs">
+          <div class="tab active" data-visitastab="regioes" onclick="setVisitasTab('regioes')">Regiões</div>
+          <div class="tab" data-visitastab="prospects" onclick="setVisitasTab('prospects')">Prospects de Campo</div>
+        </div>
+
+        <div id="visitasRegioesView">
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">Cidades</div><button class="btn btn-primary btn-sm" onclick="openCityModal()">+ Nova cidade</button></div>
+              <div id="citiesTableWrap" class="table-scroll"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" id="neighborhoodsPanelTitle">Bairros</div><button class="btn btn-primary btn-sm" id="btnNewNeighborhood" onclick="openNeighborhoodModal()" disabled>+ Novo bairro</button></div>
+              <div id="neighborhoodsTableWrap" class="table-scroll"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="visitasProspectsView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Prospects de Campo</div><button class="btn btn-primary btn-sm" onclick="openProspectModal()">+ Novo prospect</button></div>
+            <div class="hint" style="margin-bottom:10px;">Possíveis clientes encontrados em campo, ainda sem virar Lead. Reaproveita as cidades/bairros cadastrados em Regiões.</div>
+            <div id="prospectsTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- RELATORIOS -->
       <section class="view" id="view-relatorios">
         <div class="panel">
@@ -470,7 +500,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], company: {} };
+let currentVisitasTab = 'regioes';
+let selectedVisitCityId = null;
 let currentStockTab = 'materia_prima';
 let currentCrmTab = 'funil';
 let orderDraftItems = [];
@@ -590,7 +622,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -607,15 +639,26 @@ async function loadAll(){
     sb.from('delivery_items').select('*'),
     sb.from('company_settings').select('*').limit(1),
     sb.from('freight_tiers').select('*').is('deleted_at', null).order('min_km'),
+    sb.from('visit_cities').select('*').is('deleted_at', null).order('name'),
+    sb.from('visit_neighborhoods').select('*').is('deleted_at', null).order('name'),
+    sb.from('field_prospects').select('*').is('deleted_at', null).order('name'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
-    ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes]]){
+    ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
+    ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
   state.freightTiers = (freightRes.data||[]).map(f => ({ id:f.id, minKm:Number(f.min_km), maxKm:Number(f.max_km), price:Number(f.price) }));
+  state.visitCities = (cityRes.data||[]).map(c => ({ id:c.id, name:c.name, state:c.state }));
+  state.visitNeighborhoods = (neighRes.data||[]).map(n => ({ id:n.id, cityId:n.city_id, name:n.name }));
+  state.fieldProspects = (prospRes.data||[]).map(p => ({
+    id:p.id, name:p.name, company:p.company, cityId:p.city_id, neighborhoodId:p.neighborhood_id,
+    address:p.address, phone:p.phone, notes:p.notes, lat:p.lat, lng:p.lng,
+    convertedLeadId:p.converted_lead_id, createdAt:(p.created_at||'').slice(0,10)
+  }));
 
   const stockById = {};
   (stockRes.data||[]).forEach(s => stockById[s.id] = s.name);
@@ -725,6 +768,7 @@ const titles = {
   dashboard:['Painel','Visão geral da fábrica'], estoque:['Estoque','Matéria-prima e produtos acabados'],
   producao:['Produção','Registros diários de produção'], pedidos:['Pedidos','Vendas e acompanhamento de entrega'],
   financeiro:['Financeiro','Despesas, contas e fluxo de caixa'], crm:['CRM','Funil de vendas e clientes'],
+  visitas:['Visitas Comerciais','Prospecção e rotas de visita em campo'],
   relatorios:['Relatórios','Filtros e exportação de dados'], config:['Configurações','Dados da empresa'],
 };
 function switchView(view){
@@ -2658,6 +2702,222 @@ function renderProducaoVendas(){
 }
 
 // =========================================================
+// VISITAS COMERCIAIS (Fase 1 — fundação)
+// =========================================================
+function setVisitasTab(tab){
+  currentVisitasTab = tab;
+  document.querySelectorAll('[data-visitastab]').forEach(t=>t.classList.toggle('active', t.dataset.visitastab===tab));
+  document.getElementById('visitasRegioesView').style.display = tab==='regioes' ? 'block' : 'none';
+  document.getElementById('visitasProspectsView').style.display = tab==='prospects' ? 'block' : 'none';
+  renderVisitas();
+}
+function renderVisitas(){
+  renderCitiesTable();
+  renderNeighborhoodsTable();
+  renderProspectsTable();
+}
+
+// ---- Cidades ----
+function openCityModal(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar regiões', true); return; }
+  const c = id ? state.visitCities.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${c?'Editar cidade':'Nova cidade'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Nome da cidade</label><input id="city-name" value="${c?esc(c.name):''}"></div>
+      <div class="field"><label>Estado</label><input id="city-state" value="${c?esc(c.state||''):''}" maxlength="2"></div>
+    </div>
+    <div class="modal-foot">
+      ${c?`<button class="btn btn-danger-ghost" onclick="deleteCity('${c.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCity(${c?`'${c.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+async function saveCity(id){
+  const name = document.getElementById('city-name').value.trim();
+  if(!name){ toast('Informe o nome da cidade', true); return; }
+  const data = { name, state: document.getElementById('city-state').value.trim() };
+  const { error } = id ? await sb.from('visit_cities').update(data).eq('id', id) : await sb.from('visit_cities').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar cidade'); return; }
+  closeModal(); toast('Cidade salva'); await loadAll(); renderVisitas();
+}
+async function deleteCity(id){
+  if(!confirm('Excluir esta cidade? Os bairros vinculados a ela também ficarão indisponíveis para novas visitas.')) return;
+  const { error } = await sb.from('visit_cities').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir cidade'); return; }
+  if(selectedVisitCityId===id) selectedVisitCityId = null;
+  closeModal(); toast('Cidade excluída'); await loadAll(); renderVisitas();
+}
+function selectCity(id){
+  selectedVisitCityId = id;
+  renderCitiesTable();
+  renderNeighborhoodsTable();
+}
+function renderCitiesTable(){
+  const wrap = document.getElementById('citiesTableWrap');
+  if(!wrap) return;
+  if(state.visitCities.length===0){ wrap.innerHTML = emptyState('Nenhuma cidade cadastrada ainda.','Nova cidade','openCityModal()'); document.getElementById('btnNewNeighborhood').disabled = true; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Cidade</th><th>Bairros</th><th></th></tr></thead><tbody>
+    ${state.visitCities.map(c=>{
+      const count = state.visitNeighborhoods.filter(n=>n.cityId===c.id).length;
+      const isSelected = c.id===selectedVisitCityId;
+      return `<tr style="cursor:pointer;${isSelected?'background:var(--surface-2);':''}" onclick="selectCity('${c.id}')">
+        <td><strong>${esc(c.name)}</strong>${c.state?' · '+esc(c.state):''}</td>
+        <td>${count}</td>
+        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openCityModal('${c.id}')">${iconEdit}</button></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+  document.getElementById('btnNewNeighborhood').disabled = !selectedVisitCityId;
+}
+
+// ---- Bairros ----
+function openNeighborhoodModal(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar regiões', true); return; }
+  if(!selectedVisitCityId){ toast('Selecione uma cidade primeiro', true); return; }
+  const n = id ? state.visitNeighborhoods.find(x=>x.id===id) : null;
+  const city = state.visitCities.find(c=>c.id===selectedVisitCityId);
+  openModal(`
+    <div class="modal-head"><h3>${n?'Editar bairro':'Novo bairro'} — ${esc(city?city.name:'')}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Nome do bairro</label><input id="neigh-name" value="${n?esc(n.name):''}"></div>
+    <div class="modal-foot">
+      ${n?`<button class="btn btn-danger-ghost" onclick="deleteNeighborhood('${n.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveNeighborhood(${n?`'${n.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+async function saveNeighborhood(id){
+  const name = document.getElementById('neigh-name').value.trim();
+  if(!name){ toast('Informe o nome do bairro', true); return; }
+  const data = { name, city_id: selectedVisitCityId };
+  const { error } = id ? await sb.from('visit_neighborhoods').update({name}).eq('id', id) : await sb.from('visit_neighborhoods').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar bairro'); return; }
+  closeModal(); toast('Bairro salvo'); await loadAll(); renderVisitas();
+}
+async function deleteNeighborhood(id){
+  if(!confirm('Excluir este bairro?')) return;
+  const { error } = await sb.from('visit_neighborhoods').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir bairro'); return; }
+  closeModal(); toast('Bairro excluído'); await loadAll(); renderVisitas();
+}
+function renderNeighborhoodsTable(){
+  const wrap = document.getElementById('neighborhoodsTableWrap');
+  if(!wrap) return;
+  const title = document.getElementById('neighborhoodsPanelTitle');
+  if(!selectedVisitCityId){
+    title.textContent = 'Bairros';
+    wrap.innerHTML = '<div class="hint">Selecione uma cidade ao lado para ver e gerenciar os bairros.</div>';
+    return;
+  }
+  const city = state.visitCities.find(c=>c.id===selectedVisitCityId);
+  title.textContent = 'Bairros — ' + (city?city.name:'');
+  const list = state.visitNeighborhoods.filter(n=>n.cityId===selectedVisitCityId);
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum bairro cadastrado para essa cidade ainda.','Novo bairro','openNeighborhoodModal()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Bairro</th><th>Prospects</th><th></th></tr></thead><tbody>
+    ${list.map(n=>{
+      const count = state.fieldProspects.filter(p=>p.neighborhoodId===n.id).length;
+      return `<tr><td>${esc(n.name)}</td><td>${count}</td><td class="row-actions"><button class="icon-btn" onclick="openNeighborhoodModal('${n.id}')">${iconEdit}</button></td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- Prospects de Campo ----
+function openProspectModal(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar prospects', true); return; }
+  const p = id ? state.fieldProspects.find(x=>x.id===id) : null;
+  const neighborhoodsForCity = (cityId) => state.visitNeighborhoods.filter(n=>n.cityId===cityId);
+  openModal(`
+    <div class="modal-head"><h3>${p?'Editar prospect':'Novo prospect de campo'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Nome</label><input id="pr-name" value="${p?esc(p.name):''}"></div>
+      <div class="field"><label>Empresa</label><input id="pr-company" value="${p?esc(p.company||''):''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Cidade</label><select id="pr-city" onchange="onProspectCityChange()">
+        <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}" ${p&&p.cityId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Bairro</label><select id="pr-neighborhood">
+        <option value="">—</option>${(p?neighborhoodsForCity(p.cityId):[]).map(n=>`<option value="${n.id}" ${p&&p.neighborhoodId===n.id?'selected':''}>${esc(n.name)}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="field"><label>Endereço</label><input id="pr-address" value="${p?esc(p.address||''):''}"></div>
+    <div class="field"><label>Telefone (opcional)</label><input id="pr-phone" value="${p?esc(p.phone||''):''}"></div>
+    <div class="field"><label>Observações</label><textarea id="pr-notes" rows="2">${p?esc(p.notes||''):''}</textarea></div>
+    <div class="modal-foot">
+      ${p?`<button class="btn btn-danger-ghost" onclick="deleteProspect('${p.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveProspect(${p?`'${p.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+function onProspectCityChange(){
+  const cityId = document.getElementById('pr-city').value;
+  const list = state.visitNeighborhoods.filter(n=>n.cityId===cityId);
+  document.getElementById('pr-neighborhood').innerHTML = '<option value="">—</option>' + list.map(n=>`<option value="${n.id}">${esc(n.name)}</option>`).join('');
+}
+async function saveProspect(id){
+  const name = document.getElementById('pr-name').value.trim();
+  if(!name){ toast('Informe o nome do prospect', true); return; }
+  const data = {
+    name, company: document.getElementById('pr-company').value.trim(),
+    city_id: document.getElementById('pr-city').value || null, neighborhood_id: document.getElementById('pr-neighborhood').value || null,
+    address: document.getElementById('pr-address').value.trim(), phone: document.getElementById('pr-phone').value.trim(),
+    notes: document.getElementById('pr-notes').value.trim(),
+  };
+  const { error } = id ? await sb.from('field_prospects').update(data).eq('id', id) : await sb.from('field_prospects').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar prospect'); return; }
+  closeModal(); toast('Prospect salvo'); await loadAll(); renderVisitas();
+}
+async function deleteProspect(id){
+  if(!confirm('Excluir este prospect de campo?')) return;
+  const { error } = await sb.from('field_prospects').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir prospect'); return; }
+  closeModal(); toast('Prospect excluído'); await loadAll(); renderVisitas();
+}
+async function convertProspectToLead(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para converter prospects', true); return; }
+  const p = state.fieldProspects.find(x=>x.id===id);
+  if(!p) return;
+  if(p.convertedLeadId){ toast('Esse prospect já foi convertido em lead', true); return; }
+  const city = state.visitCities.find(c=>c.id===p.cityId);
+  const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+  const { data: created, error } = await sb.from('leads').insert({
+    name: p.name, company: p.company, phone: p.phone, city: city?city.name:'',
+    address: p.address, neighborhood: neighborhood?neighborhood.name:'', state: city?city.state:'',
+    notes: p.notes, stage: 'lead'
+  }).select().single();
+  if(error){ dbErr(error, 'Erro ao converter prospect em lead'); return; }
+  await sb.from('lead_history').insert({ lead_id: created.id, type:'criacao', text:'Lead criado a partir de um Prospect de Campo' });
+  const { error: linkErr } = await sb.from('field_prospects').update({ converted_lead_id: created.id }).eq('id', id);
+  if(linkErr){ dbErr(linkErr, 'Erro ao vincular prospect ao lead'); return; }
+  toast('Prospect convertido em lead!'); await loadAll(); renderVisitas();
+}
+function renderProspectsTable(){
+  const wrap = document.getElementById('prospectsTableWrap');
+  if(!wrap) return;
+  if(state.fieldProspects.length===0){ wrap.innerHTML = emptyState('Nenhum prospect de campo cadastrado ainda.','Novo prospect','openProspectModal()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Cidade / Bairro</th><th>Endereço</th><th>Status</th><th></th></tr></thead><tbody>
+    ${state.fieldProspects.map(p=>{
+      const city = state.visitCities.find(c=>c.id===p.cityId);
+      const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+      return `<tr>
+        <td><strong>${esc(p.name)}</strong>${p.company?`<div style="color:var(--muted);font-size:11.5px">${esc(p.company)}</div>`:''}</td>
+        <td style="color:var(--muted);font-size:12px">${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(p.address||'—')}</td>
+        <td>${p.convertedLeadId?'<span class="badge badge-success">Virou lead</span>':'<span class="badge badge-muted">Prospect</span>'}</td>
+        <td class="row-actions">
+          ${!p.convertedLeadId?`<button class="icon-btn" onclick="convertProspectToLead('${p.id}')" title="Converter em lead">🤝</button>`:''}
+          <button class="icon-btn" onclick="openProspectModal('${p.id}')" title="Editar">${iconEdit}</button>
+          <button class="icon-btn" onclick="deleteProspect('${p.id}')" title="Excluir">${iconTrash}</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// =========================================================
 // RELATÓRIOS
 // =========================================================
 function inRange(dateStr, from, to){ if(!dateStr) return false; if(from && dateStr<from) return false; if(to && dateStr>to) return false; return true; }
@@ -2800,7 +3060,7 @@ async function deleteFreightTier(id){
 // ================= RENDER ALL =================
 function renderAll(){
   renderDashboard(); renderEstoque(); renderProducao(); renderPedidos();
-  renderFinanceiro(); renderCRM();
+  renderFinanceiro(); renderCRM(); renderVisitas();
   if(document.getElementById('reportFrom')) renderReport();
   renderConfig();
 }
