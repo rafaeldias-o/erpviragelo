@@ -2,7 +2,16 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ViraGelo — ERP</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1C7FA3">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ViraGelo">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -203,9 +212,8 @@ tr:last-child td{border-bottom:none;}
 
 <div id="loginOverlay">
   <div class="login-card">
-    <div class="login-brand">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17" stroke="#4FC3E0" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#0E2438" stroke="#4FC3E0" stroke-width="1.5"/></svg>
-      <span>ViraGelo ERP</span>
+    <div class="login-brand" style="flex-direction:column;background:var(--sidebar);margin:-32px -32px 22px -32px;padding:28px 32px;border-radius:14px 14px 0 0;">
+      <img src="logo-full.png" alt="ViraGelo" style="width:100%;max-width:220px;height:auto;">
     </div>
     <div class="login-error" id="loginError"></div>
     <div class="field"><label>E-mail</label><input id="login-email" type="email" placeholder="voce@empresa.com"></div>
@@ -218,7 +226,7 @@ tr:last-child td{border-bottom:none;}
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" fill="none"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17" stroke="#4FC3E0" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#0E2438" stroke="#4FC3E0" stroke-width="1.5"/></svg>
+      <img class="brand-mark" src="icons/icon-192.png" alt="ViraGelo" style="border-radius:6px;background:#fff;">
       <span>ViraGelo ERP</span>
     </div>
     <nav class="nav" id="navList">
@@ -3070,6 +3078,35 @@ function renderAll(){
   const { data: { session } } = await sb.auth.getSession();
   if(session){ await afterLogin(session); }
 })();
+
+// ================= PWA: instalação, offline básico e aviso de nova versão =================
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if(!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if(newWorker.state === 'installed' && navigator.serviceWorker.controller){
+            showUpdateBanner(reg);
+          }
+        });
+      });
+    }).catch(err => console.warn('Falha ao registrar service worker:', err));
+  });
+}
+function showUpdateBanner(reg){
+  if(document.getElementById('swUpdateBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'swUpdateBar';
+  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:var(--accent);color:#fff;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;z-index:300;';
+  bar.textContent = '🔄 Nova versão do ViraGelo ERP disponível — clique para atualizar';
+  bar.onclick = () => {
+    if(reg.waiting) reg.waiting.postMessage('skipWaiting');
+    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+  };
+  document.body.appendChild(bar);
+}
 </script>
 
 </body>
