@@ -435,7 +435,33 @@ tr:last-child td{border-bottom:none;}
 
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
-        <div class="stat-grid" id="finStats"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="section-title" id="finPeriodLabel">Dashboard Financeiro</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="finDashChangeMonth(-1)" id="finPrevMonthBtn">←</button>
+              <select id="finPeriodMode" onchange="finDashChangePeriodMode()" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
+                <option value="mes">Por mês</option>
+                <option value="hoje">Hoje</option>
+                <option value="ontem">Ontem</option>
+                <option value="7dias">Últimos 7 dias</option>
+                <option value="30dias">Últimos 30 dias</option>
+                <option value="mesatual">Este mês (fixo)</option>
+                <option value="mespassado">Mês passado</option>
+                <option value="ano">Ano atual</option>
+                <option value="personalizado">Personalizado</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" onclick="finDashChangeMonth(1)" id="finNextMonthBtn">→</button>
+              <span id="finCustomRangeWrap" style="display:none;gap:6px;align-items:center;">
+                <input type="date" id="finCustomFrom" style="font-size:12px;padding:5px 7px;border:1px solid var(--border);border-radius:6px;">
+                <span style="color:var(--muted);font-size:12px;">até</span>
+                <input type="date" id="finCustomTo" style="font-size:12px;padding:5px 7px;border:1px solid var(--border);border-radius:6px;">
+                <button class="btn btn-ghost btn-sm" onclick="renderFinDashboard()">Aplicar</button>
+              </span>
+            </div>
+          </div>
+          <div class="stat-grid" id="finDashCardsGrid"></div>
+        </div>
         <div class="tabs">
           <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
@@ -1722,7 +1748,89 @@ async function deleteTransaction(id){
   closeModal(); await loadAll(); renderAll();
 }
 
+// =========================================================
+// DASHBOARD FINANCEIRO (Fase 4) — 16 cards + navegação por período
+// =========================================================
+let finDashMode = 'mes';
+let finDashMonthOffset = 0; // 0 = mês atual, -1 = mês passado, +1 = próximo mês etc.
+function finDashPeriodRange(){
+  const today = todayStr();
+  if(finDashMode==='hoje') return {from:today, to:today};
+  if(finDashMode==='ontem'){ const d=addDays(today,-1); return {from:d,to:d}; }
+  if(finDashMode==='7dias') return {from:addDays(today,-6), to:today};
+  if(finDashMode==='30dias') return {from:addDays(today,-29), to:today};
+  if(finDashMode==='mesatual'){ const y=new Date().getFullYear(), m=new Date().getMonth(); return {from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10)}; }
+  if(finDashMode==='mespassado'){ const d=new Date(); d.setMonth(d.getMonth()-1); const y=d.getFullYear(), m=d.getMonth(); return {from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10)}; }
+  if(finDashMode==='ano'){ const y=new Date().getFullYear(); return {from:y+'-01-01', to:y+'-12-31'}; }
+  if(finDashMode==='personalizado'){ const f=document.getElementById('finCustomFrom')?.value, t=document.getElementById('finCustomTo')?.value; return {from:f||today, to:t||today}; }
+  // 'mes' — com navegação por mês (← →)
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+finDashMonthOffset);
+  const y=base.getFullYear(), m=base.getMonth();
+  return {from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})};
+}
+function finDashChangePeriodMode(){
+  finDashMode = document.getElementById('finPeriodMode').value;
+  finDashMonthOffset = 0;
+  document.getElementById('finCustomRangeWrap').style.display = finDashMode==='personalizado' ? 'inline-flex' : 'none';
+  document.getElementById('finPrevMonthBtn').style.display = finDashMode==='mes' ? 'inline-flex' : 'none';
+  document.getElementById('finNextMonthBtn').style.display = finDashMode==='mes' ? 'inline-flex' : 'none';
+  renderFinDashboard();
+}
+function finDashChangeMonth(delta){
+  finDashMonthOffset += delta;
+  renderFinDashboard();
+}
+function renderFinDashboard(){
+  const box = document.getElementById('finDashCardsGrid');
+  if(!box) return;
+  const range = finDashPeriodRange();
+  const today = todayStr();
+  const in7 = addDays(today, 7);
+  document.getElementById('finPeriodLabel').textContent = range.label ? ('Dashboard Financeiro — '+range.label.charAt(0).toUpperCase()+range.label.slice(1)) : 'Dashboard Financeiro';
+
+  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  const saldoPorTipo = tipo => state.financialAccounts.filter(a=>a.status==='ativa' && a.type===tipo).reduce((s,a)=>s+accountBalance(a.id),0);
+
+  const receitasPeriodo = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const despesasPeriodo = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const receitaTotal = receitasPeriodo.reduce((s,t)=>s+t.amount,0);
+  const despesaTotal = despesasPeriodo.reduce((s,t)=>s+t.amount,0);
+  const lucro = receitaTotal - despesaTotal;
+
+  const pedidosFaturados = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to);
+  const faturamentoBruto = pedidosFaturados.reduce((s,o)=>s+o.total,0);
+  const ticketMedio = pedidosFaturados.length ? faturamentoBruto/pedidosFaturados.length : 0;
+  const despesasQtd = despesasPeriodo.length;
+
+  const contasReceber = state.transactions.filter(t=>t.type==='receita' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const contasPagar = state.transactions.filter(t=>t.type==='despesa' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const contasVencidas = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate<today).length;
+  const contasHoje = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate===today).length;
+  const contas7dias = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate>today && t.dueDate<=in7).length;
+
+  const card = (label, value, onclick, color) => `<div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
+  box.innerHTML = [
+    card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
+    card('💵 Saldo em Caixa', fmtMoney(saldoPorTipo('caixa')), "setFinTab('contas')"),
+    card('🏦 Saldo em Conta Bancária', fmtMoney(saldoPorTipo('banco')), "setFinTab('contas')"),
+    card('💳 Saldo Maquininha', fmtMoney(saldoPorTipo('maquininha')), "setFinTab('contas')"),
+    card('📥 Contas a Receber', fmtMoney(contasReceber), "setFinTab('receber')"),
+    card('📤 Contas a Pagar', fmtMoney(contasPagar), "setFinTab('pagar')"),
+    card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
+    card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
+    card('Lucro líquido', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
+    card('Faturamento bruto', fmtMoney(faturamentoBruto), "switchView('pedidos')"),
+    card('Ticket médio', fmtMoney(ticketMedio)),
+    card('Pedidos faturados', pedidosFaturados.length, "switchView('pedidos')"),
+    card('Qtd. de despesas', despesasQtd, "setFinTab('pagar')"),
+    card('🔴 Contas vencidas', contasVencidas, "setFinTab('pagar')", contasVencidas?'var(--danger)':null),
+    card('🟡 Vencem hoje', contasHoje, "setFinTab('pagar')"),
+    card('Vencem em 7 dias', contas7dias, "setFinTab('pagar')"),
+  ].join('');
+}
+
 function renderFinanceiro(){
+  renderFinDashboard();
   const filter = document.getElementById('finFilter').value;
   const today = todayStr();
   let list = state.transactions;
@@ -1731,22 +1839,6 @@ function renderFinanceiro(){
   else if(filter==='pendente') list = list.filter(t=>t.status==='pendente');
   else if(filter==='vencido') list = list.filter(t=>t.status==='pendente' && t.dueDate < today);
 
-  const receitasPagas = state.transactions.filter(t=>t.type==='receita'&&t.status==='pago').reduce((s,t)=>s+t.amount,0);
-  const despesasPagas = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago').reduce((s,t)=>s+t.amount,0);
-  const pendentes = state.transactions.filter(t=>t.status==='pendente');
-  const vencidos = pendentes.filter(t=>t.dueDate < today);
-  const pendenteReceber = pendentes.filter(t=>t.type==='receita').reduce((s,t)=>s+t.amount,0);
-  const pendentePagar = pendentes.filter(t=>t.type==='despesa').reduce((s,t)=>s+t.amount,0);
-  const saldo = receitasPagas - despesasPagas;
-
-  document.getElementById('finStats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">Saldo em caixa</div><div class="stat-value" style="color:${saldo>=0?'var(--success)':'var(--danger)'}">${fmtMoney(saldo)}</div></div>
-    <div class="stat-card"><div class="stat-label">Receitas (pedidos)</div><div class="stat-value">${fmtMoney(receitasPagas)}</div></div>
-    <div class="stat-card"><div class="stat-label">Despesas pagas</div><div class="stat-value">${fmtMoney(despesasPagas)}</div></div>
-    <div class="stat-card"><div class="stat-label">A receber</div><div class="stat-value">${fmtMoney(pendenteReceber)}</div></div>
-    <div class="stat-card"><div class="stat-label">A pagar</div><div class="stat-value">${fmtMoney(pendentePagar)}</div></div>
-    <div class="stat-card"><div class="stat-label">Vencidos</div><div class="stat-value" style="color:${vencidos.length?'var(--danger)':'inherit'}">${vencidos.length}</div></div>
-  `;
   const wrap = document.getElementById('transactionsTableWrap');
   if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); return; }
   const statusInfo = (t, overdue) => {
