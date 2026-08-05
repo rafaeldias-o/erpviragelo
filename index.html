@@ -462,6 +462,32 @@ tr:last-child td{border-bottom:none;}
           </div>
           <div class="stat-grid" id="finDashCardsGrid"></div>
         </div>
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Fluxo de caixa diário (período selecionado)</div></div>
+            <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
+            <div id="cashFlowDailyChart" style="height:130px;"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Fluxo de caixa — últimos 12 meses</div></div>
+            <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
+            <div id="cashFlowMonthlyChart" style="height:130px;"></div>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Receitas por categoria</div></div>
+            <div id="pieReceitasChart"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Despesas por categoria</div></div>
+            <div id="pieDespesasChart"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Evolução do caixa — últimos 12 meses</div></div>
+          <div id="cashEvolutionChart"></div>
+        </div>
         <div class="tabs">
           <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
@@ -1557,7 +1583,7 @@ function openTransactionModal(id){
       <div class="field"><label>Categoria</label><select id="t-cat">${cats.length?cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Conta</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
+      <div class="field"><label>Pago com qual conta? (caixa, banco...)</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
       <div class="field"><label>Centro de custo</label><select id="t-costcenter"><option value="">—</option>${state.costCenters.map(c=>`<option value="${c.id}" ${t&&t.costCenterId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     </div>
     ${!isReceita?`<div class="field"><label>Fornecedor</label><select id="t-supplier"><option value="">—</option>${suppliers.map(s=>`<option value="${s.id}" ${t&&t.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
@@ -1569,17 +1595,18 @@ function openTransactionModal(id){
     <div class="field-row3">
       <div class="field"><label>Emissão</label><input id="t-issue" type="date" value="${t?t.issueDate||'':''}"></div>
       <div class="field"><label>Vencimento</label><input id="t-due" type="date" value="${t?t.dueDate:todayStr()}"></div>
-      <div class="field"><label>Pagamento</label><input id="t-payment" type="date" value="${t?t.paymentDate||'':''}"></div>
+      <div class="field"><label>Pagamento</label><input id="t-payment" type="date" value="${t?t.paymentDate||'':(todayStr())}"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Forma de pagamento</label><select id="t-paymethod"><option value="">—</option>${PAYMENT_METHODS_FIN.map(m=>`<option ${t&&t.paymentMethod===m?'selected':''}>${m}</option>`).join('')}</select></div>
-      <div class="field"><label>Status</label><select id="t-status">
-        <option value="pendente" ${(!t||t.status==='pendente')?'selected':''}>Aberto</option>
-        <option value="pago" ${t&&t.status==='pago'?'selected':''}>Pago</option>
+      <div class="field"><label>Status</label><select id="t-status" onchange="onTxStatusChange()">
+        <option value="pago" ${(t?t.status==='pago':true)?'selected':''}>Pago (já saiu/entrou da conta)</option>
+        <option value="pendente" ${t&&t.status==='pendente'?'selected':''}>Aberto (ainda não foi pago)</option>
         <option value="parcial" ${t&&t.status==='parcial'?'selected':''}>Parcialmente pago</option>
         <option value="cancelado" ${t&&t.status==='cancelado'?'selected':''}>Cancelado</option>
       </select></div>
     </div>
+    <div class="hint" id="t-account-hint" style="display:none;color:var(--warn);">Selecione de qual conta saiu/entrou o dinheiro pra registrar como pago.</div>
     <div class="field"><label>Anexo (link do comprovante, opcional)</label><input id="t-attachment" value="${t?esc(t.attachmentUrl||''):''}" placeholder="https://..."></div>
     <div class="field"><label>Observações</label><textarea id="t-notes" rows="2">${t?esc(t.notes||''):''}</textarea></div>
     ${!t?`
@@ -1600,6 +1627,13 @@ function openTransactionModal(id){
       <button class="btn btn-primary" onclick="saveTransaction(${t?`'${t.id}'`:'null'})">Salvar</button>
     </div>
   `);
+}
+function onTxStatusChange(){
+  const status = document.getElementById('t-status').value;
+  const hint = document.getElementById('t-account-hint');
+  const accountSelected = document.getElementById('t-account').value;
+  hint.style.display = (status==='pago'||status==='parcial') && !accountSelected ? 'block' : 'none';
+  if(status==='pago' && !document.getElementById('t-payment').value) document.getElementById('t-payment').value = todayStr();
 }
 function addMonthsFin(dateStr, months){
   const d = new Date(dateStr+'T00:00:00');
@@ -1630,20 +1664,34 @@ async function saveTransaction(id){
   if(!desc || !amount || amount<=0){ toast('Preencha descrição e valor', true); return; }
   const categoryId = document.getElementById('t-cat').value || null;
   const category = categoryId ? (state.financialCategories.find(c=>c.id===categoryId)?.name || null) : null;
+  const status = document.getElementById('t-status').value;
+  const accountId = document.getElementById('t-account').value || null;
+  // Se está marcado como pago (total ou parcial), precisa saber de qual conta saiu/entrou o dinheiro —
+  // sem isso o saldo da conta nunca reflete a despesa/receita, que era exatamente o problema relatado.
+  if((status==='pago' || status==='parcial') && !accountId){
+    document.getElementById('t-account-hint').style.display = 'block';
+    toast('Selecione de qual conta saiu/entrou o dinheiro antes de marcar como pago', true);
+    return;
+  }
+  const discount = isReceita?0:(parseFloat(document.getElementById('t-discount').value)||0);
+  const interest = isReceita?0:(parseFloat(document.getElementById('t-interest').value)||0);
+  const fine = isReceita?0:(parseFloat(document.getElementById('t-fine').value)||0);
+  const totalDue = amount - discount + interest + fine;
   const data = {
     description: desc, amount, category, category_id: categoryId,
-    account_id: document.getElementById('t-account').value || null,
+    account_id: accountId,
     cost_center_id: document.getElementById('t-costcenter').value || null,
-    discount: isReceita?0:(parseFloat(document.getElementById('t-discount').value)||0),
-    interest: isReceita?0:(parseFloat(document.getElementById('t-interest').value)||0),
-    fine: isReceita?0:(parseFloat(document.getElementById('t-fine').value)||0),
+    discount, interest, fine,
     issue_date: document.getElementById('t-issue').value || null,
     due_date: document.getElementById('t-due').value || todayStr(),
-    payment_date: document.getElementById('t-payment').value || null,
+    payment_date: document.getElementById('t-payment').value || (status==='pago'?todayStr():null),
     payment_method: document.getElementById('t-paymethod').value || null,
     attachment_url: document.getElementById('t-attachment').value.trim() || null,
     notes: document.getElementById('t-notes').value.trim() || null,
-    status: document.getElementById('t-status').value,
+    status,
+    // paid_amount sempre reflete o status: pago = tudo, parcial = mantém o que já tinha registrado (editado à parte
+    // pelo botão de pagamento parcial), aberto/cancelado = zero — assim o saldo da conta nunca fica desalinhado.
+    paid_amount: status==='pago' ? totalDue : (status==='parcial' ? (t?t.paidAmount:0) : 0),
   };
   if(!isReceita){
     const supplierSel = document.getElementById('t-supplier');
@@ -1682,11 +1730,14 @@ async function saveTransaction(id){
   if(totalInstallments>1){
     const groupId = crypto.randomUUID();
     const amounts = splitAmountEvenly(amount, totalInstallments);
-    const rows = amounts.map((amt,i)=>({
-      ...data, type:'despesa', amount: amt, due_date: addMonthsFin(data.due_date, i),
-      installment_group_id: groupId, installment_number: i+1, installment_total: totalInstallments,
-      status: i===0 ? data.status : 'pendente', // só a 1ª parcela pode nascer paga; as futuras começam em aberto
-    }));
+    const rows = amounts.map((amt,i)=>{
+      const rowStatus = i===0 ? data.status : 'pendente'; // só a 1ª parcela pode nascer paga; as futuras começam em aberto
+      return {
+        ...data, type:'despesa', amount: amt, due_date: addMonthsFin(data.due_date, i),
+        installment_group_id: groupId, installment_number: i+1, installment_total: totalInstallments,
+        status: rowStatus, paid_amount: rowStatus==='pago' ? amt : 0, // cada parcela tem seu próprio valor pago, não o do lote inteiro
+      };
+    });
     const { error } = await sb.from('transactions').insert(rows);
     if(error){ dbErr(error, 'Erro ao gerar parcelas'); unlockButton(_btn); return; }
     closeModal(); toast(`${totalInstallments} parcelas geradas`); await loadAll(); renderAll();
@@ -1827,7 +1878,121 @@ function renderFinDashboard(){
     card('🟡 Vencem hoje', contasHoje, "setFinTab('pagar')"),
     card('Vencem em 7 dias', contas7dias, "setFinTab('pagar')"),
   ].join('');
+
+  renderCashFlowDaily(range);
+  renderCashFlowMonthly();
+  renderCategoryPies(range);
+  renderCashEvolution();
 }
+
+// ---- Gráficos do Dashboard Financeiro (Fase 5) ----
+function buildPieChartSvg(data, formatValue){
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if(total<=0) return '<div class="hint" style="padding:20px 0;text-align:center;">Sem dados no período.</div>';
+  const cx=90, cy=90, r=80;
+  let angle = -Math.PI/2;
+  const colors = ['var(--accent)','var(--accent-2)','#D85A30','#7F77DD','#1D9E75','#D4537E','#BA7517','#888780'];
+  const slices = data.map((d,i)=>{
+    const fraction = d.value/total;
+    const startAngle = angle, endAngle = angle + fraction*Math.PI*2;
+    angle = endAngle;
+    const x1 = cx+r*Math.cos(startAngle), y1 = cy+r*Math.sin(startAngle);
+    const x2 = cx+r*Math.cos(endAngle), y2 = cy+r*Math.sin(endAngle);
+    const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0;
+    const path = fraction>=0.9999 ? `M ${cx-r},${cy} A ${r},${r} 0 1 1 ${cx+r},${cy} A ${r},${r} 0 1 1 ${cx-r},${cy} Z` : `M ${cx},${cy} L ${x1.toFixed(2)},${y1.toFixed(2)} A ${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    return { label:d.label, value:d.value, pct:(fraction*100).toFixed(1), color:colors[i%colors.length], path };
+  });
+  const svg = `<svg viewBox="0 0 180 180" style="width:150px;height:150px;flex-shrink:0;">
+    ${slices.map(s=>`<path d="${s.path}" style="fill:${s.color};"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
+  </svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
+    ${slices.map(s=>`<div style="display:flex;align-items:center;gap:6px;font-size:12px;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
+  </div>`;
+  return `<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">${svg}${legend}</div>`;
+}
+function renderCashFlowDaily(range){
+  const box = document.getElementById('cashFlowDailyChart');
+  if(!box) return;
+  let days = [];
+  let cursor = range.from;
+  let guard = 0;
+  while(cursor <= range.to && guard<62){ days.push(cursor); cursor = addDays(cursor,1); guard++; }
+  if(days.length>31) days = days.slice(-31); // limita a exibição pra não virar uma faixa ilegível de barras
+  const entradasByDay = {}, saidasByDay = {};
+  state.transactions.filter(t=>t.status==='pago' && t.paymentDate).forEach(t=>{
+    if(t.type==='receita') entradasByDay[t.paymentDate] = (entradasByDay[t.paymentDate]||0)+t.amount;
+    else saidasByDay[t.paymentDate] = (saidasByDay[t.paymentDate]||0)+t.amount;
+  });
+  const max = Math.max(1, ...days.map(d=>Math.max(entradasByDay[d]||0, saidasByDay[d]||0)));
+  box.innerHTML = days.map((d,i)=>{
+    const dayNum = parseInt(d.slice(8,10));
+    return `<div class="bar-group">
+      <div class="bar-pair">
+        <div class="bar rev" style="width:4px;height:${Math.round((entradasByDay[d]||0)/max*100)}%" title="${fmtDate(d)} — Entradas: ${fmtMoney(entradasByDay[d]||0)}"></div>
+        <div class="bar exp" style="width:4px;height:${Math.round((saidasByDay[d]||0)/max*100)}%" title="${fmtDate(d)} — Saídas: ${fmtMoney(saidasByDay[d]||0)}"></div>
+      </div>
+      ${i%5===0||i===days.length-1?`<div class="bar-label" style="font-size:8px;">${dayNum}</div>`:'<div class="bar-label"></div>'}
+    </div>`;
+  }).join('');
+}
+function last12Months(){
+  const months = [];
+  const base = new Date(); base.setDate(1);
+  for(let i=11;i>=0;i--){
+    const d = new Date(base); d.setMonth(d.getMonth()-i);
+    const y=d.getFullYear(), m=d.getMonth();
+    months.push({ y, m, from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label:d.toLocaleDateString('pt-BR',{month:'short'}) });
+  }
+  return months;
+}
+function renderCashFlowMonthly(){
+  const box = document.getElementById('cashFlowMonthlyChart');
+  if(!box) return;
+  const months = last12Months();
+  const data = months.map(mo=>{
+    const entradas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+t.amount,0);
+    const saidas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+t.amount,0);
+    return {...mo, entradas, saidas};
+  });
+  const max = Math.max(1, ...data.map(d=>Math.max(d.entradas,d.saidas)));
+  box.innerHTML = data.map(d=>`
+    <div class="bar-group">
+      <div class="bar-pair">
+        <div class="bar rev" style="width:9px;height:${Math.round(d.entradas/max*100)}%" title="${d.label} — Entradas: ${fmtMoney(d.entradas)}"></div>
+        <div class="bar exp" style="width:9px;height:${Math.round(d.saidas/max*100)}%" title="${d.label} — Saídas: ${fmtMoney(d.saidas)}"></div>
+      </div>
+      <div class="bar-label" style="font-size:9px;">${d.label}</div>
+    </div>
+  `).join('');
+}
+function renderCategoryPies(range){
+  const receitaBox = document.getElementById('pieReceitasChart');
+  const despesaBox = document.getElementById('pieDespesasChart');
+  if(!receitaBox || !despesaBox) return;
+  const byCategory = (type) => {
+    const list = state.transactions.filter(t=>t.type===type && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
+    const totals = {};
+    list.forEach(t=>{ const label = t.category || 'Sem categoria'; totals[label] = (totals[label]||0) + t.amount; });
+    return Object.entries(totals).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value);
+  };
+  receitaBox.innerHTML = buildPieChartSvg(byCategory('receita'), fmtMoney);
+  despesaBox.innerHTML = buildPieChartSvg(byCategory('despesa'), fmtMoney);
+}
+function renderCashEvolution(){
+  const box = document.getElementById('cashEvolutionChart');
+  if(!box) return;
+  const months = last12Months();
+  const totalInitial = state.financialAccounts.reduce((s,a)=>s+a.initialBalance,0);
+  // saldo acumulado até o fim de cada mês (soma tudo pago/parcial pago até aquela data) — transferência
+  // entre contas não entra aqui porque não muda o total geral, só redistribui entre contas.
+  const series = months.map(mo=>{
+    const net = state.transactions.filter(t=>(t.status==='pago'||t.status==='parcial') && t.paymentDate && t.paymentDate<=mo.to)
+      .reduce((s,t)=>{ const eff = t.status==='pago'?t.amount:t.paidAmount; return s + (t.type==='receita'?eff:-eff); }, 0);
+    return totalInitial + net;
+  });
+  box.innerHTML = buildLineChartSvg(series, months.map(m=>m.label));
+}
+
 
 function renderFinanceiro(){
   renderFinDashboard();
