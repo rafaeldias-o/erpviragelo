@@ -713,7 +713,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -739,6 +739,7 @@ async function loadAll(){
     sb.from('commitments').select('*').is('deleted_at', null).order('date'),
     sb.from('assets').select('*').is('deleted_at', null).order('name'),
     sb.from('asset_history').select('*').order('created_at', {ascending:false}),
+    sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -746,10 +747,15 @@ async function loadAll(){
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
-    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes]]){
+    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
+  const maintByAsset = {};
+  (maintRes.data||[]).forEach(m => (maintByAsset[m.asset_id] = maintByAsset[m.asset_id] || []).push({
+    id:m.id, assetId:m.asset_id, title:m.title, recurrenceType:m.recurrence_type, intervalDays:m.interval_days,
+    nextDate:m.next_date, priority:m.priority, active:m.active
+  }));
   const assetHistByAsset = {};
   (assetHistRes.data||[]).forEach(h => (assetHistByAsset[h.asset_id] = assetHistByAsset[h.asset_id] || []).push({
     id:h.id, type:h.type, text:h.text, createdAt:h.created_at
@@ -759,7 +765,7 @@ async function loadAll(){
     model:a.model, serialNumber:a.serial_number, purchaseDate:a.purchase_date,
     purchaseValue: a.purchase_value!=null?Number(a.purchase_value):null, location:a.location, situation:a.situation,
     warrantyMonths:a.warranty_months, warrantyEndDate:a.warranty_end_date, notes:a.notes,
-    history: assetHistByAsset[a.id]||[]
+    history: assetHistByAsset[a.id]||[], maintenancePlans: maintByAsset[a.id]||[]
   }));
 
   state.commitments = (commitRes.data||[]).map(c => ({
@@ -1509,6 +1515,21 @@ function computeSystemAlerts(){
   });
   (state.commitments||[]).filter(c=>c.status==='pendente' && c.date<today).forEach(c=>
     alerts.push({type:'compromisso_atrasado', icon:'📅', color:'var(--warn)', priority: c.priority==='alta'?'alta':'média', text:`Compromisso atrasado: ${c.title} (${fmtDate(c.date)})`, date: c.date}));
+
+  // Garantias — expiradas, ou faltando 90 dias ou menos (mostra os dias restantes de verdade, não só no dia exato do limiar)
+  (state.assets||[]).filter(a=>a.warrantyEndDate).forEach(a=>{
+    const daysLeft = -daysSince(a.warrantyEndDate); // daysSince é negativo pro futuro, então inverte pra virar "dias restantes"
+    if(daysLeft < 0) alerts.push({type:'garantia_expirada', icon:'📋', color:'var(--muted)', priority:'baixa', text:`Garantia expirada: ${a.name} (venceu em ${fmtDate(a.warrantyEndDate)})`, date: a.warrantyEndDate});
+    else if(daysLeft <= 90) alerts.push({type:'garantia_proxima', icon:'📋', color: daysLeft<=7?'var(--danger)':daysLeft<=30?'var(--warn)':'var(--info)', priority: daysLeft<=7?'alta':daysLeft<=30?'média':'baixa', text:`Garantia vence em ${daysLeft} dia(s): ${a.name}`, date: a.warrantyEndDate});
+  });
+  // Manutenções — vencidas, ou próximas nos próximos 7 dias
+  (state.assets||[]).forEach(a=>{
+    (a.maintenancePlans||[]).filter(p=>p.active).forEach(p=>{
+      const daysLeft = -daysSince(p.nextDate);
+      if(daysLeft < 0) alerts.push({type:'manutencao_vencida', icon:'🧊', color:'var(--danger)', priority:'alta', text:`Manutenção vencida: ${p.title} — ${a.name} (${Math.abs(daysLeft)} dia(s) em atraso)`, date: p.nextDate});
+      else if(daysLeft <= 7) alerts.push({type:'manutencao_proxima', icon:'🛠', color:'var(--warn)', priority: p.priority==='alta'?'alta':'média', text:`Manutenção em ${daysLeft} dia(s): ${p.title} — ${a.name}`, date: p.nextDate});
+    });
+  });
   return alerts;
 }
 
@@ -3989,9 +4010,14 @@ function openAssetModal(id){
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveAsset(${a?`'${a.id}'`:'null'})">Salvar</button>
     </div>
-    ${a ? `<div class="subhead">Histórico</div><div id="assetHistoryWrap"></div>` : ''}
+    ${a ? `
+    <div class="subhead">Plano de Manutenção</div>
+    <div id="assetMaintenanceWrap"></div>
+    <div id="maintenanceFormWrap"></div>
+    <button class="btn btn-ghost btn-sm" onclick="showMaintenanceForm('${a.id}')">+ Novo plano de manutenção</button>
+    <div class="subhead">Histórico</div><div id="assetHistoryWrap"></div>` : ''}
   `, 'wide');
-  if(a) renderAssetHistory(a.id);
+  if(a){ renderAssetHistory(a.id); renderAssetMaintenance(a.id); }
 }
 async function saveAsset(id){
   const name = document.getElementById('as-name').value.trim();
@@ -4087,6 +4113,109 @@ function renderAssetsTable(){
       </tr>`;
     }).join('')}
   </tbody></table>`;
+}
+
+// ---- Manutenções Preventivas (Fase 4) ----
+const MAINTENANCE_RECURRENCES = [
+  {v:'unica', label:'Única (não repete)'}, {v:'diaria', label:'Diária'}, {v:'semanal', label:'Semanal'},
+  {v:'mensal', label:'Mensal'}, {v:'anual', label:'Anual'}, {v:'personalizada', label:'Personalizada (a cada X dias)'},
+];
+function addDays(dateStr, days){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10);
+}
+function nextDateForRecurrence(fromDate, recurrenceType, intervalDays){
+  if(recurrenceType==='diaria') return addDays(fromDate, 1);
+  if(recurrenceType==='semanal') return addDays(fromDate, 7);
+  if(recurrenceType==='mensal') return addMonths(fromDate, 1);
+  if(recurrenceType==='anual') return addMonths(fromDate, 12);
+  if(recurrenceType==='personalizada') return addDays(fromDate, intervalDays||1);
+  return fromDate; // 'unica' não recalcula — o plano é desativado em vez de reagendado
+}
+function showMaintenanceForm(assetId, id){
+  const asset = state.assets.find(a=>a.id===assetId);
+  const plan = id ? asset.maintenancePlans.find(p=>p.id===id) : null;
+  document.getElementById('maintenanceFormWrap').innerHTML = `
+    <div class="field-row">
+      <div class="field"><label>Título</label><input id="mp-title" value="${plan?esc(plan.title):''}" placeholder="Ex: Limpeza"></div>
+      <div class="field"><label>Recorrência</label><select id="mp-recurrence" onchange="onMaintRecurrenceChange()">${MAINTENANCE_RECURRENCES.map(r=>`<option value="${r.v}" ${plan&&plan.recurrenceType===r.v?'selected':''}>${r.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row3">
+      <div class="field" id="mp-intervalwrap" style="display:${(plan?plan.recurrenceType:'')==='personalizada'?'block':'none'}"><label>A cada quantos dias</label><input id="mp-interval" type="number" min="1" value="${plan&&plan.intervalDays?plan.intervalDays:''}"></div>
+      <div class="field"><label>Próxima data</label><input id="mp-nextdate" type="date" value="${plan?plan.nextDate:todayStr()}"></div>
+      <div class="field"><label>Prioridade</label><select id="mp-priority">${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${(plan?plan.priority:'media')===p.v?'selected':''}>${p.label}</option>`).join('')}</select></div>
+    </div>
+    <div style="display:flex;gap:8px;margin:8px 0;">
+      <button class="btn btn-primary btn-sm" onclick="saveMaintenancePlan('${assetId}'${plan?`,'${plan.id}'`:''})">Salvar plano</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('maintenanceFormWrap').innerHTML=''">Cancelar</button>
+    </div>
+  `;
+}
+function onMaintRecurrenceChange(){
+  const v = document.getElementById('mp-recurrence').value;
+  document.getElementById('mp-intervalwrap').style.display = v==='personalizada' ? 'block' : 'none';
+}
+async function saveMaintenancePlan(assetId, id){
+  const title = document.getElementById('mp-title').value.trim();
+  if(!title){ toast('Informe o título do plano', true); return; }
+  const data = {
+    asset_id: assetId, title,
+    recurrence_type: document.getElementById('mp-recurrence').value,
+    interval_days: parseInt(document.getElementById('mp-interval').value)||null,
+    next_date: document.getElementById('mp-nextdate').value || todayStr(),
+    priority: document.getElementById('mp-priority').value,
+  };
+  const { error } = id ? await sb.from('asset_maintenance_plans').update(data).eq('id', id) : await sb.from('asset_maintenance_plans').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar plano de manutenção'); return; }
+  document.getElementById('maintenanceFormWrap').innerHTML = '';
+  toast('Plano de manutenção salvo');
+  await loadAll();
+  renderAssetMaintenance(assetId);
+}
+async function deleteMaintenancePlan(assetId, id){
+  if(!confirm('Excluir este plano de manutenção?')) return;
+  const { error } = await sb.from('asset_maintenance_plans').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir plano'); return; }
+  toast('Plano excluído');
+  await loadAll();
+  renderAssetMaintenance(assetId);
+}
+async function completeMaintenancePlan(assetId, id){
+  const asset = state.assets.find(a=>a.id===assetId);
+  const plan = asset ? asset.maintenancePlans.find(p=>p.id===id) : null;
+  if(!plan) return;
+  await sb.from('asset_history').insert({ asset_id: assetId, type:'manutencao', text: `Manutenção concluída: ${plan.title}`, user_id: myUser?.id||null });
+  if(plan.recurrenceType==='unica'){
+    await sb.from('asset_maintenance_plans').update({ active:false }).eq('id', id);
+  } else {
+    const nextDate = nextDateForRecurrence(plan.nextDate, plan.recurrenceType, plan.intervalDays);
+    await sb.from('asset_maintenance_plans').update({ next_date: nextDate }).eq('id', id);
+  }
+  toast('Manutenção registrada' + (plan.recurrenceType!=='unica' ? ' — próxima data calculada automaticamente' : ''));
+  await loadAll();
+  renderAssetMaintenance(assetId);
+  renderAssetHistory(assetId);
+}
+function renderAssetMaintenance(assetId){
+  const wrap = document.getElementById('assetMaintenanceWrap');
+  const asset = state.assets.find(a=>a.id===assetId);
+  if(!wrap || !asset) return;
+  const today = todayStr();
+  const plans = asset.maintenancePlans.filter(p=>p.active);
+  wrap.innerHTML = plans.length===0 ? '<div class="hint">Nenhum plano de manutenção cadastrado.</div>' : plans.map(p=>{
+    const overdue = p.nextDate < today;
+    const days = Math.abs(daysSince(p.nextDate));
+    const recLabel = (MAINTENANCE_RECURRENCES.find(r=>r.v===p.recurrenceType)||{}).label || p.recurrenceType;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;">
+      <div><strong>${esc(p.title)}</strong> <span class="badge ${overdue?'badge-danger':'badge-muted'}">${overdue?`${days} dia(s) em atraso`:`faltam ${days} dia(s)`}</span>
+        <div style="color:var(--muted);font-size:11px;">${recLabel} · próxima: ${fmtDate(p.nextDate)} · prioridade ${p.priority}</div></div>
+      <div style="display:flex;gap:6px;">
+        <button class="icon-btn" onclick="completeMaintenancePlan('${assetId}','${p.id}')" title="Marcar como concluída">✔</button>
+        <button class="icon-btn" onclick="deleteMaintenancePlan('${assetId}','${p.id}')" title="Excluir">${iconTrash}</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function updateNotifBadge(){
