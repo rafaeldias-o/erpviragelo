@@ -360,6 +360,15 @@ tr:last-child td{border-bottom:none;}
             <div id="assetsTableWrap" class="table-scroll"></div>
           </div>
         </div>
+
+        <div id="notifDrilldownView" style="display:none;">
+          <button class="btn btn-ghost btn-sm" onclick="closeDrilldown()" style="margin-bottom:14px;">← Voltar para Central de Notificações</button>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title" id="drilldownTitle"></div><button class="btn btn-primary btn-sm" id="drilldownActionBtn" style="display:none;"></button></div>
+            <div id="drilldownFiltersWrap" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
+            <div id="drilldownContentWrap" class="table-scroll"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ESTOQUE -->
@@ -884,7 +893,7 @@ async function loadAll(){
 
   state.tasks = (taskRes.data||[]).map(t => ({
     id: t.id, leadId: t.lead_id, type: t.type, title: t.title, description: t.description,
-    date: t.date, time: t.time, owner: t.owner_name, status: t.status, createdAt: (t.created_at||'').slice(0,10)
+    date: t.date, time: t.time, owner: t.owner_name, status: t.status, priority: t.priority||'media', createdAt: (t.created_at||'').slice(0,10)
   }));
 
   const itemsByDelivery = {};
@@ -3787,11 +3796,173 @@ async function deleteFreightTier(id){
 let notifMasterTab = 'central';
 function setNotifMasterTab(tab){
   notifMasterTab = tab;
+  document.getElementById('notifDrilldownView').style.display = 'none';
   document.querySelectorAll('[data-notifmaster]').forEach(t=>t.classList.toggle('active', t.dataset.notifmaster===tab));
   document.getElementById('notifCentralView').style.display = tab==='central' ? 'block' : 'none';
   document.getElementById('notifInventarioView').style.display = tab==='inventario' ? 'block' : 'none';
   if(tab==='inventario') renderAssetsView();
 }
+let notifDrilldownType = null;
+let drilldownFilters = {};
+function openDrilldown(type){
+  notifDrilldownType = type;
+  drilldownFilters = {};
+  document.getElementById('notifCentralView').style.display = 'none';
+  document.getElementById('notifInventarioView').style.display = 'none';
+  document.getElementById('notifDrilldownView').style.display = 'block';
+  renderDrilldown();
+}
+function closeDrilldown(){
+  notifDrilldownType = null;
+  document.getElementById('notifDrilldownView').style.display = 'none';
+  setNotifMasterTab(notifMasterTab);
+}
+function renderDrilldown(){
+  if(notifDrilldownType==='tarefas_vencidas') renderDrilldownTarefasVencidas();
+  else if(notifDrilldownType==='compromissos_hoje') renderDrilldownCompromissosHoje();
+  else if(notifDrilldownType==='estoque_critico') renderDrilldownEstoqueCritico();
+  else if(notifDrilldownType==='manutencoes_vencidas') renderDrilldownManutencoesVencidas();
+}
+
+// ---- 🔴 Tarefas Vencidas ----
+async function deleteTaskDrilldown(taskId){
+  if(!confirm('Excluir esta tarefa?')) return;
+  const { error } = await sb.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', taskId);
+  if(error){ dbErr(error, 'Erro ao excluir tarefa'); return; }
+  toast('Tarefa excluída'); await loadAll(); renderDrilldown();
+}
+async function updateTaskFieldDrilldown(taskId, field, value){
+  const { error } = await sb.from('tasks').update({ [field]: value }).eq('id', taskId);
+  if(error){ dbErr(error, 'Erro ao atualizar tarefa'); return; }
+  await loadAll(); renderDrilldown();
+}
+function renderDrilldownTarefasVencidas(){
+  document.getElementById('drilldownTitle').textContent = '🔴 Tarefas Vencidas';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  const today = todayStr();
+  let list = state.tasks.filter(t=>t.status==='pendente' && t.date<today);
+  const owners = [...new Set(list.map(t=>t.owner).filter(Boolean))];
+  const categories = [...new Set(list.map(t=>t.type).filter(Boolean))];
+  document.getElementById('drilldownFiltersWrap').innerHTML = `
+    <select id="ddFilterOwner" onchange="renderDrilldown()"><option value="">Todos os responsáveis</option>${owners.map(o=>`<option value="${esc(o)}" ${drilldownFilters.owner===o?'selected':''}>${esc(o)}</option>`).join('')}</select>
+    <select id="ddFilterPriority" onchange="renderDrilldown()"><option value="">Todas as prioridades</option>${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${drilldownFilters.priority===p.v?'selected':''}>${p.label}</option>`).join('')}</select>
+    <select id="ddFilterCategory" onchange="renderDrilldown()"><option value="">Todas as categorias</option>${categories.map(c=>`<option value="${esc(c)}" ${drilldownFilters.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+  `;
+  const ownerSel = document.getElementById('ddFilterOwner'), prioSel = document.getElementById('ddFilterPriority'), catSel = document.getElementById('ddFilterCategory');
+  if(ownerSel) drilldownFilters.owner = ownerSel.value;
+  if(prioSel) drilldownFilters.priority = prioSel.value;
+  if(catSel) drilldownFilters.category = catSel.value;
+  if(drilldownFilters.owner) list = list.filter(t=>t.owner===drilldownFilters.owner);
+  if(drilldownFilters.priority) list = list.filter(t=>t.priority===drilldownFilters.priority);
+  if(drilldownFilters.category) list = list.filter(t=>t.type===drilldownFilters.category);
+  list.sort((a,b)=> a.date.localeCompare(b.date));
+
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = list.length===0 ? emptyState('Nenhuma tarefa vencida com esses filtros.', null) : `<table><thead><tr><th>Título</th><th>Responsável</th><th>Prevista</th><th>Atraso</th><th>Prioridade</th><th>Origem</th><th></th></tr></thead><tbody>
+    ${list.map(t=>{
+      const lead = state.leads.find(l=>l.id===t.leadId);
+      const atraso = daysSince(t.date);
+      return `<tr>
+        <td><strong>${esc(t.title)}</strong>${t.description?`<div style="color:var(--muted);font-size:11px">${esc(t.description)}</div>`:''}</td>
+        <td><input value="${esc(t.owner||'')}" style="width:110px;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="updateTaskFieldDrilldown('${t.id}','owner_name',this.value)"></td>
+        <td><input type="date" value="${t.date}" style="width:118px;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="updateTaskFieldDrilldown('${t.id}','date',this.value)"></td>
+        <td><span class="badge badge-danger">${atraso}d</span></td>
+        <td><select style="font-size:12px;" onchange="updateTaskFieldDrilldown('${t.id}','priority',this.value)">${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${t.priority===p.v?'selected':''}>${p.label}</option>`).join('')}</select></td>
+        <td style="color:var(--muted);font-size:12px;">${esc(t.type||'—')}${lead?' · '+esc(lead.name):''}</td>
+        <td class="row-actions">
+          <button class="icon-btn" onclick="setTaskStatus('${t.id}','concluida').then(renderDrilldown)" title="Concluir">✓</button>
+          ${lead?`<button class="icon-btn" onclick="openLeadModal('${lead.id}')" title="Ver lead">👁️</button>`:''}
+          <button class="icon-btn" onclick="deleteTaskDrilldown('${t.id}')" title="Excluir">${iconTrash}</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 🟡 Compromissos de Hoje ----
+function renderDrilldownCompromissosHoje(){
+  document.getElementById('drilldownTitle').textContent = '🟡 Compromissos de Hoje';
+  const btn = document.getElementById('drilldownActionBtn');
+  btn.style.display = 'inline-flex'; btn.textContent = '+ Novo compromisso'; btn.onclick = () => openCommitmentModal();
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const today = todayStr();
+  const list = state.commitments.filter(c=>c.date===today).sort((a,b)=> (a.time||'').localeCompare(b.time||''));
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = list.length===0 ? emptyState('Nenhum compromisso hoje.', null) : `<table><thead><tr><th>Horário</th><th>Título</th><th>Responsável</th><th>Categoria</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(c=>{
+      const cat = commitmentCategoryInfo(c.category);
+      return `<tr>
+        <td>${c.time?c.time.slice(0,5):'—'}</td>
+        <td><strong>${esc(c.title)}</strong>${c.description?`<div style="color:var(--muted);font-size:11px">${esc(c.description)}</div>`:''}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(c.owner||'—')}</td>
+        <td>${cat.icon} ${cat.label}</td>
+        <td><span class="badge ${c.status==='concluido'?'badge-success':c.status==='cancelado'?'badge-muted':'badge-warn'}">${c.status}</span></td>
+        <td class="row-actions">
+          ${c.status==='pendente'?`<button class="icon-btn" onclick="setCommitmentStatus('${c.id}','concluido').then(renderDrilldown)" title="Concluir">✓</button>`:''}
+          <button class="icon-btn" onclick="openCommitmentModal('${c.id}')" title="Editar">${iconEdit}</button>
+          <button class="icon-btn" onclick="deleteCommitment('${c.id}')" title="Excluir">${iconTrash}</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 📦 Estoques Críticos ----
+function renderDrilldownEstoqueCritico(){
+  document.getElementById('drilldownTitle').textContent = '📦 Estoques Críticos';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const list = state.stockItems.filter(p=>p.qty<=p.minQty).sort((a,b)=>a.qty-a.minQty - (b.qty-b.minQty));
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = list.length===0 ? emptyState('Nenhum item abaixo do estoque mínimo no momento.', null) : `<table><thead><tr><th>Produto</th><th>Atual</th><th>Mínimo</th><th>Ideal (sugerido)</th><th>Fornecedor</th><th></th></tr></thead><tbody>
+    ${list.map(p=>{
+      const supplier = state.suppliers.find(s=>s.id===p.supplierId);
+      const idealQty = p.minQty*2; // sugestão simples (dobro do mínimo) — não é um valor cadastrado, só uma referência de reposição
+      return `<tr>
+        <td><strong>${esc(p.name)}</strong></td>
+        <td><span class="badge badge-danger">${p.qty} ${esc(p.unit)}</span></td>
+        <td>${p.minQty} ${esc(p.unit)}</td>
+        <td style="color:var(--muted);">${idealQty} ${esc(p.unit)}</td>
+        <td style="color:var(--muted);font-size:12px;">${supplier?esc(supplier.name):'—'}</td>
+        <td class="row-actions">
+          <button class="icon-btn" onclick="openStockModal('${p.category}','${p.id}')" title="Editar produto">${iconEdit}</button>
+          <button class="icon-btn" onclick="closeDrilldown(); switchView('estoque'); openMovementModal();" title="Registrar movimentação">📥</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 🛠 Manutenções Vencidas ----
+function renderDrilldownManutencoesVencidas(){
+  document.getElementById('drilldownTitle').textContent = '🛠 Manutenções Vencidas';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const today = todayStr();
+  const rows = [];
+  state.assets.forEach(a=>{
+    (a.maintenancePlans||[]).filter(p=>p.active && p.nextDate<today).forEach(p=>{
+      const lastMaint = a.history.filter(h=>h.type==='manutencao').sort((x,y)=>y.createdAt.localeCompare(x.createdAt))[0];
+      rows.push({ asset:a, plan:p, atraso: daysSince(p.nextDate), lastMaint });
+    });
+  });
+  rows.sort((a,b)=> b.atraso-a.atraso);
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = rows.length===0 ? emptyState('Nenhuma manutenção vencida no momento.', null) : `<table><thead><tr><th>Equipamento</th><th>Manutenção</th><th>Atraso</th><th>Prioridade</th><th>Última manutenção</th><th></th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td><strong>${esc(r.asset.name)}</strong></td>
+      <td>${esc(r.plan.title)}</td>
+      <td><span class="badge badge-danger">${r.atraso}d</span></td>
+      <td><span class="badge ${r.plan.priority==='alta'?'badge-danger':r.plan.priority==='media'?'badge-warn':'badge-muted'}">${r.plan.priority}</span></td>
+      <td style="color:var(--muted);font-size:12px;">${r.lastMaint?fmtDateTime(r.lastMaint.createdAt):'nunca'}</td>
+      <td class="row-actions">
+        <button class="icon-btn" onclick="completeMaintenancePlan('${r.asset.id}','${r.plan.id}').then(renderDrilldown)" title="Concluir">✔</button>
+        <button class="icon-btn" onclick="openAssetModal('${r.asset.id}')" title="Abrir patrimônio">${iconEdit}</button>
+      </td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
 let notifPeriod = 'hoje';
 function setNotifPeriod(p){
   notifPeriod = p;
@@ -3842,12 +4013,12 @@ function renderNotifSummary(){
   const valorPatrimonio = state.assets.reduce((s,a)=>s+(a.purchaseValue||0),0);
 
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
-    <div class="stat-card"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('tarefas_vencidas')"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('compromissos_hoje')"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
     <div class="stat-card"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
-    <div class="stat-card"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('estoque_critico')"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
     <div class="stat-card"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
-    <div class="stat-card"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('manutencoes_vencidas')"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
     <div class="stat-card"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
     <div class="stat-card"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
   `;
