@@ -682,7 +682,7 @@ async function loadAll(){
   state.fieldProspects = (prospRes.data||[]).map(p => ({
     id:p.id, name:p.name, company:p.company, cityId:p.city_id, neighborhoodId:p.neighborhood_id,
     address:p.address, phone:p.phone, notes:p.notes, lat:p.lat, lng:p.lng,
-    convertedLeadId:p.converted_lead_id, createdAt:(p.created_at||'').slice(0,10)
+    convertedLeadId:p.converted_lead_id, convertedClientId:p.converted_client_id, createdAt:(p.created_at||'').slice(0,10)
   }));
 
   const stopsByRoute = {};
@@ -2926,7 +2926,7 @@ async function convertProspectToLead(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para converter prospects', true); return; }
   const p = state.fieldProspects.find(x=>x.id===id);
   if(!p) return;
-  if(p.convertedLeadId){ toast('Esse prospect já foi convertido em lead', true); return; }
+  if(p.convertedLeadId || p.convertedClientId){ toast('Esse prospect já foi convertido antes', true); return; }
   const city = state.visitCities.find(c=>c.id===p.cityId);
   const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
   const { data: created, error } = await sb.from('leads').insert({
@@ -2952,9 +2952,9 @@ function renderProspectsTable(){
         <td><strong>${esc(p.name)}</strong>${p.company?`<div style="color:var(--muted);font-size:11.5px">${esc(p.company)}</div>`:''}</td>
         <td style="color:var(--muted);font-size:12px">${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
         <td style="color:var(--muted);font-size:12px">${esc(p.address||'—')}</td>
-        <td>${p.convertedLeadId?'<span class="badge badge-success">Virou lead</span>':'<span class="badge badge-muted">Prospect</span>'}</td>
+        <td>${p.convertedClientId?'<span class="badge badge-success">⭐ Virou cliente</span>':p.convertedLeadId?'<span class="badge badge-success">🤝 Virou lead</span>':'<span class="badge badge-muted">Prospect</span>'}</td>
         <td class="row-actions">
-          ${!p.convertedLeadId?`<button class="icon-btn" onclick="convertProspectToLead('${p.id}')" title="Converter em lead">🤝</button>`:''}
+          ${(!p.convertedLeadId && !p.convertedClientId)?`<button class="icon-btn" onclick="convertProspectToLead('${p.id}')" title="Converter em lead">🤝</button>`:''}
           <button class="icon-btn" onclick="openProspectModal('${p.id}')" title="Editar">${iconEdit}</button>
           <button class="icon-btn" onclick="deleteProspect('${p.id}')" title="Excluir">${iconTrash}</button>
         </td>
@@ -3205,21 +3205,135 @@ function renderCommercialRoutes(){
   const wrap = document.getElementById('commercialRoutesTableWrap');
   if(!wrap) return;
   if(state.commercialRoutes.length===0){ wrap.innerHTML = emptyState('Nenhuma rota comercial gerada ainda.','Nova Rota Comercial','openCommercialRouteWizard()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Início</th><th>Região</th><th>Paradas</th><th>Distância</th><th>Tempo</th><th>Status</th></tr></thead><tbody>
+  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Início</th><th>Região</th><th>Progresso</th><th>Distância</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody>
     ${state.commercialRoutes.map(r=>{
       const city = state.visitCities.find(c=>c.id===r.cityId);
       const neighborhood = state.visitNeighborhoods.find(n=>n.id===r.neighborhoodId);
-      return `<tr>
+      const done = r.stops.filter(s=>s.visitStatus!=='pendente').length;
+      return `<tr style="cursor:pointer;" onclick="openRouteDetailModal('${r.id}')">
         <td>${fmtDate(r.plannedDate)}</td>
         <td>${r.plannedStartTime?r.plannedStartTime.slice(0,5):'—'}</td>
         <td>${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
-        <td>${r.stops.length}</td>
+        <td>${done}/${r.stops.length} feitas</td>
         <td>${r.distanceKm!=null?r.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
         <td>${r.durationMin!=null?r.durationMin+' min':'—'}</td>
         <td><span class="badge badge-info">${r.status}</span></td>
+        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openRouteDetailModal('${r.id}')">${iconEdit}</button></td>
       </tr>`;
     }).join('')}
   </tbody></table>`;
+}
+
+// =========================================================
+// EXECUÇÃO DA VISITA (Fase 3) — marcar status de cada parada + integração com CRM
+// =========================================================
+const VISIT_STATUSES = [
+  {v:'pendente', label:'Pendente', cls:'badge-muted'},
+  {v:'visitado', label:'✅ Visitado', cls:'badge-success'},
+  {v:'nao_encontrado', label:'⏳ Não encontrado', cls:'badge-warn'},
+  {v:'ausente', label:'📞 Cliente ausente', cls:'badge-warn'},
+  {v:'sem_interesse', label:'❌ Sem interesse', cls:'badge-danger'},
+  {v:'virou_lead', label:'🤝 Virou Lead', cls:'badge-info'},
+  {v:'virou_cliente', label:'⭐ Virou Cliente', cls:'badge-success'},
+];
+function visitStatusInfo(v){ return VISIT_STATUSES.find(s=>s.v===v) || VISIT_STATUSES[0]; }
+function stopTargetName(stop){
+  if(stop.targetType==='client'){ const c = state.clients.find(x=>x.id===stop.clientId); return c?c.name:'Cliente'; }
+  const p = state.fieldProspects.find(x=>x.id===stop.prospectId); return p?p.name:'Prospect';
+}
+function stopTargetAddress(stop){
+  if(stop.targetType==='client'){ const c = state.clients.find(x=>x.id===stop.clientId); return c?c.address:''; }
+  const p = state.fieldProspects.find(x=>x.id===stop.prospectId); return p?p.address:'';
+}
+
+function openRouteDetailModal(routeId){
+  const route = state.commercialRoutes.find(r=>r.id===routeId);
+  if(!route) return;
+  const city = state.visitCities.find(c=>c.id===route.cityId);
+  const neighborhood = state.visitNeighborhoods.find(n=>n.id===route.neighborhoodId);
+  openModal(`
+    <div class="modal-head"><h3>Rota Comercial — ${esc(city?city.name:'')}${neighborhood?' · '+esc(neighborhood.name):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">${fmtDate(route.plannedDate)}${route.plannedStartTime?' · início '+route.plannedStartTime.slice(0,5):''}${route.distanceKm!=null?' · '+route.distanceKm.toFixed(1)+' km':''} · <span class="badge badge-info">${route.status}</span></div>
+    <div id="routeStopsWrap"></div>
+  `, 'xwide');
+  renderRouteStops(routeId);
+}
+function renderRouteStops(routeId){
+  const route = state.commercialRoutes.find(r=>r.id===routeId);
+  const wrap = document.getElementById('routeStopsWrap');
+  if(!wrap || !route) return;
+  wrap.innerHTML = route.stops.map(s=>{
+    const availableStatuses = s.targetType==='prospect' ? VISIT_STATUSES : VISIT_STATUSES.filter(vs=>!['virou_lead','virou_cliente'].includes(vs.v));
+    return `
+    <div class="panel" style="padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <strong>${s.expectedTime?s.expectedTime.slice(0,5)+' · ':''}${esc(stopTargetName(s))}</strong> ${s.targetType==='prospect'?'<span class="badge badge-muted">Prospect</span>':'<span class="badge badge-muted">Cliente</span>'}
+          <div style="color:var(--muted);font-size:12px;">${esc(stopTargetAddress(s)||'')}</div>
+        </div>
+        <select class="kanban-move" onchange="updateStopStatus('${routeId}','${s.id}', this.value)">
+          ${availableStatuses.map(vs=>`<option value="${vs.v}" ${vs.v===s.visitStatus?'selected':''}>${vs.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" style="margin-top:8px;margin-bottom:0;">
+        <textarea id="stopnotes-${s.id}" rows="2" placeholder="Observações da visita...">${esc(s.notes||'')}</textarea>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="saveStopNotes('${routeId}','${s.id}')">Salvar observação</button>
+    </div>
+  `;
+  }).join('');
+}
+async function updateStopStatus(routeId, stopId, newStatus){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para atualizar visitas', true); return; }
+  const route = state.commercialRoutes.find(r=>r.id===routeId);
+  const stop = route.stops.find(s=>s.id===stopId);
+  const { error } = await sb.from('commercial_route_stops').update({ visit_status: newStatus, visited_at: new Date().toISOString() }).eq('id', stopId);
+  if(error){ dbErr(error, 'Erro ao atualizar visita'); return; }
+
+  if(newStatus==='virou_lead' && stop.targetType==='prospect'){
+    await convertProspectToLead(stop.prospectId);
+    toast('Lead criado no CRM a partir dessa visita!');
+  }
+  if(newStatus==='virou_cliente' && stop.targetType==='prospect'){
+    await convertProspectDirectlyToClient(stop.prospectId);
+  }
+
+  await loadAll();
+  await maybeCompleteRoute(routeId);
+  renderRouteStops(routeId);
+  renderCommercialRoutes();
+}
+async function saveStopNotes(routeId, stopId){
+  const notes = document.getElementById('stopnotes-'+stopId).value.trim();
+  const { error } = await sb.from('commercial_route_stops').update({ notes }).eq('id', stopId);
+  if(error){ dbErr(error, 'Erro ao salvar observação'); return; }
+  toast('Observação salva');
+  await loadAll();
+}
+async function maybeCompleteRoute(routeId){
+  const route = state.commercialRoutes.find(r=>r.id===routeId);
+  if(!route || route.status==='concluida') return;
+  const allDone = route.stops.length>0 && route.stops.every(s=>s.visitStatus!=='pendente');
+  if(allDone){
+    await sb.from('commercial_routes').update({ status:'concluida' }).eq('id', routeId);
+    await loadAll();
+  }
+}
+async function convertProspectDirectlyToClient(prospectId){
+  const p = state.fieldProspects.find(x=>x.id===prospectId);
+  if(!p) return;
+  if(p.convertedClientId || p.convertedLeadId){ return; }
+  const city = state.visitCities.find(c=>c.id===p.cityId);
+  const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+  const { data: created, error } = await sb.from('clients').insert({
+    name: p.name, company: p.company, phone: p.phone, city: city?city.name:'',
+    address: p.address, neighborhood: neighborhood?neighborhood.name:'', state: city?city.state:'',
+    notes: p.notes, status: 'ativo'
+  }).select().single();
+  if(error){ dbErr(error, 'Erro ao converter prospect em cliente'); return; }
+  const { error: linkErr } = await sb.from('field_prospects').update({ converted_client_id: created.id }).eq('id', prospectId);
+  if(linkErr){ dbErr(linkErr, 'Erro ao vincular prospect ao cliente'); return; }
+  toast('Cliente criado direto a partir dessa visita!');
 }
 
 // =========================================================
