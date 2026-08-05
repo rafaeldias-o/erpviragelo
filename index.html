@@ -413,6 +413,7 @@ tr:last-child td{border-bottom:none;}
         <div class="tabs">
           <div class="tab active" data-visitastab="regioes" onclick="setVisitasTab('regioes')">Regiões</div>
           <div class="tab" data-visitastab="prospects" onclick="setVisitasTab('prospects')">Prospects de Campo</div>
+          <div class="tab" data-visitastab="rotas" onclick="setVisitasTab('rotas')">Rotas Comerciais</div>
         </div>
 
         <div id="visitasRegioesView">
@@ -433,6 +434,13 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title">Prospects de Campo</div><button class="btn btn-primary btn-sm" onclick="openProspectModal()">+ Novo prospect</button></div>
             <div class="hint" style="margin-bottom:10px;">Possíveis clientes encontrados em campo, ainda sem virar Lead. Reaproveita as cidades/bairros cadastrados em Regiões.</div>
             <div id="prospectsTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="visitasRotasView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Rotas Comerciais</div><button class="btn btn-primary btn-sm" onclick="openCommercialRouteWizard()">+ Nova Rota Comercial</button></div>
+            <div id="commercialRoutesTableWrap" class="table-scroll"></div>
           </div>
         </div>
       </section>
@@ -508,7 +516,12 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], company: {} };
+let crWizardStep = 1;
+let crWizardCityId = null;
+let crWizardNeighborhoodId = null;
+let crWizardCandidates = [];
+let crWizardMaxVisits = 10;
 let currentVisitasTab = 'regioes';
 let selectedVisitCityId = null;
 let currentStockTab = 'materia_prima';
@@ -630,7 +643,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -650,12 +663,15 @@ async function loadAll(){
     sb.from('visit_cities').select('*').is('deleted_at', null).order('name'),
     sb.from('visit_neighborhoods').select('*').is('deleted_at', null).order('name'),
     sb.from('field_prospects').select('*').is('deleted_at', null).order('name'),
+    sb.from('commercial_routes').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
+    sb.from('commercial_route_stops').select('*').order('sequence'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
-    ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes]]){
+    ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
+    ['rotas comerciais',crRes],['paradas de rota',crStopsRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
@@ -666,6 +682,21 @@ async function loadAll(){
     id:p.id, name:p.name, company:p.company, cityId:p.city_id, neighborhoodId:p.neighborhood_id,
     address:p.address, phone:p.phone, notes:p.notes, lat:p.lat, lng:p.lng,
     convertedLeadId:p.converted_lead_id, createdAt:(p.created_at||'').slice(0,10)
+  }));
+
+  const stopsByRoute = {};
+  (crStopsRes.data||[]).forEach(s => {
+    (stopsByRoute[s.route_id] = stopsByRoute[s.route_id] || []).push({
+      id:s.id, targetType:s.target_type, clientId:s.client_id, prospectId:s.prospect_id,
+      sequence:s.sequence, expectedTime:s.expected_time, visitStatus:s.visit_status,
+      notes:s.notes, visitedAt:s.visited_at
+    });
+  });
+  state.commercialRoutes = (crRes.data||[]).map(r => ({
+    id:r.id, cityId:r.city_id, neighborhoodId:r.neighborhood_id, plannedDate:r.planned_date,
+    maxVisits:r.max_visits, distanceKm:r.distance_km!=null?Number(r.distance_km):null,
+    durationMin:r.duration_min, status:r.status, createdAt:(r.created_at||'').slice(0,10),
+    stops: (stopsByRoute[r.id]||[]).sort((a,b)=>a.sequence-b.sequence)
   }));
 
   const stockById = {};
@@ -2717,12 +2748,14 @@ function setVisitasTab(tab){
   document.querySelectorAll('[data-visitastab]').forEach(t=>t.classList.toggle('active', t.dataset.visitastab===tab));
   document.getElementById('visitasRegioesView').style.display = tab==='regioes' ? 'block' : 'none';
   document.getElementById('visitasProspectsView').style.display = tab==='prospects' ? 'block' : 'none';
+  document.getElementById('visitasRotasView').style.display = tab==='rotas' ? 'block' : 'none';
   renderVisitas();
 }
 function renderVisitas(){
   renderCitiesTable();
   renderNeighborhoodsTable();
   renderProspectsTable();
+  renderCommercialRoutes();
 }
 
 // ---- Cidades ----
@@ -2920,6 +2953,256 @@ function renderProspectsTable(){
           <button class="icon-btn" onclick="openProspectModal('${p.id}')" title="Editar">${iconEdit}</button>
           <button class="icon-btn" onclick="deleteProspect('${p.id}')" title="Excluir">${iconTrash}</button>
         </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// =========================================================
+// ROTA COMERCIAL — assistente de 4 passos (Fase 2)
+// Reaproveita geocodeAddress, companyOrigin, haversineKm, buildGoogleMapsUrl, fmtKm, fmtMin
+// (as mesmas funções já usadas pela Rota Otimizada de entregas), sem duplicar lógica.
+// =========================================================
+const VISIT_AVG_MINUTES = 15; // tempo médio estimado por visita, somado ao deslocamento pra projetar o horário previsto
+
+function openCommercialRouteWizard(){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para criar rotas comerciais', true); return; }
+  if(state.visitCities.length===0){ toast('Cadastre ao menos uma cidade e um bairro em Regiões antes', true); return; }
+  crWizardStep = 1;
+  crWizardCityId = null;
+  crWizardNeighborhoodId = null;
+  crWizardCandidates = [];
+  crWizardMaxVisits = 10;
+  renderCommercialRouteWizard();
+}
+function renderCommercialRouteWizard(){
+  if(crWizardStep===1) return renderCRWizardStep1();
+  if(crWizardStep===2) return renderCRWizardStep2();
+  if(crWizardStep===3) return renderCRWizardStep3();
+  if(crWizardStep===4) return renderCRWizardStep4();
+}
+
+// ---- Passo 1: cidade -> bairro ----
+function renderCRWizardStep1(){
+  const neighborhoods = crWizardCityId ? state.visitNeighborhoods.filter(n=>n.cityId===crWizardCityId) : [];
+  openModal(`
+    <div class="modal-head"><h3>Nova Rota Comercial — Passo 1 de 4</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="section-title" style="font-size:13px;margin-bottom:10px;">Selecione a região</div>
+    <div class="field"><label>Cidade</label><select id="crw-city" onchange="crWizardCityId=this.value; crWizardNeighborhoodId=null; renderCommercialRouteWizard();">
+      <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}" ${c.id===crWizardCityId?'selected':''}>${esc(c.name)}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Bairro</label><select id="crw-neighborhood" onchange="crWizardNeighborhoodId=this.value" ${!crWizardCityId?'disabled':''}>
+      <option value="">—</option>${neighborhoods.map(n=>`<option value="${n.id}" ${n.id===crWizardNeighborhoodId?'selected':''}>${esc(n.name)}</option>`).join('')}
+    </select></div>
+    ${crWizardCityId && neighborhoods.length===0?'<div class="hint" style="color:var(--warn);">Essa cidade ainda não tem bairro cadastrado.</div>':''}
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="crWizardGoStep2()">Próximo →</button>
+    </div>
+  `, 'wide');
+}
+function crWizardGoStep2(){
+  crWizardCityId = document.getElementById('crw-city').value;
+  crWizardNeighborhoodId = document.getElementById('crw-neighborhood').value;
+  if(!crWizardCityId || !crWizardNeighborhoodId){ toast('Selecione cidade e bairro', true); return; }
+  const city = state.visitCities.find(c=>c.id===crWizardCityId);
+  const neighborhood = state.visitNeighborhoods.find(n=>n.id===crWizardNeighborhoodId);
+  // Clientes existentes usam cidade/bairro em texto livre — casamos por nome (ignorando maiúsculas/espaços).
+  // Prospects de Campo já têm o vínculo direto (FK), então casam com certeza.
+  const norm = s => (s||'').trim().toLowerCase();
+  const matchingClients = state.clients.filter(c=> norm(c.city)===norm(city.name) && norm(c.neighborhood)===norm(neighborhood.name));
+  const matchingProspects = state.fieldProspects.filter(p=> p.cityId===crWizardCityId && p.neighborhoodId===crWizardNeighborhoodId && !p.convertedLeadId);
+  crWizardCandidates = [
+    ...matchingClients.map(c=>({type:'client', id:c.id, name:c.name, address:c.address, lat:c.lat, lng:c.lng, distanceKm:c.distanceKm, selected:false})),
+    ...matchingProspects.map(p=>({type:'prospect', id:p.id, name:p.name, address:p.address, lat:p.lat, lng:p.lng, distanceKm:null, selected:false})),
+  ];
+  if(crWizardCandidates.length===0){ toast('Nenhum cliente ou prospect de campo encontrado nesse bairro', true); return; }
+  crWizardStep = 2;
+  renderCommercialRouteWizard();
+}
+
+// ---- Passo 2: escolher clientes/prospects ----
+function renderCRWizardStep2(){
+  openModal(`
+    <div class="modal-head"><h3>Nova Rota Comercial — Passo 2 de 4</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="section-title" style="font-size:13px;margin-bottom:6px;">Escolha os clientes/prospects (<span id="crwSelectedCount">0</span> selecionados de ${crWizardCandidates.length})</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button class="btn btn-ghost btn-sm" onclick="crWizardSelectAll(true)">☑ Selecionar todos do bairro</button>
+      <button class="btn btn-ghost btn-sm" onclick="crWizardSelectAll(false)">Limpar seleção</button>
+    </div>
+    <div id="crwCandidatesWrap" style="max-height:320px;overflow-y:auto;"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="crWizardStep=1; renderCommercialRouteWizard();">← Voltar</button>
+      <button class="btn btn-primary" onclick="crWizardGoStep3()">Próximo →</button>
+    </div>
+  `, 'wide');
+  renderCRWizardCandidates();
+}
+function updateCRWSelectedCount(){
+  const el = document.getElementById('crwSelectedCount');
+  if(el) el.textContent = crWizardCandidates.filter(c=>c.selected).length;
+}
+function renderCRWizardCandidates(){
+  const wrap = document.getElementById('crwCandidatesWrap');
+  if(!wrap) return;
+  wrap.innerHTML = crWizardCandidates.map((c,i)=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;">
+      <input type="checkbox" ${c.selected?'checked':''} onchange="crWizardCandidates[${i}].selected=this.checked; updateCRWSelectedCount();">
+      <span>${c.type==='client'?'👤':'📍'} <strong>${esc(c.name)}</strong> ${c.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}<div style="color:var(--muted);font-size:11.5px;">${esc(c.address||'—')}</div></span>
+    </label>
+  `).join('');
+  updateCRWSelectedCount();
+}
+function crWizardSelectAll(val){
+  crWizardCandidates.forEach(c=>c.selected=val);
+  renderCRWizardCandidates();
+}
+function crWizardGoStep3(){
+  if(crWizardCandidates.filter(c=>c.selected).length===0){ toast('Selecione ao menos um cliente ou prospect', true); return; }
+  crWizardStep = 3;
+  renderCommercialRouteWizard();
+}
+
+// ---- Passo 3: quantidade máxima de visitas ----
+function renderCRWizardStep3(){
+  const selectedCount = crWizardCandidates.filter(c=>c.selected).length;
+  openModal(`
+    <div class="modal-head"><h3>Nova Rota Comercial — Passo 3 de 4</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="section-title" style="font-size:13px;margin-bottom:6px;">Quantidade máxima de visitas</div>
+    <div class="hint" style="margin-bottom:10px;">Você selecionou ${selectedCount}. Se o limite for menor, os mais próximos da fábrica entram primeiro — reduz deslocamento.</div>
+    <div class="radio-group" style="margin-bottom:10px;">
+      ${[5,10,15,20].map(n=>`<div class="radio-opt ${crWizardMaxVisits===n?'selected':''}" onclick="crWizardSetMax(${n})">${n}</div>`).join('')}
+    </div>
+    <div class="field"><label>Ou personalizado</label><input id="crw-maxcustom" type="number" min="1" value="${crWizardMaxVisits}" oninput="crWizardMaxVisits=parseInt(this.value)||1"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="crWizardStep=2; renderCommercialRouteWizard();">← Voltar</button>
+      <button class="btn btn-primary" onclick="crWizardGoStep4()">Gerar rota otimizada →</button>
+    </div>
+  `, 'wide');
+}
+function crWizardSetMax(n){ crWizardMaxVisits = n; renderCommercialRouteWizard(); }
+async function crWizardGoStep4(){
+  crWizardStep = 4;
+  renderCommercialRouteWizard();
+  await crGenerateRoute();
+}
+
+// ---- Passo 4: gerar, otimizar e salvar a rota ----
+function renderCRWizardStep4(){
+  openModal(`
+    <div class="modal-head"><h3>Nova Rota Comercial — Passo 4 de 4</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" id="crwLoading">Calculando a melhor rota...</div>
+    <div id="crwResultWrap"></div>
+  `, 'wide');
+}
+async function crGenerateRoute(){
+  const selected = crWizardCandidates.filter(c=>c.selected);
+  const cityName = state.visitCities.find(x=>x.id===crWizardCityId)?.name || '';
+  for(const c of selected){
+    if(c.lat==null || c.lng==null){
+      const coords = await geocodeAddress((c.address||'') + ', ' + cityName + ', Brasil');
+      if(coords){ c.lat = coords.lat; c.lng = coords.lng; }
+    }
+  }
+  const withCoords = selected.filter(c=>c.lat!=null && c.lng!=null);
+  const withoutCoords = selected.length - withCoords.length;
+  if(withCoords.length===0){
+    document.getElementById('crwLoading').textContent = '';
+    document.getElementById('crwResultWrap').innerHTML = emptyState('Nenhum dos selecionados tem endereço localizável no mapa.', null);
+    return;
+  }
+
+  const origin = companyOrigin();
+  let toVisit = withCoords;
+  if(withCoords.length > crWizardMaxVisits){
+    const withDist = withCoords.map(c=>({...c, sortDist: c.distanceKm!=null ? c.distanceKm : (origin?haversineKm(origin,{lat:c.lat,lng:c.lng}):Infinity)}));
+    withDist.sort((a,b)=> a.sortDist - b.sortDist);
+    toVisit = withDist.slice(0, crWizardMaxVisits);
+  }
+
+  const points = origin ? [origin, ...toVisit.map(c=>({lat:c.lat,lng:c.lng}))] : toVisit.map(c=>({lat:c.lat,lng:c.lng}));
+  const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+  const params = origin ? 'source=first&roundtrip=true&overview=false' : 'roundtrip=true&overview=false';
+  let json;
+  try{
+    const res = await fetch(`https://router.project-osrm.org/trip/v1/driving/${coordStr}?${params}`);
+    json = await res.json();
+  }catch(e){
+    document.getElementById('crwLoading').textContent = '';
+    document.getElementById('crwResultWrap').innerHTML = emptyState('Não foi possível calcular a rota agora. Tente novamente.', null);
+    return;
+  }
+  document.getElementById('crwLoading').textContent = '';
+  if(json.code !== 'Ok'){
+    document.getElementById('crwResultWrap').innerHTML = emptyState('Não foi possível calcular a rota (' + json.code + ').', null);
+    return;
+  }
+  const offset = origin ? 1 : 0;
+  const ordered = json.waypoints
+    .map((wp, i) => ({ wp, stop: i>=offset ? toVisit[i-offset] : null }))
+    .filter(x => x.stop)
+    .sort((a,b) => a.wp.waypoint_index - b.wp.waypoint_index)
+    .map(x => x.stop);
+  const trip = json.trips[0];
+  const legs = trip.legs || [];
+
+  // horário previsto: parte de agora, soma o deslocamento de cada trecho + tempo médio de visita
+  let cursorMin = new Date().getHours()*60 + new Date().getMinutes();
+  const expectedTimes = ordered.map((s,i)=>{
+    cursorMin += (legs[i] ? legs[i].duration/60 : 0);
+    const t = Math.round(cursorMin);
+    cursorMin += VISIT_AVG_MINUTES;
+    return String(Math.floor(t/60)%24).padStart(2,'0') + ':' + String(t%60).padStart(2,'0');
+  });
+
+  const { data: route, error: routeErr } = await sb.from('commercial_routes').insert({
+    city_id: crWizardCityId, neighborhood_id: crWizardNeighborhoodId, max_visits: crWizardMaxVisits,
+    distance_km: trip.distance/1000, duration_min: Math.round(trip.duration/60), status: 'planejada'
+  }).select().single();
+  if(routeErr){ dbErr(routeErr, 'Erro ao salvar rota comercial'); return; }
+  const stopsPayload = ordered.map((s,i)=>({
+    route_id: route.id, target_type: s.type, client_id: s.type==='client'?s.id:null, prospect_id: s.type==='prospect'?s.id:null,
+    sequence: i+1, expected_time: expectedTimes[i]
+  }));
+  const { error: stopsErr } = await sb.from('commercial_route_stops').insert(stopsPayload);
+  if(stopsErr){ dbErr(stopsErr, 'Erro ao salvar paradas da rota'); return; }
+
+  await loadAll();
+  renderCRWizardResult(ordered, expectedTimes, trip, withoutCoords, origin);
+}
+function renderCRWizardResult(ordered, expectedTimes, trip, withoutCoords, origin){
+  const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:{lat:s.lat,lng:s.lng}})), origin);
+  document.getElementById('crwResultWrap').innerHTML = `
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Paradas</div><div class="stat-value">${ordered.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Distância total</div><div class="stat-value">${fmtKm(trip.distance)}</div></div>
+      <div class="stat-card"><div class="stat-label">Tempo estimado</div><div class="stat-value">${fmtMin(trip.duration)}</div></div>
+    </div>
+    ${withoutCoords>0?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${withoutCoords} selecionado(s) ficaram de fora por não terem endereço localizável.</div>`:''}
+    <ol style="padding-left:20px;margin:0 0 14px 0;">
+      ${ordered.map((s,i)=>`<li style="margin-bottom:8px;font-size:13px;"><strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}<div style="color:var(--muted);font-size:12px;">${esc(s.address||'')}</div></li>`).join('')}
+    </ol>
+    <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
+    <div style="margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="closeModal(); setVisitasTab('rotas');">Concluir</button></div>
+  `;
+}
+
+// ---- Histórico de rotas comerciais ----
+function renderCommercialRoutes(){
+  const wrap = document.getElementById('commercialRoutesTableWrap');
+  if(!wrap) return;
+  if(state.commercialRoutes.length===0){ wrap.innerHTML = emptyState('Nenhuma rota comercial gerada ainda.','Nova Rota Comercial','openCommercialRouteWizard()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Região</th><th>Paradas</th><th>Distância</th><th>Tempo</th><th>Status</th></tr></thead><tbody>
+    ${state.commercialRoutes.map(r=>{
+      const city = state.visitCities.find(c=>c.id===r.cityId);
+      const neighborhood = state.visitNeighborhoods.find(n=>n.id===r.neighborhoodId);
+      return `<tr>
+        <td>${fmtDate(r.plannedDate)}</td>
+        <td>${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
+        <td>${r.stops.length}</td>
+        <td>${r.distanceKm!=null?r.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
+        <td>${r.durationMin!=null?r.durationMin+' min':'—'}</td>
+        <td><span class="badge badge-info">${r.status}</span></td>
       </tr>`;
     }).join('')}
   </tbody></table>`;
