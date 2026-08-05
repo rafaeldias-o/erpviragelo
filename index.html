@@ -300,30 +300,56 @@ tr:last-child td{border-bottom:none;}
       <!-- CENTRAL DE NOTIFICAÇÕES -->
       <section class="view" id="view-notificacoes">
         <div class="tabs">
-          <div class="tab active" data-notifperiod="hoje" onclick="setNotifPeriod('hoje')">Hoje</div>
-          <div class="tab" data-notifperiod="semana" onclick="setNotifPeriod('semana')">Próximos 7 dias</div>
-          <div class="tab" data-notifperiod="mes" onclick="setNotifPeriod('mes')">Este mês</div>
-          <div class="tab" data-notifperiod="todos" onclick="setNotifPeriod('todos')">Todos</div>
+          <div class="tab active" data-notifmaster="central" onclick="setNotifMasterTab('central')">Central</div>
+          <div class="tab" data-notifmaster="inventario" onclick="setNotifMasterTab('inventario')">📦 Inventário</div>
         </div>
-        <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
 
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div></div>
-          <div id="notifAlertsWrap"></div>
-        </div>
-        <div class="two-col">
+        <div id="notifCentralView">
+          <div class="tabs">
+            <div class="tab active" data-notifperiod="hoje" onclick="setNotifPeriod('hoje')">Hoje</div>
+            <div class="tab" data-notifperiod="semana" onclick="setNotifPeriod('semana')">Próximos 7 dias</div>
+            <div class="tab" data-notifperiod="mes" onclick="setNotifPeriod('mes')">Este mês</div>
+            <div class="tab" data-notifperiod="todos" onclick="setNotifPeriod('todos')">Todos</div>
+          </div>
+          <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
+
           <div class="panel">
-            <div class="panel-head"><div class="section-title">✅ Tarefas</div></div>
-            <div id="notifTasksWrap"></div>
+            <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div></div>
+            <div id="notifAlertsWrap"></div>
+          </div>
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">✅ Tarefas</div></div>
+              <div id="notifTasksWrap"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
+              <div id="notifDeliveriesWrap"></div>
+            </div>
           </div>
           <div class="panel">
-            <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
-            <div id="notifDeliveriesWrap"></div>
+            <div class="panel-head"><div class="section-title">📅 Compromissos</div><button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">+ Novo compromisso</button></div>
+            <div id="notifCommitmentsWrap"></div>
           </div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">📅 Compromissos</div><button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">+ Novo compromisso</button></div>
-          <div id="notifCommitmentsWrap"></div>
+
+        <div id="notifInventarioView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Indicadores do patrimônio</div></div>
+            <div class="stat-grid" id="assetStatsGrid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Patrimônio cadastrado</div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="assetCategoryFilter" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderAssetsTable()">
+                  <option value="todas">Todas as categorias</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="openAssetModal()">+ Novo patrimônio</button>
+              </div>
+            </div>
+            <div id="assetsTableWrap" class="table-scroll"></div>
+          </div>
         </div>
       </section>
 
@@ -559,7 +585,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -687,7 +713,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -711,15 +737,30 @@ async function loadAll(){
     sb.from('commercial_route_stops').select('*').order('sequence'),
     sb.from('profiles').select('*'),
     sb.from('commitments').select('*').is('deleted_at', null).order('date'),
+    sb.from('assets').select('*').is('deleted_at', null).order('name'),
+    sb.from('asset_history').select('*').order('created_at', {ascending:false}),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
-    ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes]]){
+    ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
+    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  const assetHistByAsset = {};
+  (assetHistRes.data||[]).forEach(h => (assetHistByAsset[h.asset_id] = assetHistByAsset[h.asset_id] || []).push({
+    id:h.id, type:h.type, text:h.text, createdAt:h.created_at
+  }));
+  state.assets = (assetRes.data||[]).map(a => ({
+    id:a.id, name:a.name, category:a.category, assetNumber:a.asset_number, manufacturer:a.manufacturer,
+    model:a.model, serialNumber:a.serial_number, purchaseDate:a.purchase_date,
+    purchaseValue: a.purchase_value!=null?Number(a.purchase_value):null, location:a.location, situation:a.situation,
+    warrantyMonths:a.warranty_months, warrantyEndDate:a.warranty_end_date, notes:a.notes,
+    history: assetHistByAsset[a.id]||[]
+  }));
 
   state.commitments = (commitRes.data||[]).map(c => ({
     id:c.id, title:c.title, description:c.description, date:c.date, time:c.time,
@@ -3713,6 +3754,14 @@ async function deleteFreightTier(id){
 // =========================================================
 // CENTRAL DE NOTIFICAÇÕES (Fase 1 — agregação, sem tabela nova)
 // =========================================================
+let notifMasterTab = 'central';
+function setNotifMasterTab(tab){
+  notifMasterTab = tab;
+  document.querySelectorAll('[data-notifmaster]').forEach(t=>t.classList.toggle('active', t.dataset.notifmaster===tab));
+  document.getElementById('notifCentralView').style.display = tab==='central' ? 'block' : 'none';
+  document.getElementById('notifInventarioView').style.display = tab==='inventario' ? 'block' : 'none';
+  if(tab==='inventario') renderAssetsView();
+}
 let notifPeriod = 'hoje';
 function setNotifPeriod(p){
   notifPeriod = p;
@@ -3882,6 +3931,164 @@ function renderNotifCommitments(){
   }).join('');
 }
 
+// =========================================================
+// INVENTÁRIO PATRIMONIAL (Fase 3)
+// =========================================================
+const ASSET_CATEGORIES = [
+  {v:'freezer', label:'Freezer', icon:'🧊'}, {v:'camara_fria', label:'Câmara fria', icon:'❄️'},
+  {v:'maquina', label:'Máquina', icon:'⚙️'}, {v:'equipamento', label:'Equipamento', icon:'🔧'},
+  {v:'ferramenta', label:'Ferramenta', icon:'🛠️'}, {v:'veiculo', label:'Veículo', icon:'🚚'}, {v:'outro', label:'Outro', icon:'📦'},
+];
+const ASSET_SITUATIONS = [
+  {v:'ativo', label:'Ativo', cls:'badge-success'}, {v:'manutencao', label:'Em manutenção', cls:'badge-warn'},
+  {v:'inativo', label:'Inativo', cls:'badge-muted'}, {v:'baixado', label:'Baixado', cls:'badge-danger'},
+];
+function assetCategoryInfo(v){ return ASSET_CATEGORIES.find(c=>c.v===v) || ASSET_CATEGORIES[6]; }
+function assetSituationInfo(v){ return ASSET_SITUATIONS.find(s=>s.v===v) || ASSET_SITUATIONS[0]; }
+// Soma meses a uma data sem "estourar" o mês (ex: 31/01 + 1 mês não vira 03/03) — usa o dia do mês final,
+// limitado ao último dia daquele mês, mesma regra que o Postgres aplica no cálculo que já testamos.
+function addMonths(dateStr, months){
+  const d = new Date(dateStr+'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth()+months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d.toISOString().slice(0,10);
+}
+
+function openAssetModal(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar o patrimônio', true); return; }
+  const a = id ? state.assets.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${a?'Editar patrimônio':'Novo patrimônio'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Nome</label><input id="as-name" value="${a?esc(a.name):''}" placeholder="Ex: Freezer horizontal 500L"></div>
+      <div class="field"><label>Categoria</label><select id="as-category">${ASSET_CATEGORIES.map(c=>`<option value="${c.v}" ${a&&a.category===c.v?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Número de patrimônio</label><input id="as-number" value="${a?esc(a.assetNumber||''):''}"></div>
+      <div class="field"><label>Situação</label><select id="as-situation">${ASSET_SITUATIONS.map(s=>`<option value="${s.v}" ${(a?a.situation:'ativo')===s.v?'selected':''}>${s.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Fabricante</label><input id="as-manufacturer" value="${a?esc(a.manufacturer||''):''}"></div>
+      <div class="field"><label>Modelo</label><input id="as-model" value="${a?esc(a.model||''):''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Número de série</label><input id="as-serial" value="${a?esc(a.serialNumber||''):''}"></div>
+      <div class="field"><label>Localização</label><input id="as-location" value="${a?esc(a.location||''):''}" placeholder="Ex: Área de produção"></div>
+    </div>
+    <div class="field-row3">
+      <div class="field"><label>Data da compra</label><input id="as-purchasedate" type="date" value="${a?a.purchaseDate||'':''}"></div>
+      <div class="field"><label>Valor da compra (R$)</label><input id="as-purchasevalue" type="number" step="0.01" value="${a&&a.purchaseValue!=null?a.purchaseValue:''}"></div>
+      <div class="field"><label>Garantia (meses)</label><input id="as-warranty" type="number" min="0" value="${a&&a.warrantyMonths!=null?a.warrantyMonths:''}"></div>
+    </div>
+    <div class="field"><label>Observações</label><textarea id="as-notes" rows="2">${a?esc(a.notes||''):''}</textarea></div>
+    <div class="modal-foot">
+      ${a?`<button class="btn btn-danger-ghost" onclick="deleteAsset('${a.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAsset(${a?`'${a.id}'`:'null'})">Salvar</button>
+    </div>
+    ${a ? `<div class="subhead">Histórico</div><div id="assetHistoryWrap"></div>` : ''}
+  `, 'wide');
+  if(a) renderAssetHistory(a.id);
+}
+async function saveAsset(id){
+  const name = document.getElementById('as-name').value.trim();
+  if(!name){ toast('Informe o nome do patrimônio', true); return; }
+  const purchaseDate = document.getElementById('as-purchasedate').value || null;
+  const warrantyMonthsRaw = document.getElementById('as-warranty').value;
+  const warrantyMonths = warrantyMonthsRaw ? parseInt(warrantyMonthsRaw) : null;
+  const warrantyEndDate = (purchaseDate && warrantyMonths) ? addMonths(purchaseDate, warrantyMonths) : null;
+  const data = {
+    name, category: document.getElementById('as-category').value,
+    asset_number: document.getElementById('as-number').value.trim(), situation: document.getElementById('as-situation').value,
+    manufacturer: document.getElementById('as-manufacturer').value.trim(), model: document.getElementById('as-model').value.trim(),
+    serial_number: document.getElementById('as-serial').value.trim(), location: document.getElementById('as-location').value.trim(),
+    purchase_date: purchaseDate, purchase_value: parseFloat(document.getElementById('as-purchasevalue').value)||null,
+    warranty_months: warrantyMonths, warranty_end_date: warrantyEndDate,
+    notes: document.getElementById('as-notes').value.trim(),
+  };
+  if(id){
+    const { error } = await sb.from('assets').update(data).eq('id', id);
+    if(error){ dbErr(error, 'Erro ao salvar patrimônio'); return; }
+    await sb.from('asset_history').insert({ asset_id:id, type:'alteracao', text:'Dados do patrimônio atualizados', user_id: myUser?.id||null });
+  } else {
+    const { data: created, error } = await sb.from('assets').insert(data).select().single();
+    if(error){ dbErr(error, 'Erro ao salvar patrimônio'); return; }
+    await sb.from('asset_history').insert({ asset_id:created.id, type:'cadastro', text:'Patrimônio cadastrado', user_id: myUser?.id||null });
+  }
+  closeModal(); toast('Patrimônio salvo'); await loadAll(); renderAssetsView();
+}
+async function deleteAsset(id){
+  if(!confirm('Excluir este patrimônio do inventário?')) return;
+  const { error } = await sb.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir patrimônio'); return; }
+  closeModal(); toast('Patrimônio excluído'); await loadAll(); renderAssetsView();
+}
+function renderAssetHistory(assetId){
+  const wrap = document.getElementById('assetHistoryWrap');
+  const asset = state.assets.find(a=>a.id===assetId);
+  if(!wrap || !asset) return;
+  wrap.innerHTML = asset.history.length===0 ? '<div class="hint">Nenhum evento registrado ainda.</div>' :
+    asset.history.map(h=>`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;"><strong>${esc(h.text)}</strong><div style="color:var(--muted);font-size:11px;">${fmtDateTime(h.createdAt)}</div></div>`).join('');
+}
+function renderAssetsView(){
+  renderAssetStats();
+  renderAssetsTable();
+}
+function renderAssetStats(){
+  const box = document.getElementById('assetStatsGrid');
+  if(!box) return;
+  const today = todayStr();
+  const total = state.assets.length;
+  const valorTotal = state.assets.reduce((s,a)=>s+(a.purchaseValue||0),0);
+  const emGarantia = state.assets.filter(a=>a.warrantyEndDate && a.warrantyEndDate>=today).length;
+  const foraGarantia = state.assets.filter(a=>a.warrantyEndDate && a.warrantyEndDate<today).length;
+  const emManutencao = state.assets.filter(a=>a.situation==='manutencao').length;
+  const porCategoria = ASSET_CATEGORIES.map(c=>({...c, count: state.assets.filter(a=>a.category===c.v).length})).filter(c=>c.count>0);
+
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total de patrimônios</div><div class="stat-value">${total}</div></div>
+    <div class="stat-card"><div class="stat-label">Valor total investido</div><div class="stat-value">${fmtMoney(valorTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">Em garantia</div><div class="stat-value" style="color:var(--success)">${emGarantia}</div></div>
+    <div class="stat-card"><div class="stat-label">Fora da garantia</div><div class="stat-value" style="color:var(--muted)">${foraGarantia}</div></div>
+    <div class="stat-card"><div class="stat-label">Em manutenção</div><div class="stat-value" style="color:var(--warn)">${emManutencao}</div></div>
+    <div class="stat-card"><div class="stat-label">Por categoria</div><div class="stat-value" style="font-size:12px;font-weight:500;line-height:1.6;">${porCategoria.map(c=>`${c.icon} ${c.label}: ${c.count}`).join('<br>')||'—'}</div></div>
+  `;
+}
+function renderAssetsTable(){
+  const wrap = document.getElementById('assetsTableWrap');
+  if(!wrap) return;
+  const filterSel = document.getElementById('assetCategoryFilter');
+  if(filterSel && filterSel.options.length<=1){
+    filterSel.innerHTML = '<option value="todas">Todas as categorias</option>' + ASSET_CATEGORIES.map(c=>`<option value="${c.v}">${c.icon} ${c.label}</option>`).join('');
+  }
+  const catFilter = filterSel ? filterSel.value : 'todas';
+  const today = todayStr();
+  const list = catFilter==='todas' ? state.assets : state.assets.filter(a=>a.category===catFilter);
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum patrimônio cadastrado ainda.','Novo patrimônio','openAssetModal()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Categoria</th><th>Nº patrimônio</th><th>Localização</th><th>Garantia</th><th>Situação</th><th></th></tr></thead><tbody>
+    ${list.map(a=>{
+      const cat = assetCategoryInfo(a.category);
+      const sit = assetSituationInfo(a.situation);
+      let warrantyLabel = '—';
+      if(a.warrantyEndDate){
+        warrantyLabel = a.warrantyEndDate>=today ? `Até ${fmtDate(a.warrantyEndDate)}` : `<span style="color:var(--muted)">Expirou em ${fmtDate(a.warrantyEndDate)}</span>`;
+      }
+      return `<tr style="cursor:pointer;" onclick="openAssetModal('${a.id}')">
+        <td><strong>${esc(a.name)}</strong>${a.manufacturer?`<div style="color:var(--muted);font-size:11px">${esc(a.manufacturer)}${a.model?' '+esc(a.model):''}</div>`:''}</td>
+        <td>${cat.icon} ${cat.label}</td>
+        <td>${esc(a.assetNumber||'—')}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(a.location||'—')}</td>
+        <td style="font-size:12px">${warrantyLabel}</td>
+        <td><span class="badge ${sit.cls}">${sit.label}</span></td>
+        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openAssetModal('${a.id}')">${iconEdit}</button><button class="icon-btn" onclick="event.stopPropagation(); deleteAsset('${a.id}')">${iconTrash}</button></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
 function updateNotifBadge(){
   const badge = document.getElementById('notifBadge');
   if(!badge) return;
@@ -3897,6 +4104,7 @@ function renderAll(){
   renderConfig();
   renderNotifications();
   updateNotifBadge();
+  if(notifMasterTab==='inventario') renderAssetsView();
 }
 
 // ================= INIT =================
