@@ -439,7 +439,19 @@ tr:last-child td{border-bottom:none;}
 
         <div id="visitasRotasView" style="display:none;">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Rotas Comerciais</div><button class="btn btn-primary btn-sm" onclick="openCommercialRouteWizard()">+ Nova Rota Comercial</button></div>
+            <div class="panel-head"><div class="section-title">Indicadores do módulo</div></div>
+            <div class="stat-grid" id="visitasStatsGrid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Rotas Comerciais</div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="crHistoryCityFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderCommercialRoutes()">
+                  <option value="todas">Todas as cidades</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="openCommercialRouteWizard()">+ Nova Rota Comercial</button>
+              </div>
+            </div>
             <div id="commercialRoutesTableWrap" class="table-scroll"></div>
           </div>
         </div>
@@ -644,7 +656,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -666,13 +678,14 @@ async function loadAll(){
     sb.from('field_prospects').select('*').is('deleted_at', null).order('name'),
     sb.from('commercial_routes').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
     sb.from('commercial_route_stops').select('*').order('sequence'),
+    sb.from('profiles').select('*'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
-    ['rotas comerciais',crRes],['paradas de rota',crStopsRes]]){
+    ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
@@ -693,10 +706,14 @@ async function loadAll(){
       notes:s.notes, visitedAt:s.visited_at
     });
   });
+  const profileById = {};
+  (profRes.data||[]).forEach(p => profileById[p.id] = p.name);
   state.commercialRoutes = (crRes.data||[]).map(r => ({
     id:r.id, cityId:r.city_id, neighborhoodId:r.neighborhood_id, plannedDate:r.planned_date,
     maxVisits:r.max_visits, distanceKm:r.distance_km!=null?Number(r.distance_km):null,
-    durationMin:r.duration_min, status:r.status, plannedStartTime:r.planned_start_time, createdAt:(r.created_at||'').slice(0,10),
+    durationMin:r.duration_min, status:r.status, plannedStartTime:r.planned_start_time,
+    createdBy:r.created_by, createdByName: profileById[r.created_by] || '—',
+    createdAt:(r.created_at||'').slice(0,10),
     stops: (stopsByRoute[r.id]||[]).sort((a,b)=>a.sequence-b.sequence)
   }));
 
@@ -3170,7 +3187,7 @@ async function crGenerateRoute(){
   const { data: route, error: routeErr } = await sb.from('commercial_routes').insert({
     city_id: crWizardCityId, neighborhood_id: crWizardNeighborhoodId, max_visits: crWizardMaxVisits,
     distance_km: trip.distance/1000, duration_min: Math.round(trip.duration/60), status: 'planejada',
-    planned_start_time: crWizardStartTime
+    planned_start_time: crWizardStartTime, created_by: myUser?.id || null
   }).select().single();
   if(routeErr){ dbErr(routeErr, 'Erro ao salvar rota comercial'); return; }
   const stopsPayload = ordered.map((s,i)=>({
@@ -3204,17 +3221,30 @@ function renderCRWizardResult(ordered, expectedTimes, trip, withoutCoords, origi
 function renderCommercialRoutes(){
   const wrap = document.getElementById('commercialRoutesTableWrap');
   if(!wrap) return;
-  if(state.commercialRoutes.length===0){ wrap.innerHTML = emptyState('Nenhuma rota comercial gerada ainda.','Nova Rota Comercial','openCommercialRouteWizard()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Início</th><th>Região</th><th>Progresso</th><th>Distância</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody>
-    ${state.commercialRoutes.map(r=>{
+
+  const filterSel = document.getElementById('crHistoryCityFilter');
+  if(filterSel && filterSel.options.length<=1){
+    filterSel.innerHTML = '<option value="todas">Todas as cidades</option>' + state.visitCities.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  }
+  const cityFilter = filterSel ? filterSel.value : 'todas';
+  const list = cityFilter==='todas' ? state.commercialRoutes : state.commercialRoutes.filter(r=>r.cityId===cityFilter);
+
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhuma rota comercial encontrada.','Nova Rota Comercial','openCommercialRouteWizard()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Início</th><th>Região</th><th>Usuário</th><th>Progresso</th><th>Leads</th><th>Clientes</th><th>Distância</th><th>Tempo</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(r=>{
       const city = state.visitCities.find(c=>c.id===r.cityId);
       const neighborhood = state.visitNeighborhoods.find(n=>n.id===r.neighborhoodId);
       const done = r.stops.filter(s=>s.visitStatus!=='pendente').length;
+      const leads = r.stops.filter(s=>s.visitStatus==='virou_lead').length;
+      const clientes = r.stops.filter(s=>s.visitStatus==='virou_cliente').length;
       return `<tr style="cursor:pointer;" onclick="openRouteDetailModal('${r.id}')">
         <td>${fmtDate(r.plannedDate)}</td>
         <td>${r.plannedStartTime?r.plannedStartTime.slice(0,5):'—'}</td>
         <td>${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(r.createdByName)}</td>
         <td>${done}/${r.stops.length} feitas</td>
+        <td>${leads}</td>
+        <td>${clientes}</td>
         <td>${r.distanceKm!=null?r.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
         <td>${r.durationMin!=null?r.durationMin+' min':'—'}</td>
         <td><span class="badge badge-info">${r.status}</span></td>
@@ -3222,6 +3252,45 @@ function renderCommercialRoutes(){
       </tr>`;
     }).join('')}
   </tbody></table>`;
+
+  renderVisitasStats();
+}
+
+// ---- Indicadores do módulo (Fase 4) — tudo calculado a partir do que já está carregado, sem consulta extra ----
+function renderVisitasStats(){
+  const box = document.getElementById('visitasStatsGrid');
+  if(!box) return;
+  const allStops = state.commercialRoutes.flatMap(r=>r.stops);
+  const planejadas = allStops.length;
+  const realizadas = allStops.filter(s=>s.visitStatus!=='pendente').length;
+  const encontrados = allStops.filter(s=>s.visitStatus==='visitado').length;
+  const novosLeads = allStops.filter(s=>s.visitStatus==='virou_lead').length;
+  const novosClientes = allStops.filter(s=>s.visitStatus==='virou_cliente').length;
+  const taxaConversao = realizadas>0 ? ((novosLeads+novosClientes)/realizadas*100) : 0;
+  const distanciaTotal = state.commercialRoutes.reduce((s,r)=>s+(r.distanceKm||0),0);
+
+  // Tempo médio por visita: usa o horário real em que cada parada foi marcada (visited_at),
+  // comparando paradas consecutivas dentro da mesma rota — reflete o campo de verdade, não a estimativa de planejamento.
+  let deltas = [];
+  state.commercialRoutes.forEach(r=>{
+    const timed = r.stops.filter(s=>s.visitedAt).sort((a,b)=> a.sequence-b.sequence);
+    for(let i=1;i<timed.length;i++){
+      const diffMin = (new Date(timed[i].visitedAt) - new Date(timed[i-1].visitedAt)) / 60000;
+      if(diffMin>0 && diffMin<180) deltas.push(diffMin); // ignora saltos absurdos (ex: marcado dias depois)
+    }
+  });
+  const tempoMedio = deltas.length ? (deltas.reduce((a,b)=>a+b,0)/deltas.length) : null;
+
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Visitas planejadas</div><div class="stat-value">${planejadas}</div></div>
+    <div class="stat-card"><div class="stat-label">Visitas realizadas</div><div class="stat-value">${realizadas}</div></div>
+    <div class="stat-card"><div class="stat-label">Clientes encontrados</div><div class="stat-value">${encontrados}</div></div>
+    <div class="stat-card"><div class="stat-label">Novos leads</div><div class="stat-value">${novosLeads}</div></div>
+    <div class="stat-card"><div class="stat-label">Novos clientes</div><div class="stat-value">${novosClientes}</div></div>
+    <div class="stat-card"><div class="stat-label">Taxa de conversão</div><div class="stat-value">${taxaConversao.toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Tempo médio por visita</div><div class="stat-value">${tempoMedio!=null?tempoMedio.toFixed(0)+' min':'—'}</div><div class="stat-note">${tempoMedio!=null?'baseado no histórico real':'sem dados suficientes ainda'}</div></div>
+    <div class="stat-card"><div class="stat-label">Distância percorrida</div><div class="stat-value">${distanciaTotal.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</div></div>
+  `;
 }
 
 // =========================================================
