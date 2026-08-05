@@ -495,6 +495,7 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
           <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
           <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
+          <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
         </div>
 
         <div id="finLancamentosView">
@@ -531,6 +532,11 @@ tr:last-child td{border-bottom:none;}
             <div class="hint" style="margin-bottom:10px;">Organize receitas e despesas por categoria — pode criar subcategorias dentro de uma categoria pai.</div>
             <div id="finCategoriesTableWrap" class="table-scroll"></div>
           </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Centros de Custo</div><button class="btn btn-primary btn-sm" onclick="openCostCenterModal()">+ Novo centro de custo</button></div>
+            <div class="hint" style="margin-bottom:10px;">Ex: Produção, Comercial, Administrativo, Logística — facilita analisar gastos por área da empresa.</div>
+            <div id="costCentersTableWrap" class="table-scroll"></div>
+          </div>
         </div>
 
         <div id="finRecorrentesView" style="display:none;">
@@ -554,6 +560,25 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title">Contas a Pagar</div><button class="btn btn-primary btn-sm" onclick="openTransactionModal()">+ Nova despesa</button></div>
             <div class="stat-grid" id="pagarStats" style="margin-bottom:14px;"></div>
             <div id="pagarTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="finFluxoView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Indicadores Financeiros</div></div>
+            <div class="stat-grid" id="indicadoresGrid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Fluxo de Caixa</div>
+              <select id="fluxoGranularity" onchange="renderFluxoCaixa()" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
+                <option value="dia">Por dia</option>
+                <option value="semana">Por semana</option>
+                <option value="mes" selected>Por mês</option>
+                <option value="ano">Por ano</option>
+              </select>
+            </div>
+            <div id="fluxoCaixaTableWrap" class="table-scroll"></div>
           </div>
         </div>
       </section>
@@ -908,7 +933,7 @@ async function loadAll(){
     id:a.id, name:a.name, type:a.type, initialBalance:Number(a.initial_balance), color:a.color, icon:a.icon, status:a.status, notes:a.notes
   }));
   state.financialCategories = (finCatRes.data||[]).map(c => ({
-    id:c.id, name:c.name, type:c.type, parentId:c.parent_id, icon:c.icon, color:c.color, status:c.status
+    id:c.id, name:c.name, type:c.type, parentId:c.parent_id, icon:c.icon, color:c.color, status:c.status, isFixed:c.is_fixed
   }));
   state.costCenters = (costCenterRes.data||[]).map(c => ({ id:c.id, name:c.name, status:c.status }));
 
@@ -2037,14 +2062,153 @@ function setFinTab(tab){
   document.getElementById('finRecorrentesView').style.display = tab==='recorrentes' ? 'block' : 'none';
   document.getElementById('finReceberView').style.display = tab==='receber' ? 'block' : 'none';
   document.getElementById('finPagarView').style.display = tab==='pagar' ? 'block' : 'none';
+  document.getElementById('finFluxoView').style.display = tab==='fluxo' ? 'block' : 'none';
   if(tab==='contas') renderFinAccountsTable();
-  if(tab==='categorias') renderFinCategoriesTable();
+  if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
   if(tab==='pagar') renderPagarTable();
+  if(tab==='fluxo'){ renderFluxoCaixa(); renderIndicadoresFinanceiros(); }
 }
 
-// ---- Contas Financeiras ----
+// ---- Centro de Custos ----
+function openCostCenterModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar centros de custo', true); return; }
+  const c = id ? state.costCenters.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${c?'Editar centro de custo':'Novo centro de custo'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Nome</label><input id="cc-name" value="${c?esc(c.name):''}" placeholder="Ex: Produção, Comercial, Logística"></div>
+    ${c?`<div class="field"><label>Status</label><select id="cc-status"><option value="ativo" ${c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c.status==='inativo'?'selected':''}>Inativo</option></select></div>`:''}
+    <div class="modal-foot">
+      ${c?`<button class="btn btn-danger-ghost" onclick="deleteCostCenter('${c.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCostCenter(${c?`'${c.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+async function saveCostCenter(id){
+  const name = document.getElementById('cc-name').value.trim();
+  if(!name){ toast('Informe o nome do centro de custo', true); return; }
+  const data = { name };
+  if(id) data.status = document.getElementById('cc-status').value;
+  const { error } = id ? await sb.from('cost_centers').update(data).eq('id', id) : await sb.from('cost_centers').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar centro de custo'); return; }
+  closeModal(); toast('Centro de custo salvo'); await loadAll(); renderCostCentersTable();
+}
+async function deleteCostCenter(id){
+  const inUse = state.transactions.some(t=>t.costCenterId===id);
+  if(inUse){ toast('Esse centro de custo tem lançamentos vinculados — marque como inativo em vez de excluir.', true); return; }
+  if(!confirm('Excluir este centro de custo?')) return;
+  const { error } = await sb.from('cost_centers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir centro de custo'); return; }
+  closeModal(); toast('Centro de custo excluído'); await loadAll(); renderCostCentersTable();
+}
+function renderCostCentersTable(){
+  const wrap = document.getElementById('costCentersTableWrap');
+  if(!wrap) return;
+  if(state.costCenters.length===0){ wrap.innerHTML = emptyState('Nenhum centro de custo cadastrado ainda.','Novo centro de custo','openCostCenterModal()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Status</th><th></th></tr></thead><tbody>
+    ${state.costCenters.map(c=>`<tr>
+      <td><strong>${esc(c.name)}</strong></td>
+      <td><span class="badge ${c.status==='ativo'?'badge-success':'badge-muted'}">${c.status==='ativo'?'Ativo':'Inativo'}</span></td>
+      <td class="row-actions"><button class="icon-btn" onclick="openCostCenterModal('${c.id}')">${iconEdit}</button></td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ---- Fluxo de Caixa dedicado (Fase 6) ----
+function buildCashFlowBuckets(granularity, count, today){
+  const buckets = [];
+  if(granularity==='dia'){
+    let d = addDays(today, -(count-1));
+    for(let i=0;i<count;i++){ buckets.push({from:d, to:d, label:fmtDate(d)}); d = addDays(d,1); }
+  } else if(granularity==='semana'){
+    let start = addDays(today, -(count-1)*7);
+    for(let i=0;i<count;i++){ const end = addDays(start,6); buckets.push({from:start, to:end, label:fmtDate(start)+' a '+fmtDate(end)}); start = addDays(start,7); }
+  } else if(granularity==='mes'){
+    let base = addMonthsFin(today.slice(0,8)+'01', -(count-1));
+    for(let i=0;i<count;i++){ const y=+base.slice(0,4), m=+base.slice(5,7); const to = new Date(y,m,0).toISOString().slice(0,10); buckets.push({from:base, to, label:new Date(base+'T00:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}); base = addMonthsFin(base,1); }
+  } else {
+    const y0 = +today.slice(0,4) - (count-1);
+    for(let i=0;i<count;i++){ const y=y0+i; buckets.push({from:y+'-01-01', to:y+'-12-31', label:String(y)}); }
+  }
+  return buckets;
+}
+function renderFluxoCaixa(){
+  const wrap = document.getElementById('fluxoCaixaTableWrap');
+  if(!wrap) return;
+  const granularity = document.getElementById('fluxoGranularity').value;
+  const today = todayStr();
+  const countByGranularity = { dia:30, semana:12, mes:12, ano:5 };
+  const buckets = buildCashFlowBuckets(granularity, countByGranularity[granularity], today);
+
+  let saldoAcumulado = state.financialAccounts.reduce((s,a)=>s+a.initialBalance,0);
+  // soma tudo que já aconteceu ANTES do primeiro período mostrado, pra o saldo inicial já vir certo
+  const firstFrom = buckets[0].from;
+  saldoAcumulado += state.transactions.filter(t=>(t.status==='pago'||t.status==='parcial') && t.paymentDate && t.paymentDate<firstFrom)
+    .reduce((s,t)=>{ const eff = t.status==='pago'?t.amount:t.paidAmount; return s + (t.type==='receita'?eff:-eff); }, 0);
+
+  const rows = buckets.map(b=>{
+    const saldoInicial = saldoAcumulado;
+    const entradas = state.transactions.filter(t=>t.type==='receita' && (t.status==='pago'||t.status==='parcial') && t.paymentDate>=b.from && t.paymentDate<=b.to)
+      .reduce((s,t)=> s + (t.status==='pago'?t.amount:t.paidAmount), 0);
+    const saidas = state.transactions.filter(t=>t.type==='despesa' && (t.status==='pago'||t.status==='parcial') && t.paymentDate>=b.from && t.paymentDate<=b.to)
+      .reduce((s,t)=> s + (t.status==='pago'?t.amount:t.paidAmount), 0);
+    const saldoFinal = saldoInicial + entradas - saidas;
+    // previsto: soma o que ainda está em aberto com vencimento nesse período, como se fosse liquidar tudo
+    const entradasPrevistas = state.transactions.filter(t=>t.type==='receita' && t.status==='pendente' && t.dueDate>=b.from && t.dueDate<=b.to).reduce((s,t)=>s+transactionTotalDue(t),0);
+    const saidasPrevistas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pendente' && t.dueDate>=b.from && t.dueDate<=b.to).reduce((s,t)=>s+transactionTotalDue(t),0);
+    const saldoPrevisto = saldoFinal + entradasPrevistas - saidasPrevistas;
+    saldoAcumulado = saldoFinal;
+    return { ...b, saldoInicial, entradas, saidas, saldoFinal, saldoPrevisto };
+  });
+
+  wrap.innerHTML = `<table><thead><tr><th>Período</th><th>Saldo Inicial</th><th>Entradas</th><th>Saídas</th><th>Saldo Final (realizado)</th><th>Saldo Previsto</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td>${r.label}</td>
+      <td style="color:var(--muted);">${fmtMoney(r.saldoInicial)}</td>
+      <td style="color:var(--success);">${fmtMoney(r.entradas)}</td>
+      <td style="color:var(--danger);">${fmtMoney(r.saidas)}</td>
+      <td style="font-weight:600;">${fmtMoney(r.saldoFinal)}</td>
+      <td style="color:var(--info);">${fmtMoney(r.saldoPrevisto)}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ---- Indicadores Financeiros (Fase 6) ----
+function renderIndicadoresFinanceiros(){
+  const box = document.getElementById('indicadoresGrid');
+  if(!box) return;
+  const range = finDashPeriodRange();
+  const receitas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const despesas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const receitaBruta = receitas.reduce((s,t)=>s+t.amount,0);
+  const receitaLiquida = receitas.reduce((s,t)=>s+(t.amount-(t.discount||0)),0);
+  const despesaTotal = despesas.reduce((s,t)=>s+t.amount,0);
+  const despesaFixa = despesas.filter(t=>{ const cat = state.financialCategories.find(c=>c.id===t.categoryId); return cat && cat.isFixed; }).reduce((s,t)=>s+t.amount,0);
+  const despesaVariavel = despesaTotal - despesaFixa;
+  const lucro = receitaLiquida - despesaTotal;
+  const margem = receitaLiquida>0 ? (lucro/receitaLiquida*100) : 0;
+
+  // ponto de equilíbrio: despesas fixas / margem de contribuição (%) — quanto precisa faturar pra cobrir os custos fixos
+  const margemContribuicao = receitaLiquida>0 ? (receitaLiquida-despesaVariavel)/receitaLiquida : 0;
+  const pontoEquilibrio = margemContribuicao>0 ? despesaFixa/margemContribuicao : null;
+
+  const lucroAcumulado = state.transactions.filter(t=>t.status==='pago').reduce((s,t)=> s + (t.type==='receita'?t.amount:-t.amount), 0);
+
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Margem de lucro</div><div class="stat-value" style="color:${margem<0?'var(--danger)':'var(--success)'}">${margem.toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Lucro líquido (período)</div><div class="stat-value" style="color:${lucro<0?'var(--danger)':'inherit'}">${fmtMoney(lucro)}</div></div>
+    <div class="stat-card"><div class="stat-label">Receita bruta</div><div class="stat-value">${fmtMoney(receitaBruta)}</div></div>
+    <div class="stat-card"><div class="stat-label">Receita líquida</div><div class="stat-value">${fmtMoney(receitaLiquida)}</div></div>
+    <div class="stat-card"><div class="stat-label">Despesa fixa</div><div class="stat-value">${fmtMoney(despesaFixa)}</div></div>
+    <div class="stat-card"><div class="stat-label">Despesa variável</div><div class="stat-value">${fmtMoney(despesaVariavel)}</div></div>
+    <div class="stat-card"><div class="stat-label">Ponto de equilíbrio</div><div class="stat-value" style="font-size:15px;">${pontoEquilibrio!=null?fmtMoney(pontoEquilibrio):'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">Lucro acumulado (total)</div><div class="stat-value" style="color:${lucroAcumulado<0?'var(--danger)':'inherit'}">${fmtMoney(lucroAcumulado)}</div></div>
+  `;
+}
+
+
 const FIN_ACCOUNT_TYPES = [
   {v:'caixa', label:'Caixa', icon:'💵'}, {v:'banco', label:'Banco', icon:'🏦'}, {v:'maquininha', label:'Maquininha', icon:'💳'},
   {v:'pix', label:'Pix', icon:'📲'}, {v:'carteira', label:'Carteira', icon:'👛'}, {v:'outra', label:'Outra', icon:'💰'},
@@ -2187,6 +2351,10 @@ function openFinCategoryModal(id){
     <div class="field"><label>Categoria pai (opcional — deixe em branco pra criar uma categoria principal)</label><select id="fc-parent">
       <option value="">— Nenhuma (categoria principal) —</option>${parentOptions.map(p=>`<option value="${p.id}" ${c&&c.parentId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
     </select></div>
+    <div class="field" id="fc-fixedwrap" style="display:${(c?c.type:'despesa')==='despesa'?'flex':'none'};align-items:center;gap:8px;">
+      <input type="checkbox" id="fc-fixed" ${c&&c.isFixed?'checked':''} style="width:auto;">
+      <label style="margin:0;">Despesa fixa (aluguel, sistema, salários...) — desmarcado = variável</label>
+    </div>
     <div class="modal-foot">
       ${c?`<button class="btn btn-danger-ghost" onclick="deleteFinCategory('${c.id}')">Excluir</button>`:''}
       ${c&&c.status==='ativa'?`<button class="btn btn-ghost" onclick="archiveFinCategory('${c.id}')">Arquivar</button>`:''}
@@ -2204,11 +2372,13 @@ function onFinCategoryTypeChange(){
   const parentOptions = state.financialCategories.filter(p=>!p.parentId && p.id!==finCategoryEditingId && p.type===newType);
   document.getElementById('fc-parent').innerHTML = `<option value="">— Nenhuma (categoria principal) —</option>${parentOptions.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}`;
   document.getElementById('fc-name').value = name;
+  document.getElementById('fc-fixedwrap').style.display = newType==='despesa' ? 'flex' : 'none';
 }
 async function saveFinCategory(id){
   const name = document.getElementById('fc-name').value.trim();
   if(!name){ toast('Informe o nome da categoria', true); return; }
-  const data = { name, type: document.getElementById('fc-type').value, parent_id: document.getElementById('fc-parent').value || null };
+  const type = document.getElementById('fc-type').value;
+  const data = { name, type, parent_id: document.getElementById('fc-parent').value || null, is_fixed: type==='despesa' ? document.getElementById('fc-fixed').checked : false };
   const { error } = id ? await sb.from('financial_categories').update(data).eq('id', id) : await sb.from('financial_categories').insert(data);
   if(error){ dbErr(error, 'Erro ao salvar categoria'); return; }
   closeModal(); toast('Categoria salva'); await loadAll(); renderFinCategoriesTable();
