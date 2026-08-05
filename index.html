@@ -302,6 +302,7 @@ tr:last-child td{border-bottom:none;}
         <div class="tabs">
           <div class="tab active" data-notifmaster="central" onclick="setNotifMasterTab('central')">Central</div>
           <div class="tab" data-notifmaster="inventario" onclick="setNotifMasterTab('inventario')">📦 Inventário</div>
+          <div class="tab" data-notifmaster="gestao" onclick="setNotifMasterTab('gestao')">⚙️ Gestão de Alertas</div>
         </div>
 
         <div id="notifCentralView">
@@ -358,6 +359,19 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
             <div id="assetsTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="notifGestaoView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Alertas Personalizados</div><button class="btn btn-primary btn-sm" onclick="openCustomAlertModal()">+ Novo alerta personalizado</button></div>
+            <div class="hint" style="margin-bottom:10px;">Ex: "Ligar para fornecedor", "Renovar licença", "Trocar filtro" — qualquer lembrete que não se encaixa em nenhum outro módulo.</div>
+            <div id="customAlertsTableWrap" class="table-scroll"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Alertas automáticos ignorados</div></div>
+            <div class="hint" style="margin-bottom:10px;">Alertas automáticos que você marcou como "ignorar" ou "resolvido". Reativar faz o alerta voltar a aparecer normalmente.</div>
+            <div id="dismissedAlertsTableWrap" class="table-scroll"></div>
           </div>
         </div>
 
@@ -603,7 +617,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], customAlerts: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -731,7 +745,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -759,6 +773,7 @@ async function loadAll(){
     sb.from('asset_history').select('*').order('created_at', {ascending:false}),
     sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
     sb.from('alert_dismissals').select('*'),
+    sb.from('custom_alerts').select('*').is('deleted_at', null).order('date'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -766,11 +781,17 @@ async function loadAll(){
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
-    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes]]){
+    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes],
+    ['alertas personalizados',customAlertRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
   state.alertDismissals = (dismissRes.data||[]).map(d => ({ key:d.alert_key, until:d.dismissed_until }));
+  state.customAlerts = (customAlertRes.data||[]).map(c => ({
+    id:c.id, title:c.title, description:c.description, category:c.category, responsible:c.responsible,
+    date:c.date, time:c.time, priority:c.priority, recurrenceType:c.recurrence_type, intervalDays:c.interval_days,
+    status:c.status, snoozedUntil:c.snoozed_until, notes:c.notes
+  }));
 
   const maintByAsset = {};
   (maintRes.data||[]).forEach(m => (maintByAsset[m.asset_id] = maintByAsset[m.asset_id] || []).push({
@@ -1550,6 +1571,14 @@ function computeSystemAlerts(){
       if(daysLeft < 0) alerts.push({type:'manutencao_vencida', icon:'🧊', color:'var(--danger)', priority:'alta', text:`Manutenção vencida: ${p.title} — ${a.name} (${Math.abs(daysLeft)} dia(s) em atraso)`, date: p.nextDate, entityId:p.id, assetId:a.id});
       else if(daysLeft <= 7) alerts.push({type:'manutencao_proxima', icon:'🛠', color:'var(--warn)', priority: p.priority==='alta'?'alta':'média', text:`Manutenção em ${daysLeft} dia(s): ${p.title} — ${a.name}`, date: p.nextDate, entityId:p.id, assetId:a.id});
     });
+  });
+
+  // Alertas personalizados — só entram na lista quando ativos, vencidos/na data, e não ignorados temporariamente
+  (state.customAlerts||[]).filter(c=>c.status==='ativo' && c.date<=today && (!c.snoozedUntil || c.snoozedUntil<today)).forEach(c=>{
+    const overdue = c.date<today;
+    alerts.push({type:'alerta_personalizado', icon:'📌', color: c.priority==='alta'?'var(--danger)':c.priority==='media'?'var(--warn)':'var(--info)',
+      priority: c.priority==='alta'?'alta':c.priority==='media'?'média':'baixa',
+      text: `${c.title}${overdue?' (atrasado desde '+fmtDate(c.date)+')':''}`, date: c.date, entityId:c.id});
   });
 
   // Chave única por alerta (tipo + entidade) e filtro dos que foram ignorados/resolvidos
@@ -3812,7 +3841,9 @@ function setNotifMasterTab(tab){
   document.querySelectorAll('[data-notifmaster]').forEach(t=>t.classList.toggle('active', t.dataset.notifmaster===tab));
   document.getElementById('notifCentralView').style.display = tab==='central' ? 'block' : 'none';
   document.getElementById('notifInventarioView').style.display = tab==='inventario' ? 'block' : 'none';
+  document.getElementById('notifGestaoView').style.display = tab==='gestao' ? 'block' : 'none';
   if(tab==='inventario') renderAssetsView();
+  if(tab==='gestao') renderGestaoAlertas();
 }
 let notifDrilldownType = null;
 let drilldownFilters = {};
@@ -4227,24 +4258,162 @@ function alertActionsHtml(alert){
   } else if(['manutencao_vencida','manutencao_proxima'].includes(alert.type)){
     btns.push(btn('Concluir manutenção', `completeMaintenancePlan('${alert.assetId}','${alert.entityId}').then(()=>{closeModal();renderNotifications();})`, true));
     btns.push(btn('Abrir patrimônio', `closeModal(); openAssetModal('${alert.assetId}')`));
+  } else if(alert.type==='alerta_personalizado'){
+    btns.push(btn('Concluir', `completeCustomAlert('${alert.entityId}')`, true));
+    btns.push(btn('Editar', `closeModal(); openCustomAlertModal('${alert.entityId}')`));
+    btns.push(btn('Ignorar por 7 dias', `snoozeCustomAlert('${alert.entityId}', 7)`));
   }
   return btns.join('');
 }
 function openAlertDetail(index){
   const alert = notifAlertsList[index];
   if(!alert) return;
+  const isCustom = alert.type==='alerta_personalizado'; // esse tipo já tem seu próprio ciclo de vida (status/snooze), não usa o mecanismo genérico de ignorar
   openModal(`
     <div class="modal-head"><h3>${alert.icon} Detalhe do alerta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <p style="font-size:14px;margin-bottom:16px;">${esc(alert.text)}</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">${alertActionsHtml(alert)}</div>
+    ${!isCustom ? `
     <div class="subhead">Gestão do alerta</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${alert.key}', 7)">Ignorar por 7 dias</button>
       <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${alert.key}', 30)">Ignorar por 30 dias</button>
       <button class="btn btn-danger-ghost btn-sm" onclick="dismissAlert('${alert.key}', null)">Marcar como resolvido</button>
+    </div>` : ''}
+  `);
+}
+
+// =========================================================
+// GESTÃO DE ALERTAS (Fase C, final) — alertas personalizados + reativar ignorados
+// =========================================================
+function renderGestaoAlertas(){
+  renderCustomAlertsTable();
+  renderDismissedAlertsTable();
+}
+function openCustomAlertModal(id){
+  const c = id ? state.customAlerts.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${c?'Editar alerta':'Novo alerta personalizado'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Título</label><input id="ca-title" value="${c?esc(c.title):''}" placeholder="Ex: Ligar para fornecedor"></div>
+    <div class="field"><label>Descrição</label><textarea id="ca-description" rows="2">${c?esc(c.description||''):''}</textarea></div>
+    <div class="field-row">
+      <div class="field"><label>Categoria</label><input id="ca-category" value="${c?esc(c.category||''):''}" placeholder="Ex: Compras, Financeiro, Manutenção"></div>
+      <div class="field"><label>Responsável</label><input id="ca-responsible" value="${c?esc(c.responsible||''):''}"></div>
+    </div>
+    <div class="field-row3">
+      <div class="field"><label>Data</label><input id="ca-date" type="date" value="${c?c.date:todayStr()}"></div>
+      <div class="field"><label>Horário</label><input id="ca-time" type="time" value="${c&&c.time?c.time.slice(0,5):''}"></div>
+      <div class="field"><label>Prioridade</label><select id="ca-priority">${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${(c?c.priority:'media')===p.v?'selected':''}>${p.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Recorrência</label><select id="ca-recurrence" onchange="onCustomAlertRecurrenceChange()">${MAINTENANCE_RECURRENCES.map(r=>`<option value="${r.v}" ${c&&c.recurrenceType===r.v?'selected':''}>${r.label}</option>`).join('')}</select></div>
+      <div class="field" id="ca-intervalwrap" style="display:${(c?c.recurrenceType:'')==='personalizada'?'block':'none'}"><label>A cada quantos dias</label><input id="ca-interval" type="number" min="1" value="${c&&c.intervalDays?c.intervalDays:''}"></div>
+    </div>
+    <div class="field"><label>Observações</label><textarea id="ca-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
+    <div class="modal-foot">
+      ${c?`<button class="btn btn-danger-ghost" onclick="deleteCustomAlert('${c.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCustomAlert(${c?`'${c.id}'`:'null'})">Salvar</button>
     </div>
   `);
 }
+function onCustomAlertRecurrenceChange(){
+  const v = document.getElementById('ca-recurrence').value;
+  document.getElementById('ca-intervalwrap').style.display = v==='personalizada' ? 'block' : 'none';
+}
+async function saveCustomAlert(id){
+  const title = document.getElementById('ca-title').value.trim();
+  if(!title){ toast('Informe o título do alerta', true); return; }
+  const data = {
+    title, description: document.getElementById('ca-description').value.trim(),
+    category: document.getElementById('ca-category').value.trim(), responsible: document.getElementById('ca-responsible').value.trim(),
+    date: document.getElementById('ca-date').value || todayStr(), time: document.getElementById('ca-time').value || null,
+    priority: document.getElementById('ca-priority').value,
+    recurrence_type: document.getElementById('ca-recurrence').value,
+    interval_days: parseInt(document.getElementById('ca-interval').value)||null,
+    notes: document.getElementById('ca-notes').value.trim(),
+  };
+  const { error } = id ? await sb.from('custom_alerts').update(data).eq('id', id) : await sb.from('custom_alerts').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar alerta'); return; }
+  closeModal(); toast('Alerta salvo'); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+async function deleteCustomAlert(id){
+  if(!confirm('Excluir este alerta personalizado?')) return;
+  const { error } = await sb.from('custom_alerts').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir alerta'); return; }
+  closeModal(); toast('Alerta excluído'); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+async function completeCustomAlert(id){
+  const alert = state.customAlerts.find(c=>c.id===id);
+  if(!alert) return;
+  if(alert.recurrenceType==='unica'){
+    await sb.from('custom_alerts').update({ status:'resolvido' }).eq('id', id);
+  } else {
+    const nextDate = nextDateForRecurrence(alert.date, alert.recurrenceType, alert.intervalDays);
+    await sb.from('custom_alerts').update({ date: nextDate, snoozed_until: null }).eq('id', id);
+  }
+  toast('Alerta concluído' + (alert.recurrenceType!=='unica' ? ' — próxima data calculada automaticamente' : ''));
+  closeModal(); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+async function snoozeCustomAlert(id, days){
+  const until = addDays(todayStr(), days);
+  const { error } = await sb.from('custom_alerts').update({ snoozed_until: until }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao ignorar alerta'); return; }
+  toast(`Alerta ignorado por ${days} dias`);
+  closeModal(); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+async function reactivateCustomAlert(id){
+  const { error } = await sb.from('custom_alerts').update({ status:'ativo', snoozed_until:null }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao reativar alerta'); return; }
+  toast('Alerta reativado'); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+function renderCustomAlertsTable(){
+  const wrap = document.getElementById('customAlertsTableWrap');
+  if(!wrap) return;
+  if(state.customAlerts.length===0){ wrap.innerHTML = emptyState('Nenhum alerta personalizado cadastrado ainda.','Novo alerta personalizado','openCustomAlertModal()'); return; }
+  const today = todayStr();
+  wrap.innerHTML = `<table><thead><tr><th>Título</th><th>Categoria</th><th>Responsável</th><th>Data</th><th>Prioridade</th><th>Recorrência</th><th>Status</th><th></th></tr></thead><tbody>
+    ${state.customAlerts.map(c=>{
+      const recLabel = (MAINTENANCE_RECURRENCES.find(r=>r.v===c.recurrenceType)||{}).label || c.recurrenceType;
+      const snoozed = c.snoozedUntil && c.snoozedUntil>=today;
+      const statusLabel = c.status==='resolvido' ? 'Resolvido' : snoozed ? `Ignorado até ${fmtDate(c.snoozedUntil)}` : 'Ativo';
+      const statusCls = c.status==='resolvido' ? 'badge-muted' : snoozed ? 'badge-warn' : 'badge-success';
+      return `<tr>
+        <td><strong>${esc(c.title)}</strong>${c.description?`<div style="color:var(--muted);font-size:11px">${esc(c.description)}</div>`:''}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(c.category||'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(c.responsible||'—')}</td>
+        <td>${fmtDate(c.date)}${c.time?' '+c.time.slice(0,5):''}</td>
+        <td><span class="badge ${c.priority==='alta'?'badge-danger':c.priority==='media'?'badge-warn':'badge-muted'}">${c.priority}</span></td>
+        <td style="font-size:12px;color:var(--muted);">${recLabel}</td>
+        <td><span class="badge ${statusCls}">${statusLabel}</span></td>
+        <td class="row-actions">
+          ${c.status==='ativo'?`<button class="icon-btn" onclick="completeCustomAlert('${c.id}')" title="Concluir">✔</button>`:`<button class="icon-btn" onclick="reactivateCustomAlert('${c.id}')" title="Reativar">↺</button>`}
+          <button class="icon-btn" onclick="openCustomAlertModal('${c.id}')" title="Editar">${iconEdit}</button>
+          <button class="icon-btn" onclick="deleteCustomAlert('${c.id}')" title="Excluir">${iconTrash}</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+async function reactivateDismissal(key){
+  const { error } = await sb.from('alert_dismissals').delete().eq('alert_key', key);
+  if(error){ dbErr(error, 'Erro ao reativar alerta'); return; }
+  toast('Alerta reativado'); await loadAll(); renderNotifications(); renderGestaoAlertas();
+}
+function renderDismissedAlertsTable(){
+  const wrap = document.getElementById('dismissedAlertsTableWrap');
+  if(!wrap) return;
+  const list = state.alertDismissals||[];
+  if(list.length===0){ wrap.innerHTML = '<div class="hint" style="padding:10px 0;">Nenhum alerta automático ignorado ou resolvido no momento.</div>'; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Alerta</th><th>Situação</th><th></th></tr></thead><tbody>
+    ${list.map(d=>`<tr>
+      <td style="font-size:12.5px;">${esc(d.key)}</td>
+      <td>${d.until?`<span class="badge badge-warn">Ignorado até ${fmtDate(d.until)}</span>`:'<span class="badge badge-muted">Resolvido</span>'}</td>
+      <td class="row-actions"><button class="icon-btn" onclick="reactivateDismissal('${d.key}')" title="Reativar">↺</button></td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
 // ---- Resumo (Fase 5) — os 8 indicadores da Central, calculados do que já está em memória ----
 function renderNotifSummary(){
   const box = document.getElementById('notifSummaryGrid');
@@ -4695,6 +4864,7 @@ function renderAll(){
   renderNotifications();
   updateNotifBadge();
   if(notifMasterTab==='inventario') renderAssetsView();
+  if(notifMasterTab==='gestao') renderGestaoAlertas();
 }
 
 // ================= INIT =================
