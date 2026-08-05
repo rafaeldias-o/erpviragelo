@@ -6,7 +6,7 @@
 // - Versão do cache abaixo: mude o número sempre que publicar uma atualização. Isso invalida o cache antigo
 //   automaticamente e dispara o aviso de "nova versão disponível" no app, sem quebrar a sessão de quem já está usando.
 
-const CACHE_VERSION = 'viragelo-v4';
+const CACHE_VERSION = 'viragelo-v5';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -14,14 +14,16 @@ const STATIC_ASSETS = [
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
+  './logo-full.png',
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) => cache.addAll(STATIC_ASSETS))
   );
-  // não chama skipWaiting() automaticamente — só quando o usuário confirmar a atualização (ver mensagem 'skipWaiting' abaixo),
-  // pra não trocar a versão embaixo dos pés de alguém no meio de uma operação.
+  // não chama skipWaiting() automaticamente — só quando o usuário confirmar a atualização (mensagem
+  // 'skipWaiting' abaixo), pra não trocar a versão embaixo dos pés de alguém no meio de uma operação.
 });
 
 self.addEventListener('activate', (event) => {
@@ -40,7 +42,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   const isSameOrigin = url.origin === self.location.origin;
 
-  // Fora da mesma origem (Supabase, CDN de fontes/scripts): sempre rede, nunca intercepta.
+  // Fora da mesma origem (Supabase, CDN de fontes/scripts, Nominatim/OSRM): sempre rede, nunca intercepta.
   if (!isSameOrigin) return;
 
   // Navegação (abrir/recarregar o app): tenta a rede primeiro pra sempre pegar a versão mais nova;
@@ -52,7 +54,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Estáticos da mesma origem (ícones, manifest): cache primeiro, com atualização em segundo plano.
+  // Estáticos da mesma origem (ícones, manifest, logo): cache primeiro, com atualização em segundo plano.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request).then((resp) => {
