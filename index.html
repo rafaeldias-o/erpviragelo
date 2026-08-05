@@ -522,6 +522,7 @@ let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
 let crWizardCandidates = [];
 let crWizardMaxVisits = 10;
+let crWizardStartTime = null; // 'HH:MM' — definido no Passo 3, padrão é o horário atual
 let currentVisitasTab = 'regioes';
 let selectedVisitCityId = null;
 let currentStockTab = 'materia_prima';
@@ -695,7 +696,7 @@ async function loadAll(){
   state.commercialRoutes = (crRes.data||[]).map(r => ({
     id:r.id, cityId:r.city_id, neighborhoodId:r.neighborhood_id, plannedDate:r.planned_date,
     maxVisits:r.max_visits, distanceKm:r.distance_km!=null?Number(r.distance_km):null,
-    durationMin:r.duration_min, status:r.status, createdAt:(r.created_at||'').slice(0,10),
+    durationMin:r.duration_min, status:r.status, plannedStartTime:r.planned_start_time, createdAt:(r.created_at||'').slice(0,10),
     stops: (stopsByRoute[r.id]||[]).sort((a,b)=>a.sequence-b.sequence)
   }));
 
@@ -1842,7 +1843,10 @@ function openClientDetailModal(id){
       <div class="field"><label>Endereço</label><input id="c-address" value="${c?esc(c.address||''):''}"></div>
       <div class="field"><label>Número</label><input id="c-number" value="${c?esc(c.number||''):''}"></div>
     </div>
-    <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
+    <div class="field-row">
+      <div class="field"><label>Bairro</label><input id="c-neighborhood" value="${c?esc(c.neighborhood||''):''}"></div>
+      <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
+    </div>
     <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
     <div class="field"><label>Observações</label><textarea id="c-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
 
@@ -1935,7 +1939,7 @@ async function ensureClientDistance(clientId, force){
 
   let lat = client.lat, lng = client.lng;
   if(lat==null || lng==null || force){
-    const addressQuery = [client.address, client.number, client.city, client.state].filter(Boolean).join(', ');
+    const addressQuery = [client.address, client.number, client.neighborhood, client.city, client.state].filter(Boolean).join(', ');
     if(!addressQuery){ toast('Esse cliente não tem endereço suficiente para calcular a distância', true); return null; }
     const coords = await geocodeAddress(addressQuery + ', Brasil');
     if(!coords){ toast('Não foi possível localizar o endereço desse cliente no mapa', true); return null; }
@@ -1975,6 +1979,7 @@ async function saveClientDetail(id){
     phone: document.getElementById('c-phone').value.trim(), whatsapp: document.getElementById('c-whatsapp').value.trim(),
     email: document.getElementById('c-email').value.trim(), city: document.getElementById('c-city').value.trim(),
     address: document.getElementById('c-address').value.trim(), number: document.getElementById('c-number').value.trim(),
+    neighborhood: document.getElementById('c-neighborhood').value.trim(),
     complement: document.getElementById('c-complement').value.trim(),
     status: document.getElementById('c-status').value, notes: document.getElementById('c-notes').value.trim(),
     has_freezer: document.getElementById('c-hasfreezer').value === 'true',
@@ -1983,7 +1988,7 @@ async function saveClientDetail(id){
     freezer_install_date: document.getElementById('c-freezerdate')?.value || null,
     freezer_notes: document.getElementById('c-freezernotes')?.value.trim() || null,
   };
-  const addressQuery = [data.address, data.number, data.city].filter(Boolean).join(', ');
+  const addressQuery = [data.address, data.number, data.neighborhood, data.city].filter(Boolean).join(', ');
   const existing = id ? state.clients.find(c=>c.id===id) : null;
   const addressChanged = addressQuery && addressQuery !== existing?.geocodedAddress;
   if(addressChanged){
@@ -2973,6 +2978,8 @@ function openCommercialRouteWizard(){
   crWizardNeighborhoodId = null;
   crWizardCandidates = [];
   crWizardMaxVisits = 10;
+  const now = new Date();
+  crWizardStartTime = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
   renderCommercialRouteWizard();
 }
 function renderCommercialRouteWizard(){
@@ -3074,9 +3081,12 @@ function renderCRWizardStep3(){
       ${[5,10,15,20].map(n=>`<div class="radio-opt ${crWizardMaxVisits===n?'selected':''}" onclick="crWizardSetMax(${n})">${n}</div>`).join('')}
     </div>
     <div class="field"><label>Ou personalizado</label><input id="crw-maxcustom" type="number" min="1" value="${crWizardMaxVisits}" oninput="crWizardMaxVisits=parseInt(this.value)||1"></div>
+    <div class="subhead">Previsão de início</div>
+    <div class="field"><label>Horário de início da rota</label><input id="crw-starttime" type="time" value="${crWizardStartTime}" oninput="crWizardStartTime=this.value; document.getElementById('crwStartBtnLabel').textContent=this.value;"></div>
+    <div class="hint" style="margin-bottom:10px;">O horário previsto de cada parada é calculado a partir daqui.</div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="crWizardStep=2; renderCommercialRouteWizard();">← Voltar</button>
-      <button class="btn btn-primary" onclick="crWizardGoStep4()">Gerar rota otimizada →</button>
+      <button class="btn btn-primary" onclick="crWizardGoStep4()">Iniciar rota comercial às <span id="crwStartBtnLabel">${crWizardStartTime}</span> →</button>
     </div>
   `, 'wide');
 }
@@ -3098,9 +3108,10 @@ function renderCRWizardStep4(){
 async function crGenerateRoute(){
   const selected = crWizardCandidates.filter(c=>c.selected);
   const cityName = state.visitCities.find(x=>x.id===crWizardCityId)?.name || '';
+  const neighborhoodName = state.visitNeighborhoods.find(x=>x.id===crWizardNeighborhoodId)?.name || '';
   for(const c of selected){
     if(c.lat==null || c.lng==null){
-      const coords = await geocodeAddress((c.address||'') + ', ' + cityName + ', Brasil');
+      const coords = await geocodeAddress([c.address, neighborhoodName, cityName, 'Brasil'].filter(Boolean).join(', '));
       if(coords){ c.lat = coords.lat; c.lng = coords.lng; }
     }
   }
@@ -3147,7 +3158,8 @@ async function crGenerateRoute(){
   const legs = trip.legs || [];
 
   // horário previsto: parte de agora, soma o deslocamento de cada trecho + tempo médio de visita
-  let cursorMin = new Date().getHours()*60 + new Date().getMinutes();
+  const [startH, startM] = (crWizardStartTime||'08:00').split(':').map(Number);
+  let cursorMin = startH*60 + startM;
   const expectedTimes = ordered.map((s,i)=>{
     cursorMin += (legs[i] ? legs[i].duration/60 : 0);
     const t = Math.round(cursorMin);
@@ -3157,7 +3169,8 @@ async function crGenerateRoute(){
 
   const { data: route, error: routeErr } = await sb.from('commercial_routes').insert({
     city_id: crWizardCityId, neighborhood_id: crWizardNeighborhoodId, max_visits: crWizardMaxVisits,
-    distance_km: trip.distance/1000, duration_min: Math.round(trip.duration/60), status: 'planejada'
+    distance_km: trip.distance/1000, duration_min: Math.round(trip.duration/60), status: 'planejada',
+    planned_start_time: crWizardStartTime
   }).select().single();
   if(routeErr){ dbErr(routeErr, 'Erro ao salvar rota comercial'); return; }
   const stopsPayload = ordered.map((s,i)=>({
@@ -3192,12 +3205,13 @@ function renderCommercialRoutes(){
   const wrap = document.getElementById('commercialRoutesTableWrap');
   if(!wrap) return;
   if(state.commercialRoutes.length===0){ wrap.innerHTML = emptyState('Nenhuma rota comercial gerada ainda.','Nova Rota Comercial','openCommercialRouteWizard()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Região</th><th>Paradas</th><th>Distância</th><th>Tempo</th><th>Status</th></tr></thead><tbody>
+  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Início</th><th>Região</th><th>Paradas</th><th>Distância</th><th>Tempo</th><th>Status</th></tr></thead><tbody>
     ${state.commercialRoutes.map(r=>{
       const city = state.visitCities.find(c=>c.id===r.cityId);
       const neighborhood = state.visitNeighborhoods.find(n=>n.id===r.neighborhoodId);
       return `<tr>
         <td>${fmtDate(r.plannedDate)}</td>
+        <td>${r.plannedStartTime?r.plannedStartTime.slice(0,5):'—'}</td>
         <td>${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
         <td>${r.stops.length}</td>
         <td>${r.distanceKm!=null?r.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
