@@ -1,7 +1,7 @@
 {
   "name": "ViraGelo ERP",
   "short_name": "ViraGelo",
-  "description": "Sistema de gestão para fábrica de gelo — estoque, produção, pedidos, financeiro e CRM.",
+  "description": "Sistema de gestão para fábrica de gelo — estoque, produção, pedidos, financeiro, CRM, visitas comerciais e frete.",
   "start_url": "./index.html",
   "scope": "./",
   "id": "./index.html",
