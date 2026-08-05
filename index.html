@@ -431,7 +431,7 @@ tr:last-child td{border-bottom:none;}
 
         <div id="visitasProspectsView" style="display:none;">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Prospects de Campo</div><button class="btn btn-primary btn-sm" onclick="openProspectModal()">+ Novo prospect</button></div>
+            <div class="panel-head"><div class="section-title">Prospects de Campo</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openBulkImportModal()">📋 Importar em massa</button><button class="btn btn-primary btn-sm" onclick="openProspectModal()">+ Novo prospect</button></div></div>
             <div class="hint" style="margin-bottom:10px;">Possíveis clientes encontrados em campo, ainda sem virar Lead. Reaproveita as cidades/bairros cadastrados em Regiões.</div>
             <div id="prospectsTableWrap" class="table-scroll"></div>
           </div>
@@ -694,7 +694,7 @@ async function loadAll(){
   state.visitNeighborhoods = (neighRes.data||[]).map(n => ({ id:n.id, cityId:n.city_id, name:n.name }));
   state.fieldProspects = (prospRes.data||[]).map(p => ({
     id:p.id, name:p.name, company:p.company, cityId:p.city_id, neighborhoodId:p.neighborhood_id,
-    address:p.address, phone:p.phone, notes:p.notes, lat:p.lat, lng:p.lng,
+    address:p.address, phone:p.phone, notes:p.notes, segment:p.segment, lat:p.lat, lng:p.lng,
     convertedLeadId:p.converted_lead_id, convertedClientId:p.converted_client_id, createdAt:(p.created_at||'').slice(0,10)
   }));
 
@@ -2894,8 +2894,8 @@ function openProspectModal(id){
   openModal(`
     <div class="modal-head"><h3>${p?'Editar prospect':'Novo prospect de campo'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field-row">
-      <div class="field"><label>Nome</label><input id="pr-name" value="${p?esc(p.name):''}"></div>
       <div class="field"><label>Empresa</label><input id="pr-company" value="${p?esc(p.company||''):''}"></div>
+      <div class="field"><label>Ramo</label><input id="pr-segment" value="${p?esc(p.segment||''):''}" placeholder="Ex: Mercado, Restaurante, Padaria"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Cidade</label><select id="pr-city" onchange="onProspectCityChange()">
@@ -2925,6 +2925,7 @@ async function saveProspect(id){
   if(!name){ toast('Informe o nome do prospect', true); return; }
   const data = {
     name, company: document.getElementById('pr-company').value.trim(),
+    segment: document.getElementById('pr-segment').value.trim(),
     city_id: document.getElementById('pr-city').value || null, neighborhood_id: document.getElementById('pr-neighborhood').value || null,
     address: document.getElementById('pr-address').value.trim(), phone: document.getElementById('pr-phone').value.trim(),
     notes: document.getElementById('pr-notes').value.trim(),
@@ -2939,6 +2940,97 @@ async function deleteProspect(id){
   if(error){ dbErr(error, 'Erro ao excluir prospect'); return; }
   closeModal(); toast('Prospect excluído'); await loadAll(); renderVisitas();
 }
+
+// ---- Importação em massa de Prospects (colar direto da planilha) ----
+let bulkImportRows = [];
+function openBulkImportModal(){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para importar prospects', true); return; }
+  if(state.visitCities.length===0){ toast('Cadastre ao menos uma cidade e um bairro em Regiões antes', true); return; }
+  bulkImportRows = [];
+  const neighborhoods = [];
+  openModal(`
+    <div class="modal-head"><h3>Importar prospects em massa</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">Cada bairro é importado separadamente (como na sua planilha, uma aba por bairro). Selecione a cidade/bairro, copie as linhas da planilha (colunas: Nome, Ramo, Endereço) e cole abaixo.</div>
+    <div class="field-row">
+      <div class="field"><label>Cidade</label><select id="bi-city" onchange="onBulkCityChange()">
+        <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Bairro</label><select id="bi-neighborhood"><option value="">—</option></select></div>
+    </div>
+    <div class="field"><label>Cole as linhas aqui (Nome [Tab] Ramo [Tab] Endereço, uma empresa por linha)</label>
+      <textarea id="bi-paste" rows="8" placeholder="Mercado Altas Horas	Mercado	Rua Guilherme Wileman, 428
+Mercado Buss	Mercado	R. Floresta, 435" oninput="parseBulkImport()"></textarea>
+    </div>
+    <div id="biPreviewWrap"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="biConfirmBtn" onclick="confirmBulkImport()" disabled>Importar</button>
+    </div>
+  `, 'wide');
+}
+function onBulkCityChange(){
+  const cityId = document.getElementById('bi-city').value;
+  const list = state.visitNeighborhoods.filter(n=>n.cityId===cityId);
+  document.getElementById('bi-neighborhood').innerHTML = '<option value="">—</option>' + list.map(n=>`<option value="${n.id}">${esc(n.name)}</option>`).join('');
+  parseBulkImport();
+}
+function parseBulkImport(){
+  const raw = document.getElementById('bi-paste').value;
+  const lines = raw.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim());
+  bulkImportRows = lines.map(line=>{
+    const cols = line.split('\t').map(c=>c.trim());
+    if(cols.length>=3) return { name: cols[0], segment: cols[1], address: cols[2] };
+    if(cols.length===2) return { name: cols[0], segment: '', address: cols[1] };
+    return { name: cols[0], segment: '', address: '' };
+  }).filter(r=>r.name);
+
+  const cityId = document.getElementById('bi-city').value;
+  const neighborhoodId = document.getElementById('bi-neighborhood').value;
+  const wrap = document.getElementById('biPreviewWrap');
+  const btn = document.getElementById('biConfirmBtn');
+  if(bulkImportRows.length===0){
+    wrap.innerHTML = '';
+    btn.disabled = true;
+    return;
+  }
+  // avisa (sem bloquear) sobre possíveis duplicados no mesmo bairro, comparando por nome
+  const existingNames = new Set(state.fieldProspects.filter(p=>p.neighborhoodId===neighborhoodId).map(p=>p.name.trim().toLowerCase()));
+  const dupCount = bulkImportRows.filter(r=>existingNames.has(r.name.trim().toLowerCase())).length;
+  wrap.innerHTML = `
+    <div class="hint" style="margin-bottom:6px;"><strong>${bulkImportRows.length}</strong> linha(s) reconhecida(s)${dupCount>0?` — ${dupCount} já existe(m) nesse bairro e será(ão) ignorada(s)`:''}.</div>
+    <div class="table-scroll" style="max-height:200px;"><table><thead><tr><th>Nome</th><th>Ramo</th><th>Endereço</th></tr></thead><tbody>
+      ${bulkImportRows.slice(0,50).map(r=>`<tr><td>${esc(r.name)}</td><td style="color:var(--muted)">${esc(r.segment||'—')}</td><td style="color:var(--muted)">${esc(r.address||'—')}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${bulkImportRows.length>50?`<div class="hint">Mostrando as 50 primeiras — todas as ${bulkImportRows.length} serão importadas.</div>`:''}
+  `;
+  btn.disabled = !(cityId && neighborhoodId);
+}
+async function confirmBulkImport(){
+  const cityId = document.getElementById('bi-city').value;
+  const neighborhoodId = document.getElementById('bi-neighborhood').value;
+  if(!cityId || !neighborhoodId){ toast('Selecione cidade e bairro', true); return; }
+  if(bulkImportRows.length===0){ toast('Cole as linhas da planilha primeiro', true); return; }
+  const btn = document.getElementById('biConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Importando...';
+
+  const existingNames = new Set(state.fieldProspects.filter(p=>p.neighborhoodId===neighborhoodId).map(p=>p.name.trim().toLowerCase()));
+  const toInsert = bulkImportRows.filter(r=>!existingNames.has(r.name.trim().toLowerCase()));
+  const skipped = bulkImportRows.length - toInsert.length;
+
+  if(toInsert.length===0){ toast('Todas as linhas já existem nesse bairro — nada foi importado', true); btn.disabled=false; btn.textContent='Importar'; return; }
+
+  const payload = toInsert.map(r=>({
+    name: r.name, segment: r.segment || null, address: r.address || null,
+    city_id: cityId, neighborhood_id: neighborhoodId
+  }));
+  const { error } = await sb.from('field_prospects').insert(payload);
+  if(error){ dbErr(error, 'Erro ao importar prospects'); btn.disabled=false; btn.textContent='Importar'; return; }
+
+  closeModal();
+  toast(`${toInsert.length} prospect(s) importado(s)${skipped>0?`, ${skipped} ignorado(s) por já existir`:''}`);
+  await loadAll(); renderVisitas();
+}
+
 async function convertProspectToLead(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para converter prospects', true); return; }
   const p = state.fieldProspects.find(x=>x.id===id);
@@ -2961,12 +3053,13 @@ function renderProspectsTable(){
   const wrap = document.getElementById('prospectsTableWrap');
   if(!wrap) return;
   if(state.fieldProspects.length===0){ wrap.innerHTML = emptyState('Nenhum prospect de campo cadastrado ainda.','Novo prospect','openProspectModal()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Cidade / Bairro</th><th>Endereço</th><th>Status</th><th></th></tr></thead><tbody>
+  wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Ramo</th><th>Cidade / Bairro</th><th>Endereço</th><th>Status</th><th></th></tr></thead><tbody>
     ${state.fieldProspects.map(p=>{
       const city = state.visitCities.find(c=>c.id===p.cityId);
       const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
       return `<tr>
         <td><strong>${esc(p.name)}</strong>${p.company?`<div style="color:var(--muted);font-size:11.5px">${esc(p.company)}</div>`:''}</td>
+        <td style="color:var(--muted);font-size:12px">${esc(p.segment||'—')}</td>
         <td style="color:var(--muted);font-size:12px">${city?esc(city.name):'—'}${neighborhood?' · '+esc(neighborhood.name):''}</td>
         <td style="color:var(--muted);font-size:12px">${esc(p.address||'—')}</td>
         <td>${p.convertedClientId?'<span class="badge badge-success">⭐ Virou cliente</span>':p.convertedLeadId?'<span class="badge badge-success">🤝 Virou lead</span>':'<span class="badge badge-muted">Prospect</span>'}</td>
@@ -3248,7 +3341,7 @@ function renderCommercialRoutes(){
         <td>${r.distanceKm!=null?r.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
         <td>${r.durationMin!=null?r.durationMin+' min':'—'}</td>
         <td><span class="badge badge-info">${r.status}</span></td>
-        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openRouteDetailModal('${r.id}')">${iconEdit}</button></td>
+        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openRouteDetailModal('${r.id}')">${iconEdit}</button><button class="icon-btn" onclick="event.stopPropagation(); deleteCommercialRoute('${r.id}')">${iconTrash}</button></td>
       </tr>`;
     }).join('')}
   </tbody></table>`;
@@ -3324,8 +3417,16 @@ function openRouteDetailModal(routeId){
     <div class="modal-head"><h3>Rota Comercial — ${esc(city?city.name:'')}${neighborhood?' · '+esc(neighborhood.name):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="margin-bottom:14px;">${fmtDate(route.plannedDate)}${route.plannedStartTime?' · início '+route.plannedStartTime.slice(0,5):''}${route.distanceKm!=null?' · '+route.distanceKm.toFixed(1)+' km':''} · <span class="badge badge-info">${route.status}</span></div>
     <div id="routeStopsWrap"></div>
+    <div class="modal-foot"><button class="btn btn-danger-ghost" onclick="deleteCommercialRoute('${routeId}')">Excluir rota</button></div>
   `, 'xwide');
   renderRouteStops(routeId);
+}
+async function deleteCommercialRoute(routeId){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir rotas comerciais', true); return; }
+  if(!confirm('Tem certeza que deseja excluir esta rota comercial? O histórico de visitas dela será perdido de vista (mas nenhum Lead/Cliente já criado a partir dela é desfeito).')) return;
+  const { error } = await sb.from('commercial_routes').update({ deleted_at: new Date().toISOString() }).eq('id', routeId);
+  if(error){ dbErr(error, 'Erro ao excluir rota comercial'); return; }
+  closeModal(); toast('Rota comercial excluída'); await loadAll(); renderVisitas();
 }
 function renderRouteStops(routeId){
   const route = state.commercialRoutes.find(r=>r.id===routeId);
