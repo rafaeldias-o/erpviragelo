@@ -603,7 +603,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -731,7 +731,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -758,6 +758,7 @@ async function loadAll(){
     sb.from('assets').select('*').is('deleted_at', null).order('name'),
     sb.from('asset_history').select('*').order('created_at', {ascending:false}),
     sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
+    sb.from('alert_dismissals').select('*'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -765,9 +766,11 @@ async function loadAll(){
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
-    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes]]){
+    ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  state.alertDismissals = (dismissRes.data||[]).map(d => ({ key:d.alert_key, until:d.dismissed_until }));
 
   const maintByAsset = {};
   (maintRes.data||[]).forEach(m => (maintByAsset[m.asset_id] = maintByAsset[m.asset_id] || []).push({
@@ -1507,48 +1510,57 @@ function computeSystemAlerts(){
   const today = todayStr();
   const alerts = [];
   state.stockItems.filter(p=>p.qty<=p.minQty).forEach(p=>
-    alerts.push({type:'estoque_baixo', icon:'📦', color:'var(--danger)', priority:'alta', text:`Estoque baixo: ${p.name} (${p.qty} ${p.unit})`, date: today}));
+    alerts.push({type:'estoque_baixo', icon:'📦', color:'var(--danger)', priority:'alta', text:`Estoque baixo: ${p.name} (${p.qty} ${p.unit})`, date: today, entityId:p.id}));
 
   const pendentes = state.transactions.filter(t=>t.status==='pendente');
   pendentes.filter(t=>t.dueDate < today).forEach(t=>
-    alerts.push({type:'conta_vencida', icon:'💰', color:'var(--warn)', priority:'alta', text:`Conta vencida: ${t.description} — ${fmtMoney(t.amount)} (venceu em ${fmtDate(t.dueDate)})`, date: t.dueDate}));
+    alerts.push({type:'conta_vencida', icon:'💰', color:'var(--warn)', priority:'alta', text:`Conta vencida: ${t.description} — ${fmtMoney(t.amount)} (venceu em ${fmtDate(t.dueDate)})`, date: t.dueDate, entityId:t.id}));
   pendentes.filter(t=>t.dueDate === today).forEach(t=>
-    alerts.push({type:'conta_hoje', icon:'💰', color:'var(--warn)', priority:'média', text:`Conta vence hoje: ${t.description} — ${fmtMoney(t.amount)}`, date: t.dueDate}));
+    alerts.push({type:'conta_hoje', icon:'💰', color:'var(--warn)', priority:'média', text:`Conta vence hoje: ${t.description} — ${fmtMoney(t.amount)}`, date: t.dueDate, entityId:t.id}));
   const soon = new Date(); soon.setDate(soon.getDate()+7);
   pendentes.filter(t=>t.dueDate > today && t.dueDate <= soon.toISOString().slice(0,10)).forEach(t=>
-    alerts.push({type:'conta_em_breve', icon:'💰', color:'var(--info)', priority:'baixa', text:`Conta vence em breve: ${t.description} — ${fmtMoney(t.amount)} (${fmtDate(t.dueDate)})`, date: t.dueDate}));
+    alerts.push({type:'conta_em_breve', icon:'💰', color:'var(--info)', priority:'baixa', text:`Conta vence em breve: ${t.description} — ${fmtMoney(t.amount)} (${fmtDate(t.dueDate)})`, date: t.dueDate, entityId:t.id}));
 
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
   state.clients.filter(c=>c.status==='ativo').forEach(c=>{
     const st = clientStats(c.id);
-    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today});
+    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today, entityId:c.id});
   });
   state.leads.filter(isStalled).forEach(l=>
-    alerts.push({type:'lead_parado', icon:'🧲', color:'var(--danger)', priority:'média', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`, date: today}));
+    alerts.push({type:'lead_parado', icon:'🧲', color:'var(--danger)', priority:'média', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`, date: today, entityId:l.id}));
   state.tasks.filter(t=>t.status==='pendente' && t.date<today).forEach(t=>
-    alerts.push({type:'tarefa_atrasada', icon:'✅', color:'var(--warn)', priority:'alta', text:`Tarefa atrasada: ${t.title} (${fmtDate(t.date)})`, date: t.date}));
+    alerts.push({type:'tarefa_atrasada', icon:'✅', color:'var(--warn)', priority:'alta', text:`Tarefa atrasada: ${t.title} (${fmtDate(t.date)})`, date: t.date, entityId:t.id}));
   state.deliveries.filter(d=>d.date<today && !['entregue','cancelada'].includes(d.status)).forEach(d=>{
     const c = state.clients.find(x=>x.id===d.clientId);
-    alerts.push({type:'entrega_atrasada', icon:'🚚', color:'var(--danger)', priority:'alta', text:`Entrega atrasada: ${c?c.name:'cliente'} (${fmtDate(d.date)})`, date: d.date});
+    alerts.push({type:'entrega_atrasada', icon:'🚚', color:'var(--danger)', priority:'alta', text:`Entrega atrasada: ${c?c.name:'cliente'} (${fmtDate(d.date)})`, date: d.date, entityId:d.id});
   });
   (state.commitments||[]).filter(c=>c.status==='pendente' && c.date<today).forEach(c=>
-    alerts.push({type:'compromisso_atrasado', icon:'📅', color:'var(--warn)', priority: c.priority==='alta'?'alta':'média', text:`Compromisso atrasado: ${c.title} (${fmtDate(c.date)})`, date: c.date}));
+    alerts.push({type:'compromisso_atrasado', icon:'📅', color:'var(--warn)', priority: c.priority==='alta'?'alta':'média', text:`Compromisso atrasado: ${c.title} (${fmtDate(c.date)})`, date: c.date, entityId:c.id}));
 
   // Garantias — expiradas, ou faltando 90 dias ou menos (mostra os dias restantes de verdade, não só no dia exato do limiar)
   (state.assets||[]).filter(a=>a.warrantyEndDate).forEach(a=>{
     const daysLeft = -daysSince(a.warrantyEndDate); // daysSince é negativo pro futuro, então inverte pra virar "dias restantes"
-    if(daysLeft < 0) alerts.push({type:'garantia_expirada', icon:'📋', color:'var(--muted)', priority:'baixa', text:`Garantia expirada: ${a.name} (venceu em ${fmtDate(a.warrantyEndDate)})`, date: a.warrantyEndDate});
-    else if(daysLeft <= 90) alerts.push({type:'garantia_proxima', icon:'📋', color: daysLeft<=7?'var(--danger)':daysLeft<=30?'var(--warn)':'var(--info)', priority: daysLeft<=7?'alta':daysLeft<=30?'média':'baixa', text:`Garantia vence em ${daysLeft} dia(s): ${a.name}`, date: a.warrantyEndDate});
+    if(daysLeft < 0) alerts.push({type:'garantia_expirada', icon:'📋', color:'var(--muted)', priority:'baixa', text:`Garantia expirada: ${a.name} (venceu em ${fmtDate(a.warrantyEndDate)})`, date: a.warrantyEndDate, entityId:a.id});
+    else if(daysLeft <= 90) alerts.push({type:'garantia_proxima', icon:'📋', color: daysLeft<=7?'var(--danger)':daysLeft<=30?'var(--warn)':'var(--info)', priority: daysLeft<=7?'alta':daysLeft<=30?'média':'baixa', text:`Garantia vence em ${daysLeft} dia(s): ${a.name}`, date: a.warrantyEndDate, entityId:a.id});
   });
   // Manutenções — vencidas, ou próximas nos próximos 7 dias
   (state.assets||[]).forEach(a=>{
     (a.maintenancePlans||[]).filter(p=>p.active).forEach(p=>{
       const daysLeft = -daysSince(p.nextDate);
-      if(daysLeft < 0) alerts.push({type:'manutencao_vencida', icon:'🧊', color:'var(--danger)', priority:'alta', text:`Manutenção vencida: ${p.title} — ${a.name} (${Math.abs(daysLeft)} dia(s) em atraso)`, date: p.nextDate});
-      else if(daysLeft <= 7) alerts.push({type:'manutencao_proxima', icon:'🛠', color:'var(--warn)', priority: p.priority==='alta'?'alta':'média', text:`Manutenção em ${daysLeft} dia(s): ${p.title} — ${a.name}`, date: p.nextDate});
+      if(daysLeft < 0) alerts.push({type:'manutencao_vencida', icon:'🧊', color:'var(--danger)', priority:'alta', text:`Manutenção vencida: ${p.title} — ${a.name} (${Math.abs(daysLeft)} dia(s) em atraso)`, date: p.nextDate, entityId:p.id, assetId:a.id});
+      else if(daysLeft <= 7) alerts.push({type:'manutencao_proxima', icon:'🛠', color:'var(--warn)', priority: p.priority==='alta'?'alta':'média', text:`Manutenção em ${daysLeft} dia(s): ${p.title} — ${a.name}`, date: p.nextDate, entityId:p.id, assetId:a.id});
     });
   });
-  return alerts;
+
+  // Chave única por alerta (tipo + entidade) e filtro dos que foram ignorados/resolvidos
+  alerts.forEach(a=> a.key = a.type + ':' + a.entityId);
+  const dismissMap = {};
+  (state.alertDismissals||[]).forEach(d=> dismissMap[d.key] = d.until);
+  return alerts.filter(a=>{
+    if(!(a.key in dismissMap)) return true;
+    const until = dismissMap[a.key];
+    return until != null && until < today; // ignorado só até uma data — se já passou, volta a aparecer
+  });
 }
 
 function openLeadModal(id){
@@ -4149,6 +4161,7 @@ function renderNotifications(){
   renderNotifDeliveries();
   renderNotifCommitments();
 }
+let notifAlertsList = [];
 function renderNotifAlerts(){
   const wrap = document.getElementById('notifAlertsWrap');
   if(!wrap) return;
@@ -4159,9 +4172,78 @@ function renderNotifAlerts(){
   const prioRank = {alta:0, média:1, baixa:2};
   if(sortMode==='prioridade') alerts.sort((a,b)=> (prioRank[a.priority]??3) - (prioRank[b.priority]??3) || a.date.localeCompare(b.date));
   else alerts.sort((a,b)=> a.date.localeCompare(b.date));
+  notifAlertsList = alerts;
   const prioBadge = p => p==='alta' ? 'badge-danger' : p==='média' ? 'badge-warn' : 'badge-muted';
   wrap.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
-    alerts.map(a=>`<div class="alert-row"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`).join('');
+    alerts.map((a,i)=>`<div class="alert-row" style="cursor:pointer;" onclick="openAlertDetail(${i})"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`).join('');
+}
+// ---- Centro de Alertas (Fase B) — clique num alerta abre ações específicas do tipo ----
+async function promptChangeMinQty(itemId){
+  const item = state.stockItems.find(x=>x.id===itemId);
+  if(!item) return;
+  const val = prompt('Novo estoque mínimo para ' + item.name + ':', item.minQty);
+  if(val==null) return;
+  const num = parseFloat(val);
+  if(isNaN(num) || num<0){ toast('Valor inválido', true); return; }
+  const { error } = await sb.from('stock_items').update({ min_qty: num }).eq('id', itemId);
+  if(error){ dbErr(error, 'Erro ao alterar estoque mínimo'); return; }
+  toast('Estoque mínimo atualizado'); closeModal(); await loadAll(); renderNotifications();
+}
+async function dismissAlert(key, days){
+  const until = days ? addDays(todayStr(), days) : null;
+  const { error } = await sb.from('alert_dismissals').upsert({ alert_key: key, dismissed_until: until, dismissed_by: myUser?.id||null, dismissed_at: new Date().toISOString() });
+  if(error){ dbErr(error, 'Erro ao atualizar alerta'); return; }
+  toast(days ? `Alerta ignorado por ${days} dias` : 'Alerta marcado como resolvido');
+  closeModal(); await loadAll(); renderNotifications();
+}
+function alertActionsHtml(alert){
+  const btns = [];
+  const btn = (label, onclick, primary) => `<button class="btn ${primary?'btn-primary':'btn-ghost'} btn-sm" onclick="${onclick}">${label}</button>`;
+  if(alert.type==='estoque_baixo'){
+    const item = state.stockItems.find(x=>x.id===alert.entityId);
+    if(item){
+      btns.push(btn('Abrir produto', `closeModal(); openStockModal('${item.category}','${item.id}')`, true));
+      btns.push(btn('Registrar produção', `closeModal(); switchView('producao');`));
+      btns.push(btn('Registrar entrada', `closeModal(); switchView('estoque'); openMovementModal();`));
+      btns.push(btn('Alterar estoque mínimo', `promptChangeMinQty('${item.id}')`));
+    }
+  } else if(alert.type==='lead_parado'){
+    btns.push(btn('Abrir Lead', `closeModal(); openLeadModal('${alert.entityId}')`, true));
+  } else if(alert.type==='cliente_inativo'){
+    btns.push(btn('Abrir cliente', `closeModal(); openClientDetailModal('${alert.entityId}')`, true));
+  } else if(alert.type==='tarefa_atrasada'){
+    const task = state.tasks.find(t=>t.id===alert.entityId);
+    btns.push(btn('Concluir', `setTaskStatus('${alert.entityId}','concluida').then(()=>{closeModal();renderNotifications();})`, true));
+    if(task) btns.push(btn('Ver lead', `closeModal(); openLeadModal('${task.leadId}')`));
+  } else if(alert.type==='entrega_atrasada'){
+    btns.push(btn('Abrir entrega', `closeModal(); openDeliveryEditModal('${alert.entityId}')`, true));
+  } else if(alert.type==='compromisso_atrasado'){
+    btns.push(btn('Abrir compromisso', `closeModal(); openCommitmentModal('${alert.entityId}')`, true));
+  } else if(['conta_vencida','conta_hoje','conta_em_breve'].includes(alert.type)){
+    btns.push(btn('Abrir Financeiro', `closeModal(); switchView('financeiro');`, true));
+  } else if(['garantia_proxima','garantia_expirada'].includes(alert.type)){
+    btns.push(btn('Abrir / renovar garantia', `closeModal(); openAssetModal('${alert.entityId}')`, true));
+    btns.push(btn('Registrar observação', `closeModal(); addAssetObservation('${alert.entityId}')`));
+  } else if(['manutencao_vencida','manutencao_proxima'].includes(alert.type)){
+    btns.push(btn('Concluir manutenção', `completeMaintenancePlan('${alert.assetId}','${alert.entityId}').then(()=>{closeModal();renderNotifications();})`, true));
+    btns.push(btn('Abrir patrimônio', `closeModal(); openAssetModal('${alert.assetId}')`));
+  }
+  return btns.join('');
+}
+function openAlertDetail(index){
+  const alert = notifAlertsList[index];
+  if(!alert) return;
+  openModal(`
+    <div class="modal-head"><h3>${alert.icon} Detalhe do alerta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <p style="font-size:14px;margin-bottom:16px;">${esc(alert.text)}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">${alertActionsHtml(alert)}</div>
+    <div class="subhead">Gestão do alerta</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${alert.key}', 7)">Ignorar por 7 dias</button>
+      <button class="btn btn-ghost btn-sm" onclick="dismissAlert('${alert.key}', 30)">Ignorar por 30 dias</button>
+      <button class="btn btn-danger-ghost btn-sm" onclick="dismissAlert('${alert.key}', null)">Marcar como resolvido</button>
+    </div>
+  `);
 }
 // ---- Resumo (Fase 5) — os 8 indicadores da Central, calculados do que já está em memória ----
 function renderNotifSummary(){
