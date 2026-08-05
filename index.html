@@ -436,22 +436,46 @@ tr:last-child td{border-bottom:none;}
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
         <div class="stat-grid" id="finStats"></div>
-        <div class="panel" style="background:var(--info-bg);border-color:transparent;">
-          <div style="font-size:12.5px;color:var(--ink);">
-            <strong>Faturamento não é lançado manualmente aqui.</strong> Toda receita é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Este módulo serve para controlar despesas, contas a pagar e o fluxo de caixa.
-          </div>
+        <div class="tabs">
+          <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
+          <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
+          <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
         </div>
-        <div class="panel">
-          <div class="panel-head">
-            <div class="section-title">Lançamentos</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <select id="finFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderFinanceiro()">
-                <option value="todos">Todos</option><option value="receita">Receitas (de pedidos)</option><option value="despesa">Despesas</option><option value="pendente">Pendentes</option><option value="vencido">Vencidos</option>
-              </select>
-              <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
+
+        <div id="finLancamentosView">
+          <div class="panel" style="background:var(--info-bg);border-color:transparent;">
+            <div style="font-size:12.5px;color:var(--ink);">
+              <strong>Faturamento não é lançado manualmente aqui.</strong> Toda receita é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Este módulo serve para controlar despesas, contas a pagar e o fluxo de caixa.
             </div>
           </div>
-          <div id="transactionsTableWrap" class="table-scroll"></div>
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Lançamentos</div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="finFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderFinanceiro()">
+                  <option value="todos">Todos</option><option value="receita">Receitas (de pedidos)</option><option value="despesa">Despesas</option><option value="pendente">Pendentes</option><option value="vencido">Vencidos</option>
+                </select>
+                <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
+              </div>
+            </div>
+            <div id="transactionsTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="finContasView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Contas Financeiras</div><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div>
+            <div class="hint" style="margin-bottom:10px;">Caixa, banco, maquininha, Pix — cada lançamento é vinculado a uma conta, e o saldo de cada uma é calculado automaticamente pelos lançamentos pagos.</div>
+            <div id="finAccountsTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="finCategoriasView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Categorias Financeiras</div><button class="btn btn-primary btn-sm" onclick="openFinCategoryModal()">+ Nova categoria</button></div>
+            <div class="hint" style="margin-bottom:10px;">Organize receitas e despesas por categoria — pode criar subcategorias dentro de uma categoria pai.</div>
+            <div id="finCategoriesTableWrap" class="table-scroll"></div>
+          </div>
         </div>
       </section>
 
@@ -617,7 +641,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], customAlerts: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], customAlerts: [], financialAccounts: [], financialCategories: [], costCenters: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -745,7 +769,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -774,6 +798,9 @@ async function loadAll(){
     sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
     sb.from('alert_dismissals').select('*'),
     sb.from('custom_alerts').select('*').is('deleted_at', null).order('date'),
+    sb.from('financial_accounts').select('*').is('deleted_at', null).order('name'),
+    sb.from('financial_categories').select('*').is('deleted_at', null).order('name'),
+    sb.from('cost_centers').select('*').is('deleted_at', null).order('name'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -782,9 +809,17 @@ async function loadAll(){
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
     ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes],
-    ['alertas personalizados',customAlertRes]]){
+    ['alertas personalizados',customAlertRes],['contas financeiras',finAccRes],['categorias financeiras',finCatRes],['centros de custo',costCenterRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  state.financialAccounts = (finAccRes.data||[]).map(a => ({
+    id:a.id, name:a.name, type:a.type, initialBalance:Number(a.initial_balance), color:a.color, icon:a.icon, status:a.status, notes:a.notes
+  }));
+  state.financialCategories = (finCatRes.data||[]).map(c => ({
+    id:c.id, name:c.name, type:c.type, parentId:c.parent_id, icon:c.icon, color:c.color, status:c.status
+  }));
+  state.costCenters = (costCenterRes.data||[]).map(c => ({ id:c.id, name:c.name, status:c.status }));
 
   state.alertDismissals = (dismissRes.data||[]).map(d => ({ key:d.alert_key, until:d.dismissed_until }));
   state.customAlerts = (customAlertRes.data||[]).map(c => ({
@@ -890,7 +925,9 @@ async function loadAll(){
 
   state.transactions = (txRes.data||[]).map(t => ({
     id: t.id, type: t.type, description: t.description, category: t.category, amount: Number(t.amount),
-    dueDate: t.due_date, status: t.status, clientId: t.client_id, orderId: t.order_id, createdAt: (t.created_at||'').slice(0,10)
+    dueDate: t.due_date, status: t.status, clientId: t.client_id, orderId: t.order_id,
+    accountId: t.account_id, categoryId: t.category_id, costCenterId: t.cost_center_id,
+    createdAt: (t.created_at||'').slice(0,10)
   }));
 
   state.clients = (cliRes.data||[]).map(c => ({
@@ -1428,19 +1465,27 @@ function renderPedidos(){
 // =========================================================
 // FINANCEIRO  (despesas + contas; receita só chega via Pedidos)
 // =========================================================
+function categoryFullLabel(c){
+  if(!c.parentId) return c.name;
+  const parent = state.financialCategories.find(p=>p.id===c.parentId);
+  return parent ? `${parent.name} > ${c.name}` : c.name;
+}
 function openTransactionModal(){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para lançar despesas', true); return; }
+  const despesaCats = state.financialCategories.filter(c=>c.type==='despesa' && c.status==='ativa');
+  const accounts = state.financialAccounts.filter(a=>a.status==='ativa');
   openModal(`
     <div class="modal-head"><h3>Nova despesa / conta a pagar</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field"><label>Descrição</label><input id="t-desc" placeholder="Ex: Conta de luz, manutenção..."></div>
     <div class="field-row">
       <div class="field"><label>Valor (R$)</label><input id="t-amount" type="number" step="0.01" placeholder="0,00"></div>
-      <div class="field"><label>Categoria</label><select id="t-cat">${DESPESA_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria</label><select id="t-cat">${despesaCats.length?despesaCats.map(c=>`<option value="${c.id}">${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
     </div>
     <div class="field-row">
+      <div class="field"><label>Conta</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
       <div class="field"><label>Vencimento</label><input id="t-due" type="date" value="${todayStr()}"></div>
-      <div class="field"><label>Status</label><select id="t-status"><option value="pendente">Pendente</option><option value="pago">Pago</option></select></div>
     </div>
+    <div class="field"><label>Status</label><select id="t-status"><option value="pendente">Pendente</option><option value="pago">Pago</option></select></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveTransaction()">Salvar</button></div>
   `);
 }
@@ -1448,11 +1493,13 @@ async function saveTransaction(){
   const desc = document.getElementById('t-desc').value.trim();
   const amount = parseFloat(document.getElementById('t-amount').value);
   if(!desc || !amount || amount<=0){ toast('Preencha descrição e valor', true); return; }
-  const category = document.getElementById('t-cat').value;
+  const categoryId = document.getElementById('t-cat').value || null;
+  const category = categoryId ? (state.financialCategories.find(c=>c.id===categoryId)?.name || null) : null;
+  const accountId = document.getElementById('t-account').value || null;
   const dueDate = document.getElementById('t-due').value || todayStr();
   const status = document.getElementById('t-status').value;
   const _btn = lockButton();
-  const { error } = await sb.from('transactions').insert({ type:'despesa', description: desc, amount, category, due_date: dueDate, status });
+  const { error } = await sb.from('transactions').insert({ type:'despesa', description: desc, amount, category, category_id: categoryId, account_id: accountId, due_date: dueDate, status });
   if(error){ dbErr(error, 'Erro ao salvar despesa'); unlockButton(_btn); return; }
   closeModal(); toast('Despesa salva'); await loadAll(); renderAll();
 }
@@ -1513,6 +1560,181 @@ function renderFinanceiro(){
       <td class="row-actions">${t.type==='receita'?'<span style="color:var(--muted);font-size:11px">automático</span>':`<button class="icon-btn" onclick="deleteTransaction('${t.id}')">${iconTrash}</button>`}</td>
     </tr>`;
     }).join('')}</tbody></table>`;
+}
+
+// ---- Sub-abas do Financeiro ----
+function setFinTab(tab){
+  document.querySelectorAll('[data-fintab]').forEach(t=>t.classList.toggle('active', t.dataset.fintab===tab));
+  document.getElementById('finLancamentosView').style.display = tab==='lancamentos' ? 'block' : 'none';
+  document.getElementById('finContasView').style.display = tab==='contas' ? 'block' : 'none';
+  document.getElementById('finCategoriasView').style.display = tab==='categorias' ? 'block' : 'none';
+  if(tab==='contas') renderFinAccountsTable();
+  if(tab==='categorias') renderFinCategoriesTable();
+}
+
+// ---- Contas Financeiras ----
+const FIN_ACCOUNT_TYPES = [
+  {v:'caixa', label:'Caixa', icon:'💵'}, {v:'banco', label:'Banco', icon:'🏦'}, {v:'maquininha', label:'Maquininha', icon:'💳'},
+  {v:'pix', label:'Pix', icon:'📲'}, {v:'carteira', label:'Carteira', icon:'👛'}, {v:'outra', label:'Outra', icon:'💰'},
+];
+function accountTypeInfo(v){ return FIN_ACCOUNT_TYPES.find(t=>t.v===v) || FIN_ACCOUNT_TYPES[5]; }
+// Saldo atual = saldo inicial + tudo que já foi PAGO nessa conta (receita soma, despesa subtrai).
+// Calculado sempre em tempo real a partir dos lançamentos — não é um campo editável direto.
+function accountBalance(accountId){
+  const account = state.financialAccounts.find(a=>a.id===accountId);
+  if(!account) return 0;
+  const net = state.transactions.filter(t=>t.accountId===accountId && t.status==='pago')
+    .reduce((s,t)=> s + (t.type==='receita' ? t.amount : -t.amount), 0);
+  return account.initialBalance + net;
+}
+function openFinAccountModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar contas financeiras', true); return; }
+  const a = id ? state.financialAccounts.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${a?'Editar conta':'Nova conta financeira'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Nome</label><input id="fa-name" value="${a?esc(a.name):''}" placeholder="Ex: Banco Inter"></div>
+      <div class="field"><label>Tipo</label><select id="fa-type">${FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}" ${(a?a.type:'caixa')===t.v?'selected':''}>${t.icon} ${t.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Saldo inicial (R$)</label><input id="fa-initial" type="number" step="0.01" value="${a?a.initialBalance:0}"></div>
+    <div class="field"><label>Observações</label><textarea id="fa-notes" rows="2">${a?esc(a.notes||''):''}</textarea></div>
+    ${a?`<div class="field"><label>Status</label><select id="fa-status"><option value="ativa" ${a.status==='ativa'?'selected':''}>Ativa</option><option value="inativa" ${a.status==='inativa'?'selected':''}>Inativa</option></select></div>`:''}
+    <div class="modal-foot">
+      ${a?`<button class="btn btn-danger-ghost" onclick="deleteFinAccount('${a.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveFinAccount(${a?`'${a.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+async function saveFinAccount(id){
+  const name = document.getElementById('fa-name').value.trim();
+  if(!name){ toast('Informe o nome da conta', true); return; }
+  const data = {
+    name, type: document.getElementById('fa-type').value,
+    initial_balance: parseFloat(document.getElementById('fa-initial').value)||0,
+    notes: document.getElementById('fa-notes').value.trim(),
+  };
+  if(id) data.status = document.getElementById('fa-status').value;
+  const { error } = id ? await sb.from('financial_accounts').update(data).eq('id', id) : await sb.from('financial_accounts').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar conta financeira'); return; }
+  closeModal(); toast('Conta salva'); await loadAll(); renderFinAccountsTable();
+}
+async function deleteFinAccount(id){
+  const inUse = state.transactions.some(t=>t.accountId===id);
+  if(inUse){ toast('Essa conta tem lançamentos vinculados — marque como "Inativa" em vez de excluir, pra não perder o histórico.', true); return; }
+  if(!confirm('Excluir esta conta financeira?')) return;
+  const { error } = await sb.from('financial_accounts').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir conta'); return; }
+  closeModal(); toast('Conta excluída'); await loadAll(); renderFinAccountsTable();
+}
+function renderFinAccountsTable(){
+  const wrap = document.getElementById('finAccountsTableWrap');
+  if(!wrap) return;
+  if(state.financialAccounts.length===0){ wrap.innerHTML = emptyState('Nenhuma conta financeira cadastrada ainda.','Nova conta','openFinAccountModal()'); return; }
+  const total = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  wrap.innerHTML = `
+    <div class="stat-card" style="margin-bottom:14px;max-width:260px;"><div class="stat-label">Saldo total (contas ativas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
+    <table><thead><tr><th>Conta</th><th>Tipo</th><th>Saldo inicial</th><th>Saldo atual</th><th>Status</th><th></th></tr></thead><tbody>
+    ${state.financialAccounts.map(a=>{
+      const t = accountTypeInfo(a.type);
+      const balance = accountBalance(a.id);
+      return `<tr>
+        <td><strong>${esc(a.name)}</strong></td>
+        <td>${t.icon} ${t.label}</td>
+        <td style="color:var(--muted);">${fmtMoney(a.initialBalance)}</td>
+        <td style="font-weight:600;color:${balance<0?'var(--danger)':'inherit'}">${fmtMoney(balance)}</td>
+        <td><span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span></td>
+        <td class="row-actions"><button class="icon-btn" onclick="openFinAccountModal('${a.id}')">${iconEdit}</button></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- Categorias Financeiras ----
+let finCategoryEditingId = null;
+function openFinCategoryModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar categorias', true); return; }
+  finCategoryEditingId = id || null;
+  const c = id ? state.financialCategories.find(x=>x.id===id) : null;
+  const parentOptions = state.financialCategories.filter(p=>!p.parentId && p.id!==id && (!c || p.type===c.type));
+  openModal(`
+    <div class="modal-head"><h3>${c?'Editar categoria':'Nova categoria'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field-row">
+      <div class="field"><label>Nome</label><input id="fc-name" value="${c?esc(c.name):''}"></div>
+      <div class="field"><label>Tipo</label><select id="fc-type" onchange="onFinCategoryTypeChange()"><option value="despesa" ${(c?c.type:'despesa')==='despesa'?'selected':''}>Despesa</option><option value="receita" ${c&&c.type==='receita'?'selected':''}>Receita</option></select></div>
+    </div>
+    <div class="field"><label>Categoria pai (opcional — deixe em branco pra criar uma categoria principal)</label><select id="fc-parent">
+      <option value="">— Nenhuma (categoria principal) —</option>${parentOptions.map(p=>`<option value="${p.id}" ${c&&c.parentId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
+    </select></div>
+    <div class="modal-foot">
+      ${c?`<button class="btn btn-danger-ghost" onclick="deleteFinCategory('${c.id}')">Excluir</button>`:''}
+      ${c&&c.status==='ativa'?`<button class="btn btn-ghost" onclick="archiveFinCategory('${c.id}')">Arquivar</button>`:''}
+      ${c&&c.status==='arquivada'?`<button class="btn btn-ghost" onclick="unarchiveFinCategory('${c.id}')">Reativar</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveFinCategory(${c?`'${c.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+function onFinCategoryTypeChange(){
+  // troca de tipo só precisa re-filtrar a lista de categoria-pai (que tem que ser do mesmo tipo) —
+  // preserva o nome já digitado e o id em edição, em vez de reabrir o formulário do zero.
+  const name = document.getElementById('fc-name').value;
+  const newType = document.getElementById('fc-type').value;
+  const parentOptions = state.financialCategories.filter(p=>!p.parentId && p.id!==finCategoryEditingId && p.type===newType);
+  document.getElementById('fc-parent').innerHTML = `<option value="">— Nenhuma (categoria principal) —</option>${parentOptions.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}`;
+  document.getElementById('fc-name').value = name;
+}
+async function saveFinCategory(id){
+  const name = document.getElementById('fc-name').value.trim();
+  if(!name){ toast('Informe o nome da categoria', true); return; }
+  const data = { name, type: document.getElementById('fc-type').value, parent_id: document.getElementById('fc-parent').value || null };
+  const { error } = id ? await sb.from('financial_categories').update(data).eq('id', id) : await sb.from('financial_categories').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar categoria'); return; }
+  closeModal(); toast('Categoria salva'); await loadAll(); renderFinCategoriesTable();
+}
+async function deleteFinCategory(id){
+  const inUse = state.transactions.some(t=>t.categoryId===id);
+  const hasChildren = state.financialCategories.some(c=>c.parentId===id);
+  if(hasChildren){ toast('Essa categoria tem subcategorias — exclua ou mova as subcategorias primeiro.', true); return; }
+  if(inUse){ toast('Essa categoria tem lançamentos vinculados — arquive em vez de excluir, pra não perder o histórico.', true); return; }
+  if(!confirm('Excluir esta categoria?')) return;
+  const { error } = await sb.from('financial_categories').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir categoria'); return; }
+  closeModal(); toast('Categoria excluída'); await loadAll(); renderFinCategoriesTable();
+}
+async function archiveFinCategory(id){
+  const { error } = await sb.from('financial_categories').update({ status:'arquivada' }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao arquivar categoria'); return; }
+  closeModal(); toast('Categoria arquivada'); await loadAll(); renderFinCategoriesTable();
+}
+async function unarchiveFinCategory(id){
+  const { error } = await sb.from('financial_categories').update({ status:'ativa' }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao reativar categoria'); return; }
+  closeModal(); toast('Categoria reativada'); await loadAll(); renderFinCategoriesTable();
+}
+function renderFinCategoriesTable(){
+  const wrap = document.getElementById('finCategoriesTableWrap');
+  if(!wrap) return;
+  if(state.financialCategories.length===0){ wrap.innerHTML = emptyState('Nenhuma categoria cadastrada ainda.','Nova categoria','openFinCategoryModal()'); return; }
+  const renderGroup = (type, label) => {
+    const top = state.financialCategories.filter(c=>!c.parentId && c.type===type);
+    if(top.length===0) return '';
+    return `<div class="subhead">${label}</div><table><thead><tr><th>Categoria</th><th>Status</th><th></th></tr></thead><tbody>
+      ${top.map(c=>{
+        const children = state.financialCategories.filter(x=>x.parentId===c.id);
+        return `<tr>
+          <td><strong>${esc(c.name)}</strong></td>
+          <td><span class="badge ${c.status==='ativa'?'badge-success':'badge-muted'}">${c.status==='ativa'?'Ativa':'Arquivada'}</span></td>
+          <td class="row-actions"><button class="icon-btn" onclick="openFinCategoryModal('${c.id}')">${iconEdit}</button></td>
+        </tr>` + children.map(ch=>`<tr>
+          <td style="padding-left:28px;color:var(--muted);">↳ ${esc(ch.name)}</td>
+          <td><span class="badge ${ch.status==='ativa'?'badge-success':'badge-muted'}">${ch.status==='ativa'?'Ativa':'Arquivada'}</span></td>
+          <td class="row-actions"><button class="icon-btn" onclick="openFinCategoryModal('${ch.id}')">${iconEdit}</button></td>
+        </tr>`).join('');
+      }).join('')}
+    </tbody></table>`;
+  };
+  wrap.innerHTML = renderGroup('despesa','Despesas') + renderGroup('receita','Receitas');
 }
 
 // =========================================================
