@@ -3360,11 +3360,70 @@ function renderCRWizardStep1(){
       <option value="">—</option>${neighborhoods.map(n=>`<option value="${n.id}" ${n.id===crWizardNeighborhoodId?'selected':''}>${esc(n.name)}</option>`).join('')}
     </select></div>
     ${crWizardCityId && neighborhoods.length===0?'<div class="hint" style="color:var(--warn);">Essa cidade ainda não tem bairro cadastrado.</div>':''}
+    ${crWizardCityId && neighborhoods.length>0?`
+    <div class="subhead">💡 Prospecção Inteligente</div>
+    <div class="hint" style="margin-bottom:8px;">Ajuda a escolher onde vale mais a pena focar a próxima rota.</div>
+    <div id="prospeccaoInteligenteWrap" class="table-scroll"></div>
+    ` : ''}
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="crWizardGoStep2()">Próximo →</button>
     </div>
   `, 'wide');
+  if(crWizardCityId && neighborhoods.length>0) renderProspeccaoInteligente(neighborhoods);
+}
+// ---- 💡 Prospecção Inteligente ----
+// Extrai o nome da rua do endereço (tudo antes do primeiro número) — usado pra comparar quais ruas
+// já tiveram alguma visita de verdade (status diferente de pendente) contra o total de ruas do bairro.
+function extractStreetName(address){
+  if(!address) return null;
+  const match = address.match(/^(.*?),?\s*\d+/);
+  return (match ? match[1] : address).trim().toLowerCase();
+}
+function renderProspeccaoInteligente(neighborhoods){
+  const wrap = document.getElementById('prospeccaoInteligenteWrap');
+  if(!wrap) return;
+  const norm = s => (s||'').trim().toLowerCase();
+  const city = state.visitCities.find(c=>c.id===crWizardCityId);
+
+  // Ruas com pelo menos uma visita concluída de verdade (não conta "pendente"), em qualquer bairro/rota
+  const visitedStreets = new Set();
+  state.commercialRoutes.forEach(r=> r.stops.forEach(s=>{
+    if(s.visitStatus==='pendente') return;
+    const target = s.targetType==='client' ? state.clients.find(c=>c.id===s.clientId) : state.fieldProspects.find(p=>p.id===s.prospectId);
+    const street = target && extractStreetName(target.address);
+    if(street) visitedStreets.add(street);
+  }));
+
+  const rows = neighborhoods.map(n=>{
+    const clientesAtivos = state.clients.filter(c=>c.status==='ativo' && norm(c.city)===norm(city.name) && norm(c.neighborhood)===norm(n.name));
+    const leads = state.leads.filter(l=>!['fechado','perdido'].includes(l.stage) && norm(l.city)===norm(city.name) && norm(l.neighborhood||'')===norm(n.name));
+    const prospects = state.fieldProspects.filter(p=>p.cityId===crWizardCityId && p.neighborhoodId===n.id && !p.convertedLeadId && !p.convertedClientId);
+
+    const allTargets = [...clientesAtivos, ...prospects];
+    const allStreets = new Set(allTargets.map(t=>extractStreetName(t.address)).filter(Boolean));
+    const naoVisitadas = [...allStreets].filter(s=>!visitedStreets.has(s));
+
+    let ultimaVisita = null;
+    state.commercialRoutes.filter(r=>r.neighborhoodId===n.id).forEach(r=>{
+      const temVisita = r.stops.some(s=>s.visitStatus!=='pendente');
+      if(temVisita && (!ultimaVisita || r.plannedDate>ultimaVisita)) ultimaVisita = r.plannedDate;
+    });
+
+    return { neighborhood:n, clientesAtivos:clientesAtivos.length, leads:leads.length, prospects:prospects.length,
+      ruasNaoVisitadas:naoVisitadas.length, totalRuas:allStreets.size, ultimaVisita };
+  });
+
+  wrap.innerHTML = `<table><thead><tr><th>Bairro</th><th>Clientes ativos</th><th>Leads</th><th>Prospects</th><th>Ruas não visitadas</th><th>Última visita</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr style="cursor:pointer;${r.neighborhood.id===crWizardNeighborhoodId?'background:var(--surface-2);':''}" onclick="crWizardNeighborhoodId='${r.neighborhood.id}'; document.getElementById('crw-neighborhood').value='${r.neighborhood.id}';">
+      <td><strong>${esc(r.neighborhood.name)}</strong></td>
+      <td>${r.clientesAtivos}</td>
+      <td>${r.leads}</td>
+      <td>${r.prospects}</td>
+      <td>${r.totalRuas>0?`${r.ruasNaoVisitadas} de ${r.totalRuas}`:'—'}</td>
+      <td style="color:var(--muted);font-size:12px;">${r.ultimaVisita?fmtDate(r.ultimaVisita):'nunca'}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
 }
 function crWizardGoStep2(){
   crWizardCityId = document.getElementById('crw-city').value;
