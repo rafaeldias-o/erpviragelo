@@ -321,6 +321,10 @@ tr:last-child td{border-bottom:none;}
             <div id="notifDeliveriesWrap"></div>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">📅 Compromissos</div><button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">+ Novo compromisso</button></div>
+          <div id="notifCommitmentsWrap"></div>
+        </div>
       </section>
 
       <!-- ESTOQUE -->
@@ -555,7 +559,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -683,7 +687,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -706,15 +710,22 @@ async function loadAll(){
     sb.from('commercial_routes').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
     sb.from('commercial_route_stops').select('*').order('sequence'),
     sb.from('profiles').select('*'),
+    sb.from('commitments').select('*').is('deleted_at', null).order('date'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
     ['itens de entrega',delItemsRes],['empresa',coRes],['política de frete',freightRes],
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
-    ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes]]){
+    ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  state.commitments = (commitRes.data||[]).map(c => ({
+    id:c.id, title:c.title, description:c.description, date:c.date, time:c.time,
+    owner:c.owner_name, category:c.category, priority:c.priority, status:c.status,
+    createdAt:(c.created_at||'').slice(0,10)
+  }));
 
   state.freightTiers = (freightRes.data||[]).map(f => ({ id:f.id, minKm:Number(f.min_km), maxKm:Number(f.max_km), price:Number(f.price) }));
   state.visitCities = (cityRes.data||[]).map(c => ({ id:c.id, name:c.name, state:c.state }));
@@ -1455,6 +1466,8 @@ function computeSystemAlerts(){
     const c = state.clients.find(x=>x.id===d.clientId);
     alerts.push({type:'entrega_atrasada', icon:'🚚', color:'var(--danger)', priority:'alta', text:`Entrega atrasada: ${c?c.name:'cliente'} (${fmtDate(d.date)})`, date: d.date});
   });
+  (state.commitments||[]).filter(c=>c.status==='pendente' && c.date<today).forEach(c=>
+    alerts.push({type:'compromisso_atrasado', icon:'📅', color:'var(--warn)', priority: c.priority==='alta'?'alta':'média', text:`Compromisso atrasado: ${c.title} (${fmtDate(c.date)})`, date: c.date}));
   return alerts;
 }
 
@@ -3717,6 +3730,7 @@ function renderNotifications(){
   renderNotifAlerts();
   renderNotifTasks();
   renderNotifDeliveries();
+  renderNotifCommitments();
 }
 function renderNotifAlerts(){
   const wrap = document.getElementById('notifAlertsWrap');
@@ -3784,6 +3798,90 @@ function renderNotifDeliveries(){
     </div>`;
   }).join('');
 }
+const COMMITMENT_CATEGORIES = [
+  {v:'reuniao', label:'Reunião', icon:'👥'}, {v:'visita', label:'Visita', icon:'📍'},
+  {v:'pagamento', label:'Pagamento', icon:'💰'}, {v:'lembrete', label:'Lembrete', icon:'🔔'}, {v:'outro', label:'Outro', icon:'📌'},
+];
+const COMMITMENT_PRIORITIES = [{v:'baixa',label:'Baixa'},{v:'media',label:'Média'},{v:'alta',label:'Alta'}];
+function commitmentCategoryInfo(v){ return COMMITMENT_CATEGORIES.find(c=>c.v===v) || COMMITMENT_CATEGORIES[4]; }
+function openCommitmentModal(id){
+  const c = id ? state.commitments.find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${c?'Editar compromisso':'Novo compromisso'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Título</label><input id="cm-title" value="${c?esc(c.title):''}" placeholder="Ex: Reunião com fornecedor"></div>
+    <div class="field"><label>Descrição</label><textarea id="cm-description" rows="2">${c?esc(c.description||''):''}</textarea></div>
+    <div class="field-row3">
+      <div class="field"><label>Data</label><input id="cm-date" type="date" value="${c?c.date:todayStr()}"></div>
+      <div class="field"><label>Horário</label><input id="cm-time" type="time" value="${c&&c.time?c.time.slice(0,5):''}"></div>
+      <div class="field"><label>Responsável</label><input id="cm-owner" value="${c?esc(c.owner||''):''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Categoria</label><select id="cm-category">${COMMITMENT_CATEGORIES.map(cat=>`<option value="${cat.v}" ${c&&c.category===cat.v?'selected':''}>${cat.icon} ${cat.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Prioridade</label><select id="cm-priority">${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${(c?c.priority:'media')===p.v?'selected':''}>${p.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="modal-foot">
+      ${c?`<button class="btn btn-danger-ghost" onclick="deleteCommitment('${c.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCommitment(${c?`'${c.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+async function saveCommitment(id){
+  const title = document.getElementById('cm-title').value.trim();
+  if(!title){ toast('Informe o título do compromisso', true); return; }
+  const data = {
+    title, description: document.getElementById('cm-description').value.trim(),
+    date: document.getElementById('cm-date').value || todayStr(), time: document.getElementById('cm-time').value || null,
+    owner_name: document.getElementById('cm-owner').value.trim(),
+    category: document.getElementById('cm-category').value, priority: document.getElementById('cm-priority').value,
+  };
+  const { error } = id ? await sb.from('commitments').update(data).eq('id', id) : await sb.from('commitments').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar compromisso'); return; }
+  closeModal(); toast('Compromisso salvo'); await loadAll(); renderNotifications();
+}
+async function deleteCommitment(id){
+  if(!confirm('Excluir este compromisso?')) return;
+  const { error } = await sb.from('commitments').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir compromisso'); return; }
+  closeModal(); toast('Compromisso excluído'); await loadAll(); renderNotifications();
+}
+async function setCommitmentStatus(id, status){
+  const { error } = await sb.from('commitments').update({ status }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao atualizar compromisso'); return; }
+  await loadAll(); renderNotifications();
+}
+async function rescheduleCommitment(id, newDate){
+  const { error } = await sb.from('commitments').update({ date: newDate }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao remarcar compromisso'); return; }
+  toast('Compromisso remarcado');
+  await loadAll(); renderNotifications();
+}
+function renderNotifCommitments(){
+  const wrap = document.getElementById('notifCommitmentsWrap');
+  if(!wrap) return;
+  const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
+  const today = todayStr();
+  const limit = notifPeriodLimit();
+  let list = state.commitments.filter(c=>c.status==='pendente');
+  list = list.filter(c=> c.date<today || limit===null || c.date<=limit);
+  if(q) list = list.filter(c=>c.title.toLowerCase().includes(q));
+  list.sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  const prioBadge = p => p==='alta' ? 'badge-danger' : p==='media' ? 'badge-warn' : 'badge-muted';
+  wrap.innerHTML = list.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhum compromisso nesse período.</div>' : list.map(c=>{
+    const overdue = c.date < today;
+    const cat = commitmentCategoryInfo(c.category);
+    return `<div class="task-row">
+      <div><strong>${cat.icon} ${esc(c.title)}</strong> ${overdue?'<span class="badge badge-danger">Atrasado</span>':''} <span class="badge ${prioBadge(c.priority)}">${c.priority}</span>
+        <div style="color:var(--muted);font-size:11px">${fmtDate(c.date)}${c.time?' '+c.time.slice(0,5):''}${c.owner?' · '+esc(c.owner):''}${c.description?' · '+esc(c.description):''}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="icon-btn" onclick="setCommitmentStatus('${c.id}','concluido')" title="Concluir">✓</button>
+        <input type="date" value="${c.date}" style="width:118px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="rescheduleCommitment('${c.id}', this.value)" title="Remarcar">
+        <button class="icon-btn" onclick="openCommitmentModal('${c.id}')" title="Editar">${iconEdit}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function updateNotifBadge(){
   const badge = document.getElementById('notifBadge');
   if(!badge) return;
