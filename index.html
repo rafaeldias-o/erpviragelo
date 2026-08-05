@@ -305,6 +305,10 @@ tr:last-child td{border-bottom:none;}
         </div>
 
         <div id="notifCentralView">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Resumo</div></div>
+            <div class="stat-grid" id="notifSummaryGrid"></div>
+          </div>
           <div class="tabs">
             <div class="tab active" data-notifperiod="hoje" onclick="setNotifPeriod('hoje')">Hoje</div>
             <div class="tab" data-notifperiod="semana" onclick="setNotifPeriod('semana')">Próximos 7 dias</div>
@@ -314,7 +318,12 @@ tr:last-child td{border-bottom:none;}
           <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
 
           <div class="panel">
-            <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div></div>
+            <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div>
+              <select id="notifAlertSort" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="renderNotifAlerts()">
+                <option value="prioridade">Ordenar por prioridade</option>
+                <option value="data">Ordenar por data</option>
+              </select>
+            </div>
             <div id="notifAlertsWrap"></div>
           </div>
           <div class="two-col">
@@ -3797,6 +3806,7 @@ function notifPeriodLimit(){
   return null; // 'todos' — sem limite superior
 }
 function renderNotifications(){
+  renderNotifSummary();
   renderNotifAlerts();
   renderNotifTasks();
   renderNotifDeliveries();
@@ -3808,9 +3818,39 @@ function renderNotifAlerts(){
   const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
   let alerts = computeSystemAlerts();
   if(q) alerts = alerts.filter(a=>a.text.toLowerCase().includes(q));
+  const sortMode = document.getElementById('notifAlertSort')?.value || 'prioridade';
+  const prioRank = {alta:0, média:1, baixa:2};
+  if(sortMode==='prioridade') alerts.sort((a,b)=> (prioRank[a.priority]??3) - (prioRank[b.priority]??3) || a.date.localeCompare(b.date));
+  else alerts.sort((a,b)=> a.date.localeCompare(b.date));
   const prioBadge = p => p==='alta' ? 'badge-danger' : p==='média' ? 'badge-warn' : 'badge-muted';
   wrap.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
     alerts.map(a=>`<div class="alert-row"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`).join('');
+}
+// ---- Resumo (Fase 5) — os 8 indicadores da Central, calculados do que já está em memória ----
+function renderNotifSummary(){
+  const box = document.getElementById('notifSummaryGrid');
+  if(!box) return;
+  const today = todayStr();
+  const tarefasVencidas = state.tasks.filter(t=>t.status==='pendente' && t.date<today).length;
+  const compromissosHoje = state.commitments.filter(c=>c.status==='pendente' && c.date===today).length;
+  const entregasHoje = state.deliveries.filter(d=>d.date===today && d.status!=='cancelada').length;
+  const estoqueCritico = state.stockItems.filter(p=>p.qty<=p.minQty).length;
+  const allPlans = state.assets.flatMap(a=>(a.maintenancePlans||[]).filter(p=>p.active).map(p=>({...p, assetName:a.name})));
+  const equipAguardando = new Set(allPlans.filter(p=>p.nextDate<=addDays(today,7)).map(p=>p.assetName)).size;
+  const manutencoesVencidas = allPlans.filter(p=>p.nextDate<today).length;
+  const garantiasProximas = state.assets.filter(a=>a.warrantyEndDate && a.warrantyEndDate>=today && a.warrantyEndDate<=addDays(today,90)).length;
+  const valorPatrimonio = state.assets.reduce((s,a)=>s+(a.purchaseValue||0),0);
+
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
+    <div class="stat-card"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
+    <div class="stat-card"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
+    <div class="stat-card"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
+    <div class="stat-card"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
+    <div class="stat-card"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
+    <div class="stat-card"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
+    <div class="stat-card"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
+  `;
 }
 function renderNotifTasks(){
   const wrap = document.getElementById('notifTasksWrap');
