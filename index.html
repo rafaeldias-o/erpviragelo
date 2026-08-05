@@ -281,14 +281,6 @@ tr:last-child td{border-bottom:none;}
           <div class="panel"><div class="panel-head"><div class="section-title">Últimas movimentações de estoque</div></div><div id="lastMovements"></div></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="section-title">Evolução do estoque de produtos acabados (mês atual)</div></div>
-          <div class="stat-grid" id="estoqueEvolStats" style="margin-bottom:16px;"></div>
-          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Quantidade em estoque</div>
-          <div id="estoqueQtyChart" style="margin-bottom:22px;"></div>
-          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Valor em estoque (R$)</div>
-          <div class="bars" id="estoqueValueChart" style="height:130px;"></div>
-        </div>
-        <div class="panel">
           <div class="panel-head"><div class="section-title">Produção × Vendas (mês atual)</div></div>
           <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:12px;"></div>
           <div id="producaoVendasWarnBox"></div>
@@ -406,6 +398,14 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head"><div class="section-title">Histórico de movimentações</div></div>
           <div id="movementsTableWrap" class="table-scroll"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Evolução do estoque de produtos acabados (mês atual)</div></div>
+          <div class="stat-grid" id="estoqueEvolStats" style="margin-bottom:18px;"></div>
+          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Quantidade em estoque</div>
+          <div id="estoqueQtyChart" style="margin-bottom:24px;"></div>
+          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Valor em estoque (R$)</div>
+          <div id="estoqueValueChart"></div>
         </div>
       </section>
 
@@ -1150,6 +1150,7 @@ function renderEstoque(){
       <td style="color:var(--muted)">${esc(m.note||'—')}</td>
     </tr>`).join('')}</tbody></table>`;
   }
+  renderEstoqueEvolucao();
 }
 
 // =========================================================
@@ -2803,7 +2804,7 @@ function renderDashboard(){
   lm.innerHTML = state.movements.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma movimentação ainda.</p></div>' :
     state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
 
-  renderEstoqueEvolucao();
+  renderProducaoVendas();
 }
 
 // ---- Evolução do Estoque (Gráfico 1: quantidade / Gráfico 2: valor) ----
@@ -2850,9 +2851,46 @@ function buildLineChartSvg(values, labels){
     ${axisLabels}
   </svg>`;
 }
+// Gráfico de barras com escala inteligente: quando os valores variam pouco entre si (comum em valor de
+// estoque, que não costuma saltar de um dia pro outro), começar do zero faz todas as barras parecerem
+// idênticas. Nesse caso, a escala "dá zoom" na faixa real de variação — sempre deixando isso visível
+// numa nota abaixo do gráfico, pra não passar a impressão errada de que o eixo começa em zero.
+function buildBarChartSvg(values, labels, formatValue){
+  const w = 700, h = 160, padL = 10, padR = 10, padT = 14, padB = 22;
+  const max = values.length ? Math.max(...values) : 0;
+  const min = values.length ? Math.min(...values) : 0;
+  const spread = max - min;
+  const avg = values.reduce((a,b)=>a+b,0) / (values.length||1);
+  const zoomed = avg>0 && spread < avg*0.15 && spread>0;
+  const base = zoomed ? Math.max(0, min - spread*0.15) : 0;
+  const range = (max-base) || 1;
+  const stepX = (w-padL-padR)/values.length;
+  const barW = Math.max(3, stepX-3);
+  const yOf = v => padT + (h-padT-padB) * (1 - (v-base)/range);
+  const baseline = h-padB;
+  const bars = values.map((v,i)=>{
+    const x = padL + i*stepX + (stepX-barW)/2;
+    const yTop = yOf(v);
+    const barH = Math.max(1, baseline-yTop);
+    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" style="fill:var(--accent);opacity:0.88;"><title>Dia ${labels[i]}: ${formatValue(v)}</title></rect>`;
+  }).join('');
+  const labelIdxs = [0];
+  for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
+  if(!labelIdxs.includes(values.length-1)) labelIdxs.push(values.length-1);
+  const axisLabels = labelIdxs.map(i=>{
+    const x = padL + i*stepX + stepX/2;
+    return `<text x="${x.toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`;
+  }).join('');
+  const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:160px;">
+    <line x1="${padL}" y1="${baseline}" x2="${w-padR}" y2="${baseline}" style="stroke:var(--border);stroke-width:1;"/>
+    ${bars}
+    ${axisLabels}
+  </svg>`;
+  return svg + (zoomed ? `<div class="hint" style="margin-top:2px;">Escala ajustada pra destacar a variação do período — o eixo não começa em zero.</div>` : '');
+}
 async function renderEstoqueEvolucao(){
   const statsBox = document.getElementById('estoqueEvolStats');
-  if(!statsBox) return; // só existe na tela Painel
+  if(!statsBox) return; // só existe na tela Estoque
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
   const { data, error } = await sb.from('v_estoque_diario').select('*').gte('date', cutoff.toISOString().slice(0,10)).order('date');
   if(error){ dbErr(error, 'Erro ao carregar evolução do estoque'); return; }
@@ -2874,12 +2912,7 @@ async function renderEstoqueEvolucao(){
     <div class="stat-card"><div class="stat-label">📊 Média diária</div><div class="stat-value">${media.toFixed(0)}</div></div>
   `;
   document.getElementById('estoqueQtyChart').innerHTML = buildLineChartSvg(qtys, series.map(s=>s.day));
-  const maxVal = Math.max(1, ...values);
-  document.getElementById('estoqueValueChart').innerHTML = series.map(s=>`
-    <div class="bar-group"><div class="bar-pair" style="justify-content:center;"><div class="bar" style="width:5px;background:var(--accent);height:${Math.round(s.value/maxVal*100)}%" title="Dia ${s.day}: ${fmtMoney(s.value)}"></div></div>${s.day%5===0||s.day===1?`<div class="bar-label" style="font-size:8px;">${s.day}</div>`:'<div class="bar-label"></div>'}</div>
-  `).join('');
-
-  renderProducaoVendas();
+  document.getElementById('estoqueValueChart').innerHTML = buildBarChartSvg(values, series.map(s=>s.day), v=>fmtMoney(v));
 }
 
 // ---- Produção × Vendas (Gráfico 3) ----
