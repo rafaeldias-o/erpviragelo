@@ -231,6 +231,7 @@ tr:last-child td{border-bottom:none;}
     </div>
     <nav class="nav" id="navList">
       <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Painel</span></div>
+      <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="badge badge-danger" style="display:none;margin-left:auto;"></span></div>
       <div class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
       <div class="nav-item" data-view="producao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
       <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
@@ -293,6 +294,32 @@ tr:last-child td{border-bottom:none;}
           <div id="producaoVendasWarnBox"></div>
           <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
           <div class="bars" id="producaoVendasChart" style="height:130px;"></div>
+        </div>
+      </section>
+
+      <!-- CENTRAL DE NOTIFICAÇÕES -->
+      <section class="view" id="view-notificacoes">
+        <div class="tabs">
+          <div class="tab active" data-notifperiod="hoje" onclick="setNotifPeriod('hoje')">Hoje</div>
+          <div class="tab" data-notifperiod="semana" onclick="setNotifPeriod('semana')">Próximos 7 dias</div>
+          <div class="tab" data-notifperiod="mes" onclick="setNotifPeriod('mes')">Este mês</div>
+          <div class="tab" data-notifperiod="todos" onclick="setNotifPeriod('todos')">Todos</div>
+        </div>
+        <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
+
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div></div>
+          <div id="notifAlertsWrap"></div>
+        </div>
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">✅ Tarefas</div></div>
+            <div id="notifTasksWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
+            <div id="notifDeliveriesWrap"></div>
+          </div>
         </div>
       </section>
 
@@ -822,7 +849,8 @@ function renderThemeIcon(mode){
 // ================= NAV =================
 document.querySelectorAll('.nav-item').forEach(item=> item.addEventListener('click', ()=> switchView(item.dataset.view)));
 const titles = {
-  dashboard:['Painel','Visão geral da fábrica'], estoque:['Estoque','Matéria-prima e produtos acabados'],
+  dashboard:['Painel','Visão geral da fábrica'], notificacoes:['Central de Notificações','Tudo que exige sua atenção, num só lugar'],
+  estoque:['Estoque','Matéria-prima e produtos acabados'],
   producao:['Produção','Registros diários de produção'], pedidos:['Pedidos','Vendas e acompanhamento de entrega'],
   financeiro:['Financeiro','Despesas, contas e fluxo de caixa'], crm:['CRM','Funil de vendas e clientes'],
   visitas:['Visitas Comerciais','Prospecção e rotas de visita em campo'],
@@ -1396,6 +1424,38 @@ function setCrmTab(tab){
 
 function isStalled(lead){
   return !['fechado','perdido'].includes(lead.stage) && daysSince(lead.lastInteraction) > 3;
+}
+
+// ---- Alertas automáticos do sistema — fonte única, usada pelo Painel E pela Central de Notificações ----
+function computeSystemAlerts(){
+  const today = todayStr();
+  const alerts = [];
+  state.stockItems.filter(p=>p.qty<=p.minQty).forEach(p=>
+    alerts.push({type:'estoque_baixo', icon:'📦', color:'var(--danger)', priority:'alta', text:`Estoque baixo: ${p.name} (${p.qty} ${p.unit})`, date: today}));
+
+  const pendentes = state.transactions.filter(t=>t.status==='pendente');
+  pendentes.filter(t=>t.dueDate < today).forEach(t=>
+    alerts.push({type:'conta_vencida', icon:'💰', color:'var(--warn)', priority:'alta', text:`Conta vencida: ${t.description} — ${fmtMoney(t.amount)} (venceu em ${fmtDate(t.dueDate)})`, date: t.dueDate}));
+  pendentes.filter(t=>t.dueDate === today).forEach(t=>
+    alerts.push({type:'conta_hoje', icon:'💰', color:'var(--warn)', priority:'média', text:`Conta vence hoje: ${t.description} — ${fmtMoney(t.amount)}`, date: t.dueDate}));
+  const soon = new Date(); soon.setDate(soon.getDate()+7);
+  pendentes.filter(t=>t.dueDate > today && t.dueDate <= soon.toISOString().slice(0,10)).forEach(t=>
+    alerts.push({type:'conta_em_breve', icon:'💰', color:'var(--info)', priority:'baixa', text:`Conta vence em breve: ${t.description} — ${fmtMoney(t.amount)} (${fmtDate(t.dueDate)})`, date: t.dueDate}));
+
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+  state.clients.filter(c=>c.status==='ativo').forEach(c=>{
+    const st = clientStats(c.id);
+    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today});
+  });
+  state.leads.filter(isStalled).forEach(l=>
+    alerts.push({type:'lead_parado', icon:'🧲', color:'var(--danger)', priority:'média', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`, date: today}));
+  state.tasks.filter(t=>t.status==='pendente' && t.date<today).forEach(t=>
+    alerts.push({type:'tarefa_atrasada', icon:'✅', color:'var(--warn)', priority:'alta', text:`Tarefa atrasada: ${t.title} (${fmtDate(t.date)})`, date: t.date}));
+  state.deliveries.filter(d=>d.date<today && !['entregue','cancelada'].includes(d.status)).forEach(d=>{
+    const c = state.clients.find(x=>x.id===d.clientId);
+    alerts.push({type:'entrega_atrasada', icon:'🚚', color:'var(--danger)', priority:'alta', text:`Entrega atrasada: ${c?c.name:'cliente'} (${fmtDate(d.date)})`, date: d.date});
+  });
+  return alerts;
 }
 
 function openLeadModal(id){
@@ -2477,7 +2537,6 @@ function renderDashboard(){
   const yearKey = String(now.getFullYear());
   const today = todayStr();
   const stockValue = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
-  const lowStock = state.stockItems.filter(p=>p.qty<=p.minQty);
   // Revenue is always derived from paid "receita" transactions, which are only ever created by orders — never manually.
   const paidRevenue = state.transactions.filter(t=>t.type==='receita'&&t.status==='pago');
   const faturamentoDia = paidRevenue.filter(t=>t.dueDate===today).reduce((s,t)=>s+t.amount,0);
@@ -2533,19 +2592,10 @@ function renderDashboard(){
   `).join('');
 
   // Alerts (estoque, financeiro, clientes parados, CRM: leads parados e tarefas atrasadas)
-  const alerts = [];
-  lowStock.forEach(p=> alerts.push({color:'var(--danger)', text:`Estoque baixo: ${p.name} (${p.qty} ${p.unit})`}));
-  vencidos.forEach(t=> alerts.push({color:'var(--warn)', text:`Conta vencida: ${t.description} — ${fmtMoney(t.amount)} (venceu em ${fmtDate(t.dueDate)})`}));
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
-  state.clients.filter(c=>c.status==='ativo').forEach(c=>{
-    const st = clientStats(c.id);
-    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({color:'var(--info)', text:`${c.name} não compra há mais de 60 dias`});
-  });
-  state.leads.filter(isStalled).forEach(l=> alerts.push({color:'var(--danger)', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`}));
-  state.tasks.filter(t=>t.status==='pendente' && t.date<today).forEach(t=> alerts.push({color:'var(--warn)', text:`Tarefa atrasada: ${t.title} (${fmtDate(t.date)})`}));
+  const alerts = computeSystemAlerts();
   const alertsBox = document.getElementById('alertsBox');
   alertsBox.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
-    alerts.slice(0,12).map(a=>`<div class="alert-row"><span class="alert-dot" style="background:${a.color}"></span><span>${esc(a.text)}</span></div>`).join('');
+    alerts.slice(0,12).map(a=>`<div class="alert-row"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span></div>`).join('');
 
   const lo = document.getElementById('lastOrders');
   lo.innerHTML = state.orders.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum pedido ainda.</p></div>' :
@@ -3647,11 +3697,108 @@ async function deleteFreightTier(id){
 }
 
 // ================= RENDER ALL =================
+// =========================================================
+// CENTRAL DE NOTIFICAÇÕES (Fase 1 — agregação, sem tabela nova)
+// =========================================================
+let notifPeriod = 'hoje';
+function setNotifPeriod(p){
+  notifPeriod = p;
+  document.querySelectorAll('[data-notifperiod]').forEach(t=>t.classList.toggle('active', t.dataset.notifperiod===p));
+  renderNotifications();
+}
+function notifPeriodLimit(){
+  const today = todayStr();
+  if(notifPeriod==='hoje') return today;
+  if(notifPeriod==='semana'){ const d = new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); }
+  if(notifPeriod==='mes'){ const now = new Date(); const last = new Date(now.getFullYear(), now.getMonth()+1, 0); return last.toISOString().slice(0,10); }
+  return null; // 'todos' — sem limite superior
+}
+function renderNotifications(){
+  renderNotifAlerts();
+  renderNotifTasks();
+  renderNotifDeliveries();
+}
+function renderNotifAlerts(){
+  const wrap = document.getElementById('notifAlertsWrap');
+  if(!wrap) return;
+  const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
+  let alerts = computeSystemAlerts();
+  if(q) alerts = alerts.filter(a=>a.text.toLowerCase().includes(q));
+  const prioBadge = p => p==='alta' ? 'badge-danger' : p==='média' ? 'badge-warn' : 'badge-muted';
+  wrap.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
+    alerts.map(a=>`<div class="alert-row"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`).join('');
+}
+function renderNotifTasks(){
+  const wrap = document.getElementById('notifTasksWrap');
+  if(!wrap) return;
+  const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
+  const today = todayStr();
+  const limit = notifPeriodLimit();
+  let tasks = state.tasks.filter(t=>t.status==='pendente');
+  tasks = tasks.filter(t=> t.date < today || limit===null || t.date <= limit); // vencidas sempre aparecem, futuras respeitam o período
+  if(q) tasks = tasks.filter(t=>t.title.toLowerCase().includes(q));
+  tasks.sort((a,b)=> a.date.localeCompare(b.date));
+  wrap.innerHTML = tasks.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhuma tarefa nesse período.</div>' : tasks.map(t=>{
+    const overdue = t.date < today;
+    const dayLabel = overdue ? 'Vencida' : t.date===today ? 'Hoje' : 'Futura';
+    return `<div class="task-row">
+      <div><strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
+        <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''} · ${esc(t.type)}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="icon-btn" onclick="setTaskStatus('${t.id}','concluida')" title="Concluir">✓</button>
+        <input type="date" value="${t.date}" style="width:118px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="rescheduleTask('${t.id}', this.value)" title="Reagendar">
+        <button class="icon-btn" onclick="openLeadModal('${t.leadId}')" title="Ver lead">👁️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function rescheduleTask(taskId, newDate){
+  const { error } = await sb.from('tasks').update({ date: newDate }).eq('id', taskId);
+  if(error){ dbErr(error, 'Erro ao reagendar tarefa'); return; }
+  toast('Tarefa reagendada');
+  await loadAll(); renderNotifications();
+}
+function renderNotifDeliveries(){
+  const wrap = document.getElementById('notifDeliveriesWrap');
+  if(!wrap) return;
+  const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
+  const today = todayStr();
+  const limit = notifPeriodLimit();
+  let list = state.deliveries.filter(d=>d.status!=='cancelada');
+  list = list.filter(d=> (d.date<today && d.status!=='entregue') || limit===null || d.date<=limit);
+  if(q) list = list.filter(d=>{
+    const c = state.clients.find(x=>x.id===d.clientId);
+    return (c?c.name:'').toLowerCase().includes(q);
+  });
+  list.sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  wrap.innerHTML = list.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhuma entrega nesse período.</div>' : list.map(d=>{
+    const c = state.clients.find(x=>x.id===d.clientId);
+    const late = d.date<today && d.status!=='entregue';
+    return `<div class="task-row">
+      <div><strong>${esc(c?c.name:'Cliente')}</strong>${clientBadge(c)} ${late?'<span class="badge badge-danger">Atrasada</span>':''}
+        <div style="color:var(--muted);font-size:11px">${fmtDate(d.date)}${d.time?' '+d.time:''}${c&&c.address?' · '+esc(c.address):''}${d.items&&d.items.length?' · '+d.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', '):''}${d.notes?' · '+esc(d.notes):''}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span class="badge ${deliveryStatusInfo(d.status).cls}">${deliveryStatusInfo(d.status).label}</span>
+        ${d.orderId?`<button class="icon-btn" onclick="openOrderModal('${d.orderId}')" title="Abrir pedido">🧾</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function updateNotifBadge(){
+  const badge = document.getElementById('notifBadge');
+  if(!badge) return;
+  const urgent = computeSystemAlerts().filter(a=>a.priority==='alta').length;
+  if(urgent>0){ badge.textContent = urgent; badge.style.display='inline-flex'; }
+  else badge.style.display = 'none';
+}
+
 function renderAll(){
   renderDashboard(); renderEstoque(); renderProducao(); renderPedidos();
   renderFinanceiro(); renderCRM(); renderVisitas();
   if(document.getElementById('reportFrom')) renderReport();
   renderConfig();
+  renderNotifications();
+  updateNotifBadge();
 }
 
 // ================= INIT =================
