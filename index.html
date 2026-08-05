@@ -822,7 +822,8 @@ async function loadAll(){
   state.fieldProspects = (prospRes.data||[]).map(p => ({
     id:p.id, name:p.name, company:p.company, cityId:p.city_id, neighborhoodId:p.neighborhood_id,
     address:p.address, phone:p.phone, notes:p.notes, segment:p.segment, lat:p.lat, lng:p.lng,
-    convertedLeadId:p.converted_lead_id, convertedClientId:p.converted_client_id, createdAt:(p.created_at||'').slice(0,10)
+    convertedLeadId:p.converted_lead_id, convertedClientId:p.converted_client_id,
+    geocodingStatus: p.geocoding_status, lastGeocoding: p.last_geocoding, createdAt:(p.created_at||'').slice(0,10)
   }));
 
   const stopsByRoute = {};
@@ -900,6 +901,7 @@ async function loadAll(){
     notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
     distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
     freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
+    geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding,
     createdAt: (c.created_at||'').slice(0,10)
   }));
 
@@ -2051,13 +2053,15 @@ function openClientDetailModal(id){
       <div class="field"><label>Cidade</label><input id="c-city" value="${c?esc(c.city||''):''}"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Endereço</label><input id="c-address" value="${c?esc(c.address||''):''}"></div>
-      <div class="field"><label>Número</label><input id="c-number" value="${c?esc(c.number||''):''}"></div>
+      <div class="field"><label>Endereço (rua e número juntos, ex: "Rua Rui Barbosa, 245")</label><input id="c-address" value="${c?esc(c.address||''):''}"></div>
+      <div class="field"><label>Número (opcional, se não incluiu no Endereço)</label><input id="c-number" value="${c?esc(c.number||''):''}"></div>
     </div>
-    <div class="field-row">
+    <div class="field-row3">
       <div class="field"><label>Bairro</label><input id="c-neighborhood" value="${c?esc(c.neighborhood||''):''}"></div>
-      <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
+      <div class="field"><label>Estado</label><input id="c-state" value="${c?esc(c.state||''):''}" maxlength="2" placeholder="Ex: SC"></div>
+      <div class="field"><label>CEP</label><input id="c-cep" value="${c?esc(c.cep||''):''}" placeholder="Ex: 88701-000"></div>
     </div>
+    <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
     <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
     <div class="field"><label>Observações</label><textarea id="c-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
 
@@ -2118,6 +2122,12 @@ async function geocodeAddress(query){
     return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
   }catch(e){ console.warn('Geocodificação falhou:', e); return null; }
 }
+// Monta o endereço completo na ordem que o geocodificador espera: Rua e número (já vêm juntos no
+// campo "endereço", seguindo o padrão de cadastro) + Bairro + Cidade + Estado + CEP. Nunca separa o
+// número do nome da rua — usa o campo de endereço exatamente como foi digitado.
+function buildFullAddress(entity){
+  return [entity.address, entity.neighborhood, entity.city, entity.state, entity.cep].filter(Boolean).join(', ');
+}
 
 // ---- Frete por distância ----
 // Reaproveita o mesmo par geocoding (Nominatim) + roteamento (OSRM) já usado na Rota Otimizada,
@@ -2150,12 +2160,17 @@ async function ensureClientDistance(clientId, force){
 
   let lat = client.lat, lng = client.lng;
   if(lat==null || lng==null || force){
-    const addressQuery = [client.address, client.number, client.neighborhood, client.city, client.state].filter(Boolean).join(', ');
+    const addressQuery = buildFullAddress(client);
     if(!addressQuery){ toast('Esse cliente não tem endereço suficiente para calcular a distância', true); return null; }
     const coords = await geocodeAddress(addressQuery + ', Brasil');
-    if(!coords){ toast('Não foi possível localizar o endereço desse cliente no mapa', true); return null; }
+    const now = new Date().toISOString();
+    if(!coords){
+      await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding: now }).eq('id', clientId);
+      toast('Não foi possível localizar o endereço desse cliente no mapa — confira se o endereço está completo e correto', true);
+      return null;
+    }
     lat = coords.lat; lng = coords.lng;
-    await sb.from('clients').update({ lat, lng, geocoded_address: addressQuery }).eq('id', clientId);
+    await sb.from('clients').update({ lat, lng, geocoded_address: addressQuery, geocoding_status:'ok', last_geocoding: now }).eq('id', clientId);
   }
 
   const distanceKm = await routeDistanceKm(origin, {lat, lng});
@@ -2191,6 +2206,7 @@ async function saveClientDetail(id){
     email: document.getElementById('c-email').value.trim(), city: document.getElementById('c-city').value.trim(),
     address: document.getElementById('c-address').value.trim(), number: document.getElementById('c-number').value.trim(),
     neighborhood: document.getElementById('c-neighborhood').value.trim(),
+    state: document.getElementById('c-state').value.trim(), cep: document.getElementById('c-cep').value.trim(),
     complement: document.getElementById('c-complement').value.trim(),
     status: document.getElementById('c-status').value, notes: document.getElementById('c-notes').value.trim(),
     has_freezer: document.getElementById('c-hasfreezer').value === 'true',
@@ -2199,13 +2215,21 @@ async function saveClientDetail(id){
     freezer_install_date: document.getElementById('c-freezerdate')?.value || null,
     freezer_notes: document.getElementById('c-freezernotes')?.value.trim() || null,
   };
-  const addressQuery = [data.address, data.number, data.neighborhood, data.city].filter(Boolean).join(', ');
+  // Endereço completo pro geocodificador: rua+número (já juntos no campo Endereço) + bairro + cidade + estado + CEP.
+  // Se ainda existir um "número" cadastrado separadamente (endereços antigos), soma também — sem duplicar quando
+  // o número já estiver escrito dentro do próprio endereço.
+  const addressWithNumber = (data.number && !data.address.includes(data.number)) ? `${data.address}, ${data.number}` : data.address;
+  const addressQuery = buildFullAddress({ address: addressWithNumber, neighborhood: data.neighborhood, city: data.city, state: data.state, cep: data.cep });
   const existing = id ? state.clients.find(c=>c.id===id) : null;
   const addressChanged = addressQuery && addressQuery !== existing?.geocodedAddress;
   if(addressChanged){
     const coords = await geocodeAddress(addressQuery + ', Brasil');
-    if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = addressQuery; }
-    else { toast('Endereço salvo, mas não localizei ele no mapa — esse cliente ficará de fora da rota otimizada e do cálculo de frete até o endereço ser encontrado.', true); }
+    const now = new Date().toISOString();
+    if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = addressQuery; data.geocoding_status = 'ok'; data.last_geocoding = now; }
+    else {
+      data.geocoding_status = 'nao_encontrado'; data.last_geocoding = now;
+      toast('Endereço salvo, mas não localizei ele no mapa — confira rua, número, bairro e cidade. O cadastro foi salvo normalmente, você pode corrigir o endereço e salvar de novo quando quiser.', true);
+    }
   }
   let savedId = id;
   if(id){
@@ -2240,6 +2264,8 @@ function renderClientFreight(clientId){
   if(!c) return;
   const tier = c.freightTierId ? state.freightTiers.find(t=>t.id===c.freightTierId) : null;
   wrap.innerHTML = `
+    ${c.geocodingStatus==='nao_encontrado' ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ Endereço não localizado no mapa (tentativa em ${c.lastGeocoding?fmtDateTime(c.lastGeocoding):'—'}). Confira rua, número, bairro e cidade, e salve de novo pra tentar corrigir.</div>` : ''}
+    ${c.geocodingStatus==='ok' ? `<div class="hint" style="color:var(--success);margin-bottom:10px;">✓ Endereço localizado no mapa (${c.lastGeocoding?fmtDateTime(c.lastGeocoding):'—'})</div>` : ''}
     <div class="stat-grid" style="margin-bottom:10px;">
       <div class="stat-card"><div class="stat-label">📍 Distância</div><div class="stat-value" style="font-size:16px;">${c.distanceKm!=null?c.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</div></div>
       <div class="stat-card"><div class="stat-label">Faixa</div><div class="stat-value" style="font-size:14px;">${tier?tier.minKm+'–'+tier.maxKm+' km':'—'}</div></div>
@@ -2578,6 +2604,44 @@ function haversineKm(a, b){
   const lat1 = a.lat*Math.PI/180, lat2 = b.lat*Math.PI/180;
   const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
+}
+// Matriz de distância/tempo entre todos os pontos, via OSRM Table (distância real por vias). Se o
+// serviço não devolver distâncias (o servidor público às vezes só devolve duração), cai pra distância
+// em linha reta (haversine) só como último recurso — igual foi pedido.
+async function getDistanceMatrix(points){
+  const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+  try{
+    const res = await fetch(`https://router.project-osrm.org/table/v1/driving/${coordStr}?annotations=distance,duration`);
+    const json = await res.json();
+    if(json.code==='Ok' && json.distances && json.durations) return { distances: json.distances, durations: json.durations, source:'osrm' };
+  }catch(e){ console.warn('OSRM Table falhou, usando distância em linha reta como fallback:', e); }
+  const n = points.length;
+  const distances = Array.from({length:n}, ()=>new Array(n).fill(0));
+  const durations = Array.from({length:n}, ()=>new Array(n).fill(0));
+  for(let i=0;i<n;i++) for(let j=0;j<n;j++) if(i!==j){
+    const km = haversineKm(points[i], points[j]);
+    distances[i][j] = km*1000;
+    durations[i][j] = km/35*3600; // estimativa grosseira (~35km/h) só pra ter um tempo de referência nesse fallback
+  }
+  return { distances, durations, source:'haversine' };
+}
+// Algoritmo guloso (nearest-neighbor) — a cada passo escolhe, entre os que restam, o mais próximo
+// da posição ATUAL (não da fábrica, e não a ordem de cadastro/seleção). Exatamente como pedido.
+function greedyNearestNeighbor(distMatrix, startIdx, candidateIdxs){
+  const order = [];
+  let current = startIdx;
+  let remaining = [...candidateIdxs];
+  while(remaining.length){
+    let bestPos = 0, bestDist = Infinity;
+    remaining.forEach((idx,pos)=>{
+      const d = distMatrix[current][idx];
+      if(d < bestDist){ bestDist = d; bestPos = pos; }
+    });
+    const chosen = remaining.splice(bestPos,1)[0];
+    order.push(chosen);
+    current = chosen;
+  }
+  return order;
 }
 function nearestNeighborOrder(startPoint, points){
   const remaining = [...points];
@@ -3314,8 +3378,8 @@ function crWizardGoStep2(){
   const matchingClients = state.clients.filter(c=> norm(c.city)===norm(city.name) && norm(c.neighborhood)===norm(neighborhood.name));
   const matchingProspects = state.fieldProspects.filter(p=> p.cityId===crWizardCityId && p.neighborhoodId===crWizardNeighborhoodId && !p.convertedLeadId);
   crWizardCandidates = [
-    ...matchingClients.map(c=>({type:'client', id:c.id, name:c.name, address:c.address, lat:c.lat, lng:c.lng, distanceKm:c.distanceKm, selected:false})),
-    ...matchingProspects.map(p=>({type:'prospect', id:p.id, name:p.name, address:p.address, lat:p.lat, lng:p.lng, distanceKm:null, selected:false})),
+    ...matchingClients.map(c=>({type:'client', id:c.id, name:c.name, address:c.address, neighborhood:neighborhood.name, city:city.name, state:city.state, cep:c.cep, lat:c.lat, lng:c.lng, distanceKm:c.distanceKm, freightValue:c.freightValue, selected:false})),
+    ...matchingProspects.map(p=>({type:'prospect', id:p.id, name:p.name, address:p.address, neighborhood:neighborhood.name, city:city.name, state:city.state, cep:null, lat:p.lat, lng:p.lng, distanceKm:null, freightValue:null, selected:false})),
   ];
   if(crWizardCandidates.length===0){ toast('Nenhum cliente ou prospect de campo encontrado nesse bairro', true); return; }
   crWizardStep = 2;
@@ -3401,61 +3465,68 @@ function renderCRWizardStep4(){
 }
 async function crGenerateRoute(){
   const selected = crWizardCandidates.filter(c=>c.selected);
-  const cityName = state.visitCities.find(x=>x.id===crWizardCityId)?.name || '';
-  const neighborhoodName = state.visitNeighborhoods.find(x=>x.id===crWizardNeighborhoodId)?.name || '';
+  const origin = companyOrigin();
+  if(!origin){
+    document.getElementById('crwLoading').textContent = '';
+    document.getElementById('crwResultWrap').innerHTML = emptyState('Cadastre o endereço da fábrica em Configurações antes de gerar uma rota — ela é sempre o ponto de partida.', null);
+    return;
+  }
+
+  // Geocodifica quem ainda não tem coordenada, usando o endereço completo (rua+número, bairro, cidade,
+  // estado, CEP — nunca separa o número da rua) — e já grava no banco, pra não precisar geocodificar de novo.
   for(const c of selected){
     if(c.lat==null || c.lng==null){
-      const coords = await geocodeAddress([c.address, neighborhoodName, cityName, 'Brasil'].filter(Boolean).join(', '));
-      if(coords){ c.lat = coords.lat; c.lng = coords.lng; }
+      const fullAddress = buildFullAddress(c);
+      const coords = await geocodeAddress(fullAddress + ', Brasil');
+      const now = new Date().toISOString();
+      if(coords){
+        c.lat = coords.lat; c.lng = coords.lng;
+        if(c.type==='client') await sb.from('clients').update({ lat:coords.lat, lng:coords.lng, geocoded_address:fullAddress, geocoding_status:'ok', last_geocoding:now }).eq('id', c.id);
+        else await sb.from('field_prospects').update({ lat:coords.lat, lng:coords.lng, geocoding_status:'ok', last_geocoding:now }).eq('id', c.id);
+      } else {
+        if(c.type==='client') await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
+        else await sb.from('field_prospects').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
+      }
     }
   }
   const withCoords = selected.filter(c=>c.lat!=null && c.lng!=null);
   const withoutCoords = selected.length - withCoords.length;
   if(withCoords.length===0){
     document.getElementById('crwLoading').textContent = '';
-    document.getElementById('crwResultWrap').innerHTML = emptyState('Nenhum dos selecionados tem endereço localizável no mapa.', null);
+    document.getElementById('crwResultWrap').innerHTML = emptyState('Nenhum dos selecionados tem endereço localizável no mapa. Confira se o endereço está completo (rua, número, bairro, cidade).', null);
     return;
   }
 
-  const origin = companyOrigin();
-  let toVisit = withCoords;
+  // Matriz de distância real (fábrica + todos os candidatos) — 1 chamada só, reaproveitada tanto
+  // pra escolher a ordem quanto pra calcular as distâncias mostradas na tela.
+  const points = [origin, ...withCoords.map(c=>({lat:c.lat,lng:c.lng}))];
+  const { distances, durations, source } = await getDistanceMatrix(points);
+
+  // Se tem mais candidatos que o limite, prioriza os mais próximos da fábrica (distância real, índice 0 da matriz)
+  let candidateIdxs = withCoords.map((c,i)=>i+1); // +1 porque o índice 0 é a fábrica
   if(withCoords.length > crWizardMaxVisits){
-    const withDist = withCoords.map(c=>({...c, sortDist: c.distanceKm!=null ? c.distanceKm : (origin?haversineKm(origin,{lat:c.lat,lng:c.lng}):Infinity)}));
-    withDist.sort((a,b)=> a.sortDist - b.sortDist);
-    toVisit = withDist.slice(0, crWizardMaxVisits);
+    candidateIdxs = [...candidateIdxs].sort((a,b)=>distances[0][a]-distances[0][b]).slice(0, crWizardMaxVisits);
   }
 
-  const points = origin ? [origin, ...toVisit.map(c=>({lat:c.lat,lng:c.lng}))] : toVisit.map(c=>({lat:c.lat,lng:c.lng}));
-  const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
-  const params = origin ? 'source=first&roundtrip=true&overview=false' : 'roundtrip=true&overview=false';
-  let json;
-  try{
-    const res = await fetch(`https://router.project-osrm.org/trip/v1/driving/${coordStr}?${params}`);
-    json = await res.json();
-  }catch(e){
-    document.getElementById('crwLoading').textContent = '';
-    document.getElementById('crwResultWrap').innerHTML = emptyState('Não foi possível calcular a rota agora. Tente novamente.', null);
-    return;
-  }
-  document.getElementById('crwLoading').textContent = '';
-  if(json.code !== 'Ok'){
-    document.getElementById('crwResultWrap').innerHTML = emptyState('Não foi possível calcular a rota (' + json.code + ').', null);
-    return;
-  }
-  const offset = origin ? 1 : 0;
-  const ordered = json.waypoints
-    .map((wp, i) => ({ wp, stop: i>=offset ? toVisit[i-offset] : null }))
-    .filter(x => x.stop)
-    .sort((a,b) => a.wp.waypoint_index - b.wp.waypoint_index)
-    .map(x => x.stop);
-  const trip = json.trips[0];
-  const legs = trip.legs || [];
+  // Algoritmo guloso: fábrica -> mais próximo -> mais próximo da posição atual -> ... -> último
+  const orderIdxs = greedyNearestNeighbor(distances, 0, candidateIdxs);
+  const ordered = orderIdxs.map(idx => withCoords[idx-1]);
 
-  // horário previsto: parte de agora, soma o deslocamento de cada trecho + tempo médio de visita
+  // Acumula distância/tempo passo a passo, na mesma ordem escolhida (não é o que a OSRM "acha" melhor — é a ordem gulosa mesmo)
+  let cursor = 0, cumulativeDist = 0, cumulativeDur = 0;
+  const legInfo = orderIdxs.map(idx=>{
+    const legDist = distances[cursor][idx], legDur = durations[cursor][idx];
+    cumulativeDist += legDist; cumulativeDur += legDur;
+    cursor = idx;
+    return { legDist, cumulativeDist, legDur, cumulativeDur };
+  });
+  const totalDistance = cumulativeDist, totalDuration = cumulativeDur;
+
+  // horário previsto: parte do horário escolhido no Passo 3, soma o deslocamento de cada trecho + tempo médio de visita
   const [startH, startM] = (crWizardStartTime||'08:00').split(':').map(Number);
   let cursorMin = startH*60 + startM;
   const expectedTimes = ordered.map((s,i)=>{
-    cursorMin += (legs[i] ? legs[i].duration/60 : 0);
+    cursorMin += legInfo[i].legDur/60;
     const t = Math.round(cursorMin);
     cursorMin += VISIT_AVG_MINUTES;
     return String(Math.floor(t/60)%24).padStart(2,'0') + ':' + String(t%60).padStart(2,'0');
@@ -3463,7 +3534,7 @@ async function crGenerateRoute(){
 
   const { data: route, error: routeErr } = await sb.from('commercial_routes').insert({
     city_id: crWizardCityId, neighborhood_id: crWizardNeighborhoodId, max_visits: crWizardMaxVisits,
-    distance_km: trip.distance/1000, duration_min: Math.round(trip.duration/60), status: 'planejada',
+    distance_km: totalDistance/1000, duration_min: Math.round(totalDuration/60), status: 'planejada',
     planned_start_time: crWizardStartTime, created_by: myUser?.id || null
   }).select().single();
   if(routeErr){ dbErr(routeErr, 'Erro ao salvar rota comercial'); return; }
@@ -3475,19 +3546,27 @@ async function crGenerateRoute(){
   if(stopsErr){ dbErr(stopsErr, 'Erro ao salvar paradas da rota'); return; }
 
   await loadAll();
-  renderCRWizardResult(ordered, expectedTimes, trip, withoutCoords, origin);
+  renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source);
 }
-function renderCRWizardResult(ordered, expectedTimes, trip, withoutCoords, origin){
+function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source){
   const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:{lat:s.lat,lng:s.lng}})), origin);
   document.getElementById('crwResultWrap').innerHTML = `
     <div class="stat-grid" style="margin-bottom:14px;">
       <div class="stat-card"><div class="stat-label">Paradas</div><div class="stat-value">${ordered.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Distância total</div><div class="stat-value">${fmtKm(trip.distance)}</div></div>
-      <div class="stat-card"><div class="stat-label">Tempo estimado</div><div class="stat-value">${fmtMin(trip.duration)}</div></div>
+      <div class="stat-card"><div class="stat-label">Distância total</div><div class="stat-value">${fmtKm(totalDistance)}</div></div>
+      <div class="stat-card"><div class="stat-label">Tempo estimado</div><div class="stat-value">${fmtMin(totalDuration)}</div></div>
     </div>
+    ${source==='haversine'?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ Não foi possível calcular a distância real por vias agora — os valores abaixo são estimados em linha reta.</div>`:''}
     ${withoutCoords>0?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${withoutCoords} selecionado(s) ficaram de fora por não terem endereço localizável.</div>`:''}
     <ol style="padding-left:20px;margin:0 0 14px 0;">
-      ${ordered.map((s,i)=>`<li style="margin-bottom:8px;font-size:13px;"><strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}<div style="color:var(--muted);font-size:12px;">${esc(s.address||'')}</div></li>`).join('')}
+      ${ordered.map((s,i)=>{
+        const order = state.orders.filter(o=>o.clientId===s.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
+        return `<li style="margin-bottom:10px;font-size:13px;">
+          <strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}
+          <div style="color:var(--muted);font-size:12px;">${esc(s.address||'')}${s.neighborhood?' · '+esc(s.neighborhood):''}${s.city?' · '+esc(s.city):''}</div>
+          <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">📍 ${fmtKm(legInfo[i].legDist)} até aqui · acumulado ${fmtKm(legInfo[i].cumulativeDist)} · 🚚 frete ${s.freightValue!=null?(s.freightValue===0?'isento':fmtMoney(s.freightValue)):'—'}${order?' · último pedido '+fmtMoney(order.total):''}</div>
+        </li>`;
+      }).join('')}
     </ol>
     <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
     <div style="margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="closeModal(); setVisitasTab('rotas');">Concluir</button></div>
