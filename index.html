@@ -440,6 +440,7 @@ tr:last-child td{border-bottom:none;}
           <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
           <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
+          <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
         </div>
 
         <div id="finLancamentosView">
@@ -475,6 +476,14 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title">Categorias Financeiras</div><button class="btn btn-primary btn-sm" onclick="openFinCategoryModal()">+ Nova categoria</button></div>
             <div class="hint" style="margin-bottom:10px;">Organize receitas e despesas por categoria — pode criar subcategorias dentro de uma categoria pai.</div>
             <div id="finCategoriesTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="finRecorrentesView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Despesas Recorrentes</div><button class="btn btn-primary btn-sm" onclick="openRecurringTemplateModal()">+ Nova recorrência</button></div>
+            <div class="hint" style="margin-bottom:10px;">Ex: energia, internet, aluguel. Ao criar, já gera as próximas 12 ocorrências como lançamentos "Aberto" — sem precisar lembrar de lançar todo mês.</div>
+            <div id="recurringTemplatesTableWrap" class="table-scroll"></div>
           </div>
         </div>
       </section>
@@ -641,7 +650,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
 
 // ================= STATE =================
-let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], customAlerts: [], financialAccounts: [], financialCategories: [], costCenters: [], company: {} };
+let state = { stockItems: [], suppliers: [], movements: [], production: [], orders: [], transactions: [], clients: [], leads: [], tasks: [], deliveries: [], freightTiers: [], visitCities: [], visitNeighborhoods: [], fieldProspects: [], commercialRoutes: [], commitments: [], assets: [], alertDismissals: [], customAlerts: [], financialAccounts: [], financialCategories: [], costCenters: [], recurringTemplates: [], company: {} };
 let crWizardStep = 1;
 let crWizardCityId = null;
 let crWizardNeighborhoodId = null;
@@ -769,7 +778,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -801,6 +810,7 @@ async function loadAll(){
     sb.from('financial_accounts').select('*').is('deleted_at', null).order('name'),
     sb.from('financial_categories').select('*').is('deleted_at', null).order('name'),
     sb.from('cost_centers').select('*').is('deleted_at', null).order('name'),
+    sb.from('recurring_expense_templates').select('*').is('deleted_at', null).order('description'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -809,9 +819,15 @@ async function loadAll(){
     ['cidades',cityRes],['bairros',neighRes],['prospects de campo',prospRes],
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
     ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes],
-    ['alertas personalizados',customAlertRes],['contas financeiras',finAccRes],['categorias financeiras',finCatRes],['centros de custo',costCenterRes]]){
+    ['alertas personalizados',customAlertRes],['contas financeiras',finAccRes],['categorias financeiras',finCatRes],['centros de custo',costCenterRes],
+    ['despesas recorrentes',recurTplRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
+
+  state.recurringTemplates = (recurTplRes.data||[]).map(r => ({
+    id:r.id, description:r.description, amount:Number(r.amount), categoryId:r.category_id, accountId:r.account_id,
+    supplierId:r.supplier_id, recurrenceType:r.recurrence_type, intervalDays:r.interval_days, active:r.active
+  }));
 
   state.financialAccounts = (finAccRes.data||[]).map(a => ({
     id:a.id, name:a.name, type:a.type, initialBalance:Number(a.initial_balance), color:a.color, icon:a.icon, status:a.status, notes:a.notes
@@ -927,6 +943,11 @@ async function loadAll(){
     id: t.id, type: t.type, description: t.description, category: t.category, amount: Number(t.amount),
     dueDate: t.due_date, status: t.status, clientId: t.client_id, orderId: t.order_id,
     accountId: t.account_id, categoryId: t.category_id, costCenterId: t.cost_center_id,
+    supplierId: t.supplier_id, discount: Number(t.discount||0), interest: Number(t.interest||0), fine: Number(t.fine||0),
+    issueDate: t.issue_date, paymentDate: t.payment_date, paymentMethod: t.payment_method,
+    attachmentUrl: t.attachment_url, notes: t.notes,
+    installmentGroupId: t.installment_group_id, installmentNumber: t.installment_number, installmentTotal: t.installment_total,
+    recurringTemplateId: t.recurring_template_id,
     createdAt: (t.created_at||'').slice(0,10)
   }));
 
@@ -1470,38 +1491,195 @@ function categoryFullLabel(c){
   const parent = state.financialCategories.find(p=>p.id===c.parentId);
   return parent ? `${parent.name} > ${c.name}` : c.name;
 }
-function openTransactionModal(){
-  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para lançar despesas', true); return; }
-  const despesaCats = state.financialCategories.filter(c=>c.type==='despesa' && c.status==='ativa');
-  const accounts = state.financialAccounts.filter(a=>a.status==='ativa');
+const PAYMENT_METHODS_FIN = ['Dinheiro','Pix','Cartão de crédito','Cartão de débito','Boleto','Transferência','Outro'];
+function openTransactionModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar lançamentos', true); return; }
+  const t = id ? state.transactions.find(x=>x.id===id) : null;
+  const isReceita = t && t.type==='receita';
+  const cats = state.financialCategories.filter(c=>c.type===(t?t.type:'despesa') && (c.status==='ativa' || c.id===(t&&t.categoryId)));
+  const accounts = state.financialAccounts.filter(a=>a.status==='ativa' || a.id===(t&&t.accountId));
+  const suppliers = state.suppliers;
   openModal(`
-    <div class="modal-head"><h3>Nova despesa / conta a pagar</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>Descrição</label><input id="t-desc" placeholder="Ex: Conta de luz, manutenção..."></div>
+    <div class="modal-head"><h3>${t?(isReceita?'Editar receita':'Editar despesa'):'Nova despesa / conta a pagar'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    ${isReceita?'<div class="hint" style="margin-bottom:10px;">Essa receita foi gerada automaticamente por um pedido. Você pode ajustar conta, categoria, datas e cancelar — mas não o valor ou o pedido de origem.</div>':''}
+    <div class="field"><label>Descrição</label><input id="t-desc" value="${t?esc(t.description):''}" placeholder="Ex: Conta de luz, manutenção..." ${isReceita?'disabled':''}></div>
     <div class="field-row">
-      <div class="field"><label>Valor (R$)</label><input id="t-amount" type="number" step="0.01" placeholder="0,00"></div>
-      <div class="field"><label>Categoria</label><select id="t-cat">${despesaCats.length?despesaCats.map(c=>`<option value="${c.id}">${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
+      <div class="field"><label>Valor (R$)</label><input id="t-amount" type="number" step="0.01" value="${t?t.amount:''}" placeholder="0,00" ${isReceita?'disabled':''}></div>
+      <div class="field"><label>Categoria</label><select id="t-cat">${cats.length?cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Conta</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
-      <div class="field"><label>Vencimento</label><input id="t-due" type="date" value="${todayStr()}"></div>
+      <div class="field"><label>Conta</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
+      <div class="field"><label>Centro de custo</label><select id="t-costcenter"><option value="">—</option>${state.costCenters.map(c=>`<option value="${c.id}" ${t&&t.costCenterId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     </div>
-    <div class="field"><label>Status</label><select id="t-status"><option value="pendente">Pendente</option><option value="pago">Pago</option></select></div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveTransaction()">Salvar</button></div>
+    ${!isReceita?`<div class="field"><label>Fornecedor</label><select id="t-supplier"><option value="">—</option>${suppliers.map(s=>`<option value="${s.id}" ${t&&t.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
+    <div class="field-row3">
+      <div class="field"><label>Desconto (R$)</label><input id="t-discount" type="number" step="0.01" value="${t?t.discount:0}" ${isReceita?'disabled':''}></div>
+      <div class="field"><label>Juros (R$)</label><input id="t-interest" type="number" step="0.01" value="${t?t.interest:0}" ${isReceita?'disabled':''}></div>
+      <div class="field"><label>Multa (R$)</label><input id="t-fine" type="number" step="0.01" value="${t?t.fine:0}" ${isReceita?'disabled':''}></div>
+    </div>
+    <div class="field-row3">
+      <div class="field"><label>Emissão</label><input id="t-issue" type="date" value="${t?t.issueDate||'':''}"></div>
+      <div class="field"><label>Vencimento</label><input id="t-due" type="date" value="${t?t.dueDate:todayStr()}"></div>
+      <div class="field"><label>Pagamento</label><input id="t-payment" type="date" value="${t?t.paymentDate||'':''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Forma de pagamento</label><select id="t-paymethod"><option value="">—</option>${PAYMENT_METHODS_FIN.map(m=>`<option ${t&&t.paymentMethod===m?'selected':''}>${m}</option>`).join('')}</select></div>
+      <div class="field"><label>Status</label><select id="t-status">
+        <option value="pendente" ${(!t||t.status==='pendente')?'selected':''}>Aberto</option>
+        <option value="pago" ${t&&t.status==='pago'?'selected':''}>Pago</option>
+        <option value="parcial" ${t&&t.status==='parcial'?'selected':''}>Parcialmente pago</option>
+        <option value="cancelado" ${t&&t.status==='cancelado'?'selected':''}>Cancelado</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Anexo (link do comprovante, opcional)</label><input id="t-attachment" value="${t?esc(t.attachmentUrl||''):''}" placeholder="https://..."></div>
+    <div class="field"><label>Observações</label><textarea id="t-notes" rows="2">${t?esc(t.notes||''):''}</textarea></div>
+    ${!t?`
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="t-parcelar" onchange="document.getElementById('t-installmentswrap').style.display=this.checked?'block':'none'" style="width:auto;">
+      <label style="margin:0;">Parcelar este lançamento</label>
+    </div>
+    <div id="t-installmentswrap" style="display:none;">
+      <div class="field"><label>Número de parcelas</label><input id="t-installmentcount" type="number" min="2" value="2"></div>
+      <div class="hint">Gera as parcelas automaticamente, uma por mês a partir do vencimento acima, dividindo o valor igualmente (sem perder centavo no arredondamento).</div>
+    </div>` : ''}
+    <div class="modal-foot">
+      ${t?`<button class="btn btn-danger-ghost" onclick="deleteTransaction('${t.id}')">Excluir</button>`:''}
+      ${t?`<button class="btn btn-ghost" onclick="duplicateTransaction('${t.id}')">Duplicar</button>`:''}
+      ${t&&t.status!=='cancelado'?`<button class="btn btn-ghost" onclick="cancelTransaction('${t.id}')">Cancelar lançamento</button>`:''}
+      ${t?`<button class="btn btn-ghost" onclick="openTransactionHistoryModal('${t.id}')">Ver histórico</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="saveTransaction(${t?`'${t.id}'`:'null'})">Salvar</button>
+    </div>
   `);
 }
-async function saveTransaction(){
-  const desc = document.getElementById('t-desc').value.trim();
-  const amount = parseFloat(document.getElementById('t-amount').value);
+function addMonthsFin(dateStr, months){
+  const d = new Date(dateStr+'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth()+months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d.toISOString().slice(0,10);
+}
+function splitAmountEvenly(total, n){
+  const cents = Math.round(total*100);
+  const base = Math.floor(cents/n);
+  const remainder = cents - base*n;
+  return Array.from({length:n}, (_,i)=> (base + (i<remainder?1:0))/100);
+}
+const TX_FIELD_LABELS = {
+  description:'Descrição', amount:'Valor', category_id:'Categoria', account_id:'Conta', supplier_id:'Fornecedor',
+  cost_center_id:'Centro de custo', discount:'Desconto', interest:'Juros', fine:'Multa', issue_date:'Emissão',
+  due_date:'Vencimento', payment_date:'Pagamento', payment_method:'Forma de pagamento', attachment_url:'Anexo',
+  notes:'Observações', status:'Status',
+};
+async function saveTransaction(id){
+  const t = id ? state.transactions.find(x=>x.id===id) : null;
+  const isReceita = t && t.type==='receita';
+  const desc = isReceita ? t.description : document.getElementById('t-desc').value.trim();
+  const amount = isReceita ? t.amount : parseFloat(document.getElementById('t-amount').value);
   if(!desc || !amount || amount<=0){ toast('Preencha descrição e valor', true); return; }
   const categoryId = document.getElementById('t-cat').value || null;
   const category = categoryId ? (state.financialCategories.find(c=>c.id===categoryId)?.name || null) : null;
-  const accountId = document.getElementById('t-account').value || null;
-  const dueDate = document.getElementById('t-due').value || todayStr();
-  const status = document.getElementById('t-status').value;
+  const data = {
+    description: desc, amount, category, category_id: categoryId,
+    account_id: document.getElementById('t-account').value || null,
+    cost_center_id: document.getElementById('t-costcenter').value || null,
+    discount: isReceita?0:(parseFloat(document.getElementById('t-discount').value)||0),
+    interest: isReceita?0:(parseFloat(document.getElementById('t-interest').value)||0),
+    fine: isReceita?0:(parseFloat(document.getElementById('t-fine').value)||0),
+    issue_date: document.getElementById('t-issue').value || null,
+    due_date: document.getElementById('t-due').value || todayStr(),
+    payment_date: document.getElementById('t-payment').value || null,
+    payment_method: document.getElementById('t-paymethod').value || null,
+    attachment_url: document.getElementById('t-attachment').value.trim() || null,
+    notes: document.getElementById('t-notes').value.trim() || null,
+    status: document.getElementById('t-status').value,
+  };
+  if(!isReceita){
+    const supplierSel = document.getElementById('t-supplier');
+    data.supplier_id = supplierSel ? (supplierSel.value || null) : null;
+  }
   const _btn = lockButton();
-  const { error } = await sb.from('transactions').insert({ type:'despesa', description: desc, amount, category, category_id: categoryId, account_id: accountId, due_date: dueDate, status });
+
+  if(id){
+    // registra no histórico só os campos que realmente mudaram
+    const fieldMap = { description:'description', amount:'amount', category_id:'category_id', account_id:'account_id',
+      supplier_id:'supplier_id', cost_center_id:'cost_center_id', discount:'discount', interest:'interest', fine:'fine',
+      issue_date:'issue_date', due_date:'due_date', payment_date:'payment_date', payment_method:'payment_method',
+      attachment_url:'attachment_url', notes:'notes', status:'status' };
+    const oldCamel = { description:t.description, amount:t.amount, category_id:t.categoryId, account_id:t.accountId,
+      supplier_id:t.supplierId, cost_center_id:t.costCenterId, discount:t.discount, interest:t.interest, fine:t.fine,
+      issue_date:t.issueDate, due_date:t.dueDate, payment_date:t.paymentDate, payment_method:t.paymentMethod,
+      attachment_url:t.attachmentUrl, notes:t.notes, status:t.status };
+    const historyRows = [];
+    for(const field of Object.keys(fieldMap)){
+      const oldV = oldCamel[field] ?? null;
+      const newV = data[field] ?? null;
+      if(String(oldV) !== String(newV)){
+        historyRows.push({ transaction_id:id, field_name: TX_FIELD_LABELS[field]||field, old_value: oldV!=null?String(oldV):null, new_value: newV!=null?String(newV):null, changed_by: myUser?.id||null });
+      }
+    }
+    const { error } = await sb.from('transactions').update(data).eq('id', id);
+    if(error){ dbErr(error, 'Erro ao salvar lançamento'); unlockButton(_btn); return; }
+    if(historyRows.length) await sb.from('transaction_history').insert(historyRows);
+    closeModal(); toast('Lançamento atualizado'); await loadAll(); renderAll();
+    return;
+  }
+
+  // criação — com ou sem parcelamento
+  const parcelar = document.getElementById('t-parcelar')?.checked;
+  const totalInstallments = parcelar ? Math.max(2, parseInt(document.getElementById('t-installmentcount').value)||2) : 1;
+  if(totalInstallments>1){
+    const groupId = crypto.randomUUID();
+    const amounts = splitAmountEvenly(amount, totalInstallments);
+    const rows = amounts.map((amt,i)=>({
+      ...data, type:'despesa', amount: amt, due_date: addMonthsFin(data.due_date, i),
+      installment_group_id: groupId, installment_number: i+1, installment_total: totalInstallments,
+      status: i===0 ? data.status : 'pendente', // só a 1ª parcela pode nascer paga; as futuras começam em aberto
+    }));
+    const { error } = await sb.from('transactions').insert(rows);
+    if(error){ dbErr(error, 'Erro ao gerar parcelas'); unlockButton(_btn); return; }
+    closeModal(); toast(`${totalInstallments} parcelas geradas`); await loadAll(); renderAll();
+    return;
+  }
+  const { error } = await sb.from('transactions').insert({ ...data, type:'despesa' });
   if(error){ dbErr(error, 'Erro ao salvar despesa'); unlockButton(_btn); return; }
   closeModal(); toast('Despesa salva'); await loadAll(); renderAll();
+}
+async function duplicateTransaction(id){
+  const t = state.transactions.find(x=>x.id===id);
+  if(!t) return;
+  const { error } = await sb.from('transactions').insert({
+    type: t.type, description: t.description + ' (cópia)', amount: t.amount, category: t.category, category_id: t.categoryId,
+    account_id: t.accountId, cost_center_id: t.costCenterId, supplier_id: t.supplierId,
+    discount: t.discount, interest: t.interest, fine: t.fine, due_date: todayStr(), payment_method: t.paymentMethod,
+    notes: t.notes, status: 'pendente',
+  });
+  if(error){ dbErr(error, 'Erro ao duplicar lançamento'); return; }
+  closeModal(); toast('Lançamento duplicado'); await loadAll(); renderAll();
+}
+async function cancelTransaction(id){
+  if(!confirm('Cancelar este lançamento? Ele deixa de contar no saldo, mas fica registrado no histórico.')) return;
+  const { error } = await sb.from('transactions').update({ status:'cancelado' }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao cancelar lançamento'); return; }
+  await sb.from('transaction_history').insert({ transaction_id:id, field_name:'Status', old_value:'ativo', new_value:'Cancelado', changed_by: myUser?.id||null });
+  closeModal(); toast('Lançamento cancelado'); await loadAll(); renderAll();
+}
+async function openTransactionHistoryModal(id){
+  const t = state.transactions.find(x=>x.id===id);
+  const { data, error } = await sb.from('transaction_history').select('*').eq('transaction_id', id).order('changed_at', {ascending:false});
+  if(error){ dbErr(error, 'Erro ao carregar histórico'); return; }
+  const profileById = {};
+  state.financialAccounts; // no-op, só garante que state existe (mantém padrão do arquivo)
+  openModal(`
+    <div class="modal-head"><h3>Histórico — ${esc(t?t.description:'')}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    ${(!data||data.length===0) ? '<div class="hint">Nenhuma alteração registrada ainda.</div>' :
+      data.map(h=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;">
+        <strong>${esc(h.field_name)}</strong> alterado
+        <div style="color:var(--muted);font-size:11.5px;">de "${esc(h.old_value||'—')}" para "${esc(h.new_value||'—')}" · ${fmtDateTime(h.changed_at)}</div>
+      </div>`).join('')}
+  `);
 }
 async function toggleTxStatus(id){
   const t = state.transactions.find(x=>x.id===id);
@@ -1518,7 +1696,7 @@ async function deleteTransaction(id){
   if(!confirm('Tem certeza que deseja excluir esta despesa?')) return;
   const { error } = await sb.from('transactions').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao excluir despesa'); return; }
-  await loadAll(); renderAll();
+  closeModal(); await loadAll(); renderAll();
 }
 
 function renderFinanceiro(){
@@ -1548,16 +1726,24 @@ function renderFinanceiro(){
   `;
   const wrap = document.getElementById('transactionsTableWrap');
   if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); return; }
+  const statusInfo = (t, overdue) => {
+    if(t.status==='cancelado') return {label:'Cancelado', cls:'badge-muted'};
+    if(overdue) return {label:'Vencido', cls:'badge-danger'};
+    if(t.status==='pago') return {label:'Pago', cls:'badge-success'};
+    if(t.status==='parcial') return {label:'Parcial', cls:'badge-warn'};
+    return {label:'Aberto', cls:'badge-warn'};
+  };
   wrap.innerHTML = `<table><thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map(t=>{
       const overdue = t.status==='pendente' && t.dueDate < today;
-      return `<tr>
-      <td><strong>${esc(t.description)}</strong>${t.clientId?`<div style="color:var(--muted);font-size:11.5px">${esc(clientNameOf(t.clientId))}</div>`:''}</td>
+      const si = statusInfo(t, overdue);
+      return `<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')">
+      <td><strong>${esc(t.description)}</strong>${t.installmentTotal?` <span class="badge badge-muted">${t.installmentNumber}/${t.installmentTotal}</span>`:''}${t.clientId?`<div style="color:var(--muted);font-size:11.5px">${esc(clientNameOf(t.clientId))}</div>`:''}</td>
       <td>${esc(t.category)}</td>
       <td>${fmtDate(t.dueDate)}</td>
       <td style="color:${t.type==='receita'?'var(--success)':'var(--danger)'};font-weight:600">${t.type==='receita'?'+ ':'− '}${fmtMoney(t.amount)}</td>
-      <td><span class="badge ${overdue?'badge-danger':(t.status==='pago'?'badge-success':'badge-warn')}" style="cursor:${t.type==='receita'?'default':'pointer'}" onclick="toggleTxStatus('${t.id}')">${overdue?'Vencido':(t.status==='pago'?'Pago':'Pendente')}</span></td>
-      <td class="row-actions">${t.type==='receita'?'<span style="color:var(--muted);font-size:11px">automático</span>':`<button class="icon-btn" onclick="deleteTransaction('${t.id}')">${iconTrash}</button>`}</td>
+      <td><span class="badge ${si.cls}" style="cursor:${t.type==='receita'||t.status==='cancelado'?'default':'pointer'}" onclick="event.stopPropagation(); ${t.type!=='receita'&&t.status!=='cancelado'?`toggleTxStatus('${t.id}')`:''}">${si.label}</span></td>
+      <td class="row-actions" onclick="event.stopPropagation();">${t.type==='receita'?`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>`:`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteTransaction('${t.id}')" title="Excluir">${iconTrash}</button>`}</td>
     </tr>`;
     }).join('')}</tbody></table>`;
 }
@@ -1568,8 +1754,10 @@ function setFinTab(tab){
   document.getElementById('finLancamentosView').style.display = tab==='lancamentos' ? 'block' : 'none';
   document.getElementById('finContasView').style.display = tab==='contas' ? 'block' : 'none';
   document.getElementById('finCategoriasView').style.display = tab==='categorias' ? 'block' : 'none';
+  document.getElementById('finRecorrentesView').style.display = tab==='recorrentes' ? 'block' : 'none';
   if(tab==='contas') renderFinAccountsTable();
   if(tab==='categorias') renderFinCategoriesTable();
+  if(tab==='recorrentes') renderRecurringTemplatesTable();
 }
 
 // ---- Contas Financeiras ----
@@ -1735,6 +1923,104 @@ function renderFinCategoriesTable(){
     </tbody></table>`;
   };
   wrap.innerHTML = renderGroup('despesa','Despesas') + renderGroup('receita','Receitas');
+}
+
+// ---- Despesas Recorrentes ----
+const RECURRING_TYPES = [{v:'mensal',label:'Mensal'},{v:'semanal',label:'Semanal'},{v:'anual',label:'Anual'},{v:'personalizada',label:'Personalizada (a cada X dias)'}];
+function recurringNextDate(fromDate, recurrenceType, intervalDays){
+  if(recurrenceType==='semanal') return addDays(fromDate, 7);
+  if(recurrenceType==='anual') return addMonthsFin(fromDate, 12);
+  if(recurrenceType==='personalizada') return addDays(fromDate, intervalDays||30);
+  return addMonthsFin(fromDate, 1); // mensal
+}
+function openRecurringTemplateModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar recorrências', true); return; }
+  const r = id ? state.recurringTemplates.find(x=>x.id===id) : null;
+  const despesaCats = state.financialCategories.filter(c=>c.type==='despesa' && c.status==='ativa');
+  const accounts = state.financialAccounts.filter(a=>a.status==='ativa');
+  openModal(`
+    <div class="modal-head"><h3>${r?'Editar recorrência':'Nova despesa recorrente'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Descrição</label><input id="rt-desc" value="${r?esc(r.description):''}" placeholder="Ex: Energia, Internet, Aluguel"></div>
+    <div class="field-row">
+      <div class="field"><label>Valor (R$)</label><input id="rt-amount" type="number" step="0.01" value="${r?r.amount:''}"></div>
+      <div class="field"><label>Categoria</label><select id="rt-cat">${despesaCats.map(c=>`<option value="${c.id}" ${r&&r.categoryId===c.id?'selected':''}>${esc(categoryFullLabel(c))}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Conta</label><select id="rt-account">${accounts.map(a=>`<option value="${a.id}" ${r&&r.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Fornecedor</label><select id="rt-supplier"><option value="">—</option>${state.suppliers.map(s=>`<option value="${s.id}" ${r&&r.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Recorrência</label><select id="rt-type" onchange="onRecurringTypeChange()">${RECURRING_TYPES.map(t=>`<option value="${t.v}" ${(r?r.recurrenceType:'mensal')===t.v?'selected':''}>${t.label}</option>`).join('')}</select></div>
+      <div class="field" id="rt-intervalwrap" style="display:${(r?r.recurrenceType:'')==='personalizada'?'block':'none'}"><label>A cada quantos dias</label><input id="rt-interval" type="number" min="1" value="${r&&r.intervalDays?r.intervalDays:''}"></div>
+    </div>
+    ${!r?`<div class="field"><label>Primeiro vencimento</label><input id="rt-firstdue" type="date" value="${todayStr()}"></div>
+    <div class="hint">Gera as próximas 12 ocorrências de uma vez, já como lançamentos "Aberto" em Lançamentos.</div>`:''}
+    <div class="modal-foot">
+      ${r?`<button class="btn btn-danger-ghost" onclick="deleteRecurringTemplate('${r.id}')">Excluir</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveRecurringTemplate(${r?`'${r.id}'`:'null'})">Salvar</button>
+    </div>
+  `);
+}
+function onRecurringTypeChange(){
+  document.getElementById('rt-intervalwrap').style.display = document.getElementById('rt-type').value==='personalizada' ? 'block' : 'none';
+}
+async function saveRecurringTemplate(id){
+  const desc = document.getElementById('rt-desc').value.trim();
+  const amount = parseFloat(document.getElementById('rt-amount').value);
+  if(!desc || !amount || amount<=0){ toast('Preencha descrição e valor', true); return; }
+  const categoryId = document.getElementById('rt-cat').value || null;
+  const data = {
+    description: desc, amount, category_id: categoryId,
+    account_id: document.getElementById('rt-account').value || null,
+    supplier_id: document.getElementById('rt-supplier').value || null,
+    recurrence_type: document.getElementById('rt-type').value,
+    interval_days: parseInt(document.getElementById('rt-interval').value)||null,
+  };
+  if(id){
+    const { error } = await sb.from('recurring_expense_templates').update(data).eq('id', id);
+    if(error){ dbErr(error, 'Erro ao salvar recorrência'); return; }
+    closeModal(); toast('Recorrência salva'); await loadAll(); renderRecurringTemplatesTable();
+    return;
+  }
+  const { data: created, error } = await sb.from('recurring_expense_templates').insert(data).select().single();
+  if(error){ dbErr(error, 'Erro ao criar recorrência'); return; }
+  const category = categoryId ? (state.financialCategories.find(c=>c.id===categoryId)?.name||null) : null;
+  let dueDate = document.getElementById('rt-firstdue').value || todayStr();
+  const rows = [];
+  for(let i=0;i<12;i++){
+    rows.push({ type:'despesa', description: desc, amount, category, category_id: categoryId,
+      account_id: data.account_id, supplier_id: data.supplier_id, due_date: dueDate, status:'pendente',
+      recurring_template_id: created.id });
+    dueDate = recurringNextDate(dueDate, data.recurrence_type, data.interval_days);
+  }
+  const { error: rowsErr } = await sb.from('transactions').insert(rows);
+  if(rowsErr){ dbErr(rowsErr, 'Recorrência criada, mas erro ao gerar os lançamentos'); }
+  closeModal(); toast('Recorrência criada — 12 lançamentos gerados'); await loadAll(); renderRecurringTemplatesTable();
+}
+async function deleteRecurringTemplate(id){
+  if(!confirm('Excluir esta recorrência? Os lançamentos já gerados continuam existindo — só para de gerar novos.')) return;
+  const { error } = await sb.from('recurring_expense_templates').update({ deleted_at: new Date().toISOString(), active:false }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir recorrência'); return; }
+  closeModal(); toast('Recorrência excluída'); await loadAll(); renderRecurringTemplatesTable();
+}
+function renderRecurringTemplatesTable(){
+  const wrap = document.getElementById('recurringTemplatesTableWrap');
+  if(!wrap) return;
+  if(state.recurringTemplates.length===0){ wrap.innerHTML = emptyState('Nenhuma despesa recorrente cadastrada ainda.','Nova recorrência','openRecurringTemplateModal()'); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Descrição</th><th>Valor</th><th>Recorrência</th><th>Conta</th><th></th></tr></thead><tbody>
+    ${state.recurringTemplates.filter(r=>r.active).map(r=>{
+      const account = state.financialAccounts.find(a=>a.id===r.accountId);
+      const rec = RECURRING_TYPES.find(t=>t.v===r.recurrenceType);
+      return `<tr>
+        <td><strong>${esc(r.description)}</strong></td>
+        <td>${fmtMoney(r.amount)}</td>
+        <td>${rec?rec.label:r.recurrenceType}</td>
+        <td style="color:var(--muted);">${account?esc(account.name):'—'}</td>
+        <td class="row-actions"><button class="icon-btn" onclick="openRecurringTemplateModal('${r.id}')">${iconEdit}</button><button class="icon-btn" onclick="deleteRecurringTemplate('${r.id}')">${iconTrash}</button></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
 }
 
 // =========================================================
