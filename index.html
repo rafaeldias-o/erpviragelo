@@ -772,7 +772,7 @@ async function loadAll(){
   const maintByAsset = {};
   (maintRes.data||[]).forEach(m => (maintByAsset[m.asset_id] = maintByAsset[m.asset_id] || []).push({
     id:m.id, assetId:m.asset_id, title:m.title, recurrenceType:m.recurrence_type, intervalDays:m.interval_days,
-    nextDate:m.next_date, priority:m.priority, active:m.active
+    nextDate:m.next_date, priority:m.priority, active:m.active, assignedTo:m.assigned_to
   }));
   const assetHistByAsset = {};
   (assetHistRes.data||[]).forEach(h => (assetHistByAsset[h.asset_id] = assetHistByAsset[h.asset_id] || []).push({
@@ -3822,6 +3822,171 @@ function renderDrilldown(){
   else if(notifDrilldownType==='compromissos_hoje') renderDrilldownCompromissosHoje();
   else if(notifDrilldownType==='estoque_critico') renderDrilldownEstoqueCritico();
   else if(notifDrilldownType==='manutencoes_vencidas') renderDrilldownManutencoesVencidas();
+  else if(notifDrilldownType==='entregas_dia') renderDrilldownEntregasDia();
+  else if(notifDrilldownType==='equip_manutencao') renderDrilldownEquipManutencao();
+  else if(notifDrilldownType==='garantias_proximas') renderDrilldownGarantiasProximas();
+  else if(notifDrilldownType==='patrimonio_dashboard') renderDrilldownPatrimonioDashboard();
+}
+async function markDeliveryDelivered(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
+  const { error } = await sb.from('deliveries').update({ status: 'entregue' }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao marcar entrega'); return; }
+  toast('Entrega marcada como entregue'); await loadAll(); renderDrilldown();
+}
+// ---- 🚚 Entregas do Dia ----
+function renderDrilldownEntregasDia(){
+  document.getElementById('drilldownTitle').textContent = '🚚 Entregas do Dia';
+  const btn = document.getElementById('drilldownActionBtn');
+  btn.style.display = 'inline-flex'; btn.textContent = 'Abrir Rota Otimizada'; btn.onclick = () => openRouteModal(todayStr());
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const today = todayStr();
+  const list = state.deliveries.filter(d=>d.date===today && d.status!=='cancelada').sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = list.length===0 ? emptyState('Nenhuma entrega hoje.', null) : `<table><thead><tr><th>Cliente</th><th>Horário</th><th>Produtos</th><th>Valor pedido</th><th>Frete</th><th>Distância</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(d=>{
+      const c = state.clients.find(x=>x.id===d.clientId);
+      const order = d.orderId ? state.orders.find(o=>o.id===d.orderId) : null;
+      return `<tr>
+        <td><strong>${esc(c?c.name:'Cliente')}</strong><div style="color:var(--muted);font-size:11px">${esc(c&&c.address||'—')}</div></td>
+        <td>${d.time?d.time.slice(0,5):'—'}</td>
+        <td style="font-size:12px;color:var(--muted)">${d.items&&d.items.length?d.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', '):'—'}</td>
+        <td>${order?fmtMoney(order.total):'—'}</td>
+        <td>${order?fmtMoney(order.freightAmount||0):(c&&c.freightValue!=null?fmtMoney(c.freightValue):'—')}</td>
+        <td>${c&&c.distanceKm!=null?c.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</td>
+        <td><span class="badge ${deliveryStatusInfo(d.status).cls}">${deliveryStatusInfo(d.status).label}</span></td>
+        <td class="row-actions">
+          ${order?`<button class="icon-btn" onclick="openOrderModal('${order.id}')" title="Abrir pedido">🧾</button>`:''}
+          ${c?`<button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Abrir cliente">👤</button>`:''}
+          <button class="icon-btn" onclick="openDeliveryEditModal('${d.id}')" title="Editar / reagendar">${iconEdit}</button>
+          ${d.status!=='entregue'?`<button class="icon-btn" onclick="markDeliveryDelivered('${d.id}')" title="Marcar como entregue">✓</button>`:''}
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 🧊 Equipamentos Aguardando Manutenção ----
+function renderDrilldownEquipManutencao(){
+  document.getElementById('drilldownTitle').textContent = '🧊 Equipamentos Aguardando Manutenção';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const today = todayStr();
+  const limit = addDays(today, 7);
+  const rows = [];
+  state.assets.forEach(a=>{
+    (a.maintenancePlans||[]).filter(p=>p.active && p.nextDate<=limit).forEach(p=>{
+      rows.push({ asset:a, plan:p, daysLeft: -daysSince(p.nextDate) });
+    });
+  });
+  rows.sort((a,b)=>a.daysLeft-b.daysLeft);
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = rows.length===0 ? emptyState('Nenhum equipamento aguardando manutenção nos próximos 7 dias.', null) : `<table><thead><tr><th>Equipamento</th><th>Categoria</th><th>Tipo de manutenção</th><th>Data prevista</th><th>Prazo</th><th>Responsável</th><th></th></tr></thead><tbody>
+    ${rows.map(r=>{
+      const cat = assetCategoryInfo(r.asset.category);
+      const overdue = r.daysLeft<0;
+      return `<tr>
+        <td><strong>${esc(r.asset.name)}</strong></td>
+        <td>${cat.icon} ${cat.label}</td>
+        <td>${esc(r.plan.title)}</td>
+        <td>${fmtDate(r.plan.nextDate)}</td>
+        <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?`${Math.abs(r.daysLeft)}d atraso`:`faltam ${r.daysLeft}d`}</span></td>
+        <td style="color:var(--muted);font-size:12px;">${esc(r.plan.assignedTo||'—')}</td>
+        <td class="row-actions">
+          <button class="icon-btn" onclick="openAssetModal('${r.asset.id}')" title="Ver patrimônio">👁️</button>
+          <button class="icon-btn" onclick="completeMaintenancePlan('${r.asset.id}','${r.plan.id}').then(renderDrilldown)" title="Concluir manutenção">✔</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 📋 Garantias Próximas do Vencimento ----
+async function addAssetObservation(assetId){
+  const note = prompt('Observação:');
+  if(!note || !note.trim()) return;
+  const { error } = await sb.from('asset_history').insert({ asset_id: assetId, type:'observacao', text: note.trim(), user_id: myUser?.id||null });
+  if(error){ dbErr(error, 'Erro ao registrar observação'); return; }
+  toast('Observação registrada'); await loadAll(); renderDrilldown();
+}
+function renderDrilldownGarantiasProximas(){
+  document.getElementById('drilldownTitle').textContent = '📋 Garantias Próximas do Vencimento';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  document.getElementById('drilldownFiltersWrap').innerHTML = '';
+  const today = todayStr();
+  const limit = addDays(today, 90);
+  const list = state.assets.filter(a=>a.warrantyEndDate && a.warrantyEndDate>=today && a.warrantyEndDate<=limit)
+    .sort((a,b)=>a.warrantyEndDate.localeCompare(b.warrantyEndDate));
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = list.length===0 ? emptyState('Nenhuma garantia vencendo nos próximos 90 dias.', null) : `<table><thead><tr><th>Equipamento</th><th>Nº patrimônio</th><th>Fabricante</th><th>Término da garantia</th><th>Dias restantes</th><th></th></tr></thead><tbody>
+    ${list.map(a=>{
+      const daysLeft = -daysSince(a.warrantyEndDate);
+      return `<tr>
+        <td><strong>${esc(a.name)}</strong></td>
+        <td>${esc(a.assetNumber||'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(a.manufacturer||'—')}</td>
+        <td>${fmtDate(a.warrantyEndDate)}</td>
+        <td><span class="badge ${daysLeft<=7?'badge-danger':daysLeft<=30?'badge-warn':'badge-info'}">${daysLeft} dia(s)</span></td>
+        <td class="row-actions">
+          <button class="icon-btn" onclick="openAssetModal('${a.id}')" title="Ver / editar patrimônio">${iconEdit}</button>
+          <button class="icon-btn" onclick="addAssetObservation('${a.id}')" title="Registrar observação">📝</button>
+        </td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ---- 💰 Dashboard Patrimonial ----
+function renderDrilldownPatrimonioDashboard(){
+  document.getElementById('drilldownTitle').textContent = '💰 Dashboard Patrimonial';
+  document.getElementById('drilldownActionBtn').style.display = 'none';
+  const locations = [...new Set(state.assets.map(a=>a.location).filter(Boolean))];
+  document.getElementById('drilldownFiltersWrap').innerHTML = `
+    <select id="ddFilterCategoryAsset" onchange="renderDrilldown()"><option value="">Todas as categorias</option>${ASSET_CATEGORIES.map(c=>`<option value="${c.v}" ${drilldownFilters.category===c.v?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select>
+    <select id="ddFilterLocation" onchange="renderDrilldown()"><option value="">Todas as localizações</option>${locations.map(l=>`<option value="${esc(l)}" ${drilldownFilters.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select>
+    <select id="ddFilterSituation" onchange="renderDrilldown()"><option value="">Todas as situações</option>${ASSET_SITUATIONS.map(s=>`<option value="${s.v}" ${drilldownFilters.situation===s.v?'selected':''}>${s.label}</option>`).join('')}</select>
+  `;
+  const catSel = document.getElementById('ddFilterCategoryAsset'), locSel = document.getElementById('ddFilterLocation'), sitSel = document.getElementById('ddFilterSituation');
+  if(catSel) drilldownFilters.category = catSel.value;
+  if(locSel) drilldownFilters.location = locSel.value;
+  if(sitSel) drilldownFilters.situation = sitSel.value;
+  let list = state.assets;
+  if(drilldownFilters.category) list = list.filter(a=>a.category===drilldownFilters.category);
+  if(drilldownFilters.location) list = list.filter(a=>a.location===drilldownFilters.location);
+  if(drilldownFilters.situation) list = list.filter(a=>a.situation===drilldownFilters.situation);
+
+  const withValue = list.filter(a=>a.purchaseValue!=null);
+  const valorTotal = withValue.reduce((s,a)=>s+a.purchaseValue,0);
+  const valorMedio = withValue.length ? valorTotal/withValue.length : 0;
+  const maior = withValue.length ? withValue.reduce((m,a)=>a.purchaseValue>m.purchaseValue?a:m) : null;
+  const menor = withValue.length ? withValue.reduce((m,a)=>a.purchaseValue<m.purchaseValue?a:m) : null;
+  const porCategoriaValor = ASSET_CATEGORIES.map(c=>({...c, total: list.filter(a=>a.category===c.v).reduce((s,a)=>s+(a.purchaseValue||0),0)})).filter(c=>c.total>0);
+
+  const wrap = document.getElementById('drilldownContentWrap');
+  wrap.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-label">Quantidade</div><div class="stat-value">${list.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Valor médio</div><div class="stat-value">${fmtMoney(valorMedio)}</div></div>
+      <div class="stat-card"><div class="stat-label">Maior patrimônio</div><div class="stat-value" style="font-size:13px;">${maior?esc(maior.name)+' · '+fmtMoney(maior.purchaseValue):'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">Menor patrimônio</div><div class="stat-value" style="font-size:13px;">${menor?esc(menor.name)+' · '+fmtMoney(menor.purchaseValue):'—'}</div></div>
+      <div class="stat-card"><div class="stat-label">Valor total por categoria</div><div class="stat-value" style="font-size:12px;font-weight:500;line-height:1.6;">${porCategoriaValor.map(c=>`${c.icon} ${c.label}: ${fmtMoney(c.total)}`).join('<br>')||'—'}</div></div>
+    </div>
+    <table><thead><tr><th>Nome</th><th>Categoria</th><th>Valor</th><th>Situação</th><th>Garantia</th><th></th></tr></thead><tbody>
+    ${list.map(a=>{
+      const cat = assetCategoryInfo(a.category);
+      const sit = assetSituationInfo(a.situation);
+      const today = todayStr();
+      const warrantyLabel = a.warrantyEndDate ? (a.warrantyEndDate>=today?`Até ${fmtDate(a.warrantyEndDate)}`:'Expirada') : '—';
+      return `<tr style="cursor:pointer;" onclick="openAssetModal('${a.id}')">
+        <td><strong>${esc(a.name)}</strong></td>
+        <td>${cat.icon} ${cat.label}</td>
+        <td>${a.purchaseValue!=null?fmtMoney(a.purchaseValue):'—'}</td>
+        <td><span class="badge ${sit.cls}">${sit.label}</span></td>
+        <td style="font-size:12px;">${warrantyLabel}</td>
+        <td class="row-actions"><button class="icon-btn" onclick="event.stopPropagation(); openAssetModal('${a.id}')">${iconEdit}</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  `;
 }
 
 // ---- 🔴 Tarefas Vencidas ----
@@ -3948,12 +4113,13 @@ function renderDrilldownManutencoesVencidas(){
   });
   rows.sort((a,b)=> b.atraso-a.atraso);
   const wrap = document.getElementById('drilldownContentWrap');
-  wrap.innerHTML = rows.length===0 ? emptyState('Nenhuma manutenção vencida no momento.', null) : `<table><thead><tr><th>Equipamento</th><th>Manutenção</th><th>Atraso</th><th>Prioridade</th><th>Última manutenção</th><th></th></tr></thead><tbody>
+  wrap.innerHTML = rows.length===0 ? emptyState('Nenhuma manutenção vencida no momento.', null) : `<table><thead><tr><th>Equipamento</th><th>Manutenção</th><th>Atraso</th><th>Prioridade</th><th>Responsável</th><th>Última manutenção</th><th></th></tr></thead><tbody>
     ${rows.map(r=>`<tr>
       <td><strong>${esc(r.asset.name)}</strong></td>
       <td>${esc(r.plan.title)}</td>
       <td><span class="badge badge-danger">${r.atraso}d</span></td>
       <td><span class="badge ${r.plan.priority==='alta'?'badge-danger':r.plan.priority==='media'?'badge-warn':'badge-muted'}">${r.plan.priority}</span></td>
+      <td style="color:var(--muted);font-size:12px;">${esc(r.plan.assignedTo||'—')}</td>
       <td style="color:var(--muted);font-size:12px;">${r.lastMaint?fmtDateTime(r.lastMaint.createdAt):'nunca'}</td>
       <td class="row-actions">
         <button class="icon-btn" onclick="completeMaintenancePlan('${r.asset.id}','${r.plan.id}').then(renderDrilldown)" title="Concluir">✔</button>
@@ -4015,12 +4181,12 @@ function renderNotifSummary(){
   box.innerHTML = `
     <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('tarefas_vencidas')"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
     <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('compromissos_hoje')"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
-    <div class="stat-card"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('entregas_dia')"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
     <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('estoque_critico')"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
-    <div class="stat-card"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('equip_manutencao')"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
     <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('manutencoes_vencidas')"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
-    <div class="stat-card"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
-    <div class="stat-card"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('garantias_proximas')"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('patrimonio_dashboard')"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
   `;
 }
 function renderNotifTasks(){
@@ -4357,6 +4523,7 @@ function showMaintenanceForm(assetId, id){
       <div class="field"><label>Próxima data</label><input id="mp-nextdate" type="date" value="${plan?plan.nextDate:todayStr()}"></div>
       <div class="field"><label>Prioridade</label><select id="mp-priority">${COMMITMENT_PRIORITIES.map(p=>`<option value="${p.v}" ${(plan?plan.priority:'media')===p.v?'selected':''}>${p.label}</option>`).join('')}</select></div>
     </div>
+    <div class="field"><label>Responsável</label><input id="mp-assigned" value="${plan?esc(plan.assignedTo||''):''}"></div>
     <div style="display:flex;gap:8px;margin:8px 0;">
       <button class="btn btn-primary btn-sm" onclick="saveMaintenancePlan('${assetId}'${plan?`,'${plan.id}'`:''})">Salvar plano</button>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('maintenanceFormWrap').innerHTML=''">Cancelar</button>
@@ -4376,6 +4543,7 @@ async function saveMaintenancePlan(assetId, id){
     interval_days: parseInt(document.getElementById('mp-interval').value)||null,
     next_date: document.getElementById('mp-nextdate').value || todayStr(),
     priority: document.getElementById('mp-priority').value,
+    assigned_to: document.getElementById('mp-assigned').value.trim(),
   };
   const { error } = id ? await sb.from('asset_maintenance_plans').update(data).eq('id', id) : await sb.from('asset_maintenance_plans').insert(data);
   if(error){ dbErr(error, 'Erro ao salvar plano de manutenção'); return; }
