@@ -477,6 +477,15 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head">
               <div class="section-title">Lançamentos</div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(-1)" id="lancPrevMonthBtn">←</button>
+                <span id="lancMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
+                <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(1)" id="lancNextMonthBtn">→</button>
+                <button class="btn btn-ghost btn-sm" id="lancShowAllBtn" onclick="lancamentosToggleShowAll()">Ver completo</button>
+              </div>
+            </div>
+            <div class="panel-head" style="margin-top:-6px;">
+              <div></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="text" id="finSearch" placeholder="Pesquisar (descrição, categoria, cliente, fornecedor, valor...)" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:260px;" oninput="renderFinanceiro()">
                 <select id="finFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderFinanceiro()">
                   <option value="todos">Todos</option><option value="receita">Receitas (de pedidos)</option><option value="despesa">Despesas</option><option value="pendente">Pendentes</option><option value="vencido">Vencidos</option>
@@ -2044,12 +2053,41 @@ function renderCashEvolution(){
 }
 
 
+let lancamentosMonthOffset = 0;
+let lancamentosShowAll = false;
+function lancamentosChangeMonth(delta){
+  lancamentosMonthOffset += delta;
+  lancamentosShowAll = false;
+  renderFinanceiro();
+}
+function lancamentosToggleShowAll(){
+  lancamentosShowAll = !lancamentosShowAll;
+  renderFinanceiro();
+}
+function lancamentosMonthRange(){
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+lancamentosMonthOffset);
+  const y=base.getFullYear(), m=base.getMonth();
+  return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
+}
 function renderFinanceiro(){
   renderFinDashboard();
   const filter = document.getElementById('finFilter').value;
   const search = (document.getElementById('finSearch')?.value||'').trim().toLowerCase();
   const today = todayStr();
   let list = state.transactions;
+
+  // Lançamentos mostra só o mês selecionado por padrão (vencimento dentro do mês) — "Ver completo" tira esse filtro
+  const monthRange = lancamentosMonthRange();
+  const monthLabelEl = document.getElementById('lancMonthLabel');
+  const showAllBtn = document.getElementById('lancShowAllBtn');
+  if(monthLabelEl){
+    monthLabelEl.textContent = lancamentosShowAll ? 'Todos os lançamentos' : (monthRange.label.charAt(0).toUpperCase()+monthRange.label.slice(1));
+    document.getElementById('lancPrevMonthBtn').style.display = lancamentosShowAll ? 'none' : 'inline-flex';
+    document.getElementById('lancNextMonthBtn').style.display = lancamentosShowAll ? 'none' : 'inline-flex';
+    showAllBtn.textContent = lancamentosShowAll ? '📅 Ver por mês' : '📋 Ver completo';
+  }
+  if(!lancamentosShowAll) list = list.filter(t => t.dueDate >= monthRange.from && t.dueDate <= monthRange.to);
+
   if(filter==='receita') list = list.filter(t=>t.type==='receita');
   else if(filter==='despesa') list = list.filter(t=>t.type==='despesa');
   else if(filter==='pendente') list = list.filter(t=>t.status==='pendente');
