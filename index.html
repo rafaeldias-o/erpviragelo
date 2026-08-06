@@ -399,14 +399,6 @@ tr:last-child td{border-bottom:none;}
           <div class="panel-head"><div class="section-title">Histórico de movimentações</div></div>
           <div id="movementsTableWrap" class="table-scroll"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">Evolução do estoque de produtos acabados (mês atual)</div></div>
-          <div class="stat-grid" id="estoqueEvolStats" style="margin-bottom:18px;"></div>
-          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Quantidade em estoque</div>
-          <div id="estoqueQtyChart" style="margin-bottom:24px;"></div>
-          <div class="section-title" style="font-size:13px;margin-bottom:8px;">Valor em estoque (R$)</div>
-          <div id="estoqueValueChart"></div>
-        </div>
       </section>
 
       <!-- PRODUÇÃO -->
@@ -435,9 +427,21 @@ tr:last-child td{border-bottom:none;}
 
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
+        <div class="tabs">
+          <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
+          <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
+          <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
+          <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
+          <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
+          <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
+          <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
+          <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
+          <div class="tab" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
+        </div>
+
         <div class="panel">
           <div class="panel-head">
-            <div class="section-title" id="finPeriodLabel">Dashboard Financeiro</div>
+            <div class="section-title" id="finPeriodLabel">Resumo do período</div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-sm" onclick="finDashChangeMonth(-1)" id="finPrevMonthBtn">←</button>
               <select id="finPeriodMode" onchange="finDashChangePeriodMode()" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
@@ -460,43 +464,7 @@ tr:last-child td{border-bottom:none;}
               </span>
             </div>
           </div>
-          <div class="stat-grid" id="finDashCardsGrid"></div>
-        </div>
-        <div class="two-col">
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Fluxo de caixa diário (período selecionado)</div></div>
-            <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
-            <div id="cashFlowDailyChart" style="height:130px;"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Fluxo de caixa — últimos 12 meses</div></div>
-            <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
-            <div id="cashFlowMonthlyChart" style="height:130px;"></div>
-          </div>
-        </div>
-        <div class="two-col">
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Receitas por categoria</div></div>
-            <div id="pieReceitasChart"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Despesas por categoria</div></div>
-            <div id="pieDespesasChart"></div>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">Evolução do caixa — últimos 12 meses</div></div>
-          <div id="cashEvolutionChart"></div>
-        </div>
-        <div class="tabs">
-          <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
-          <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
-          <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
-          <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
-          <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
-          <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
-          <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
-          <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
+          <div class="stat-grid" id="finCompactStats"></div>
         </div>
 
         <div id="finLancamentosView">
@@ -576,10 +544,6 @@ tr:last-child td{border-bottom:none;}
 
         <div id="finFluxoView" style="display:none;">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Indicadores Financeiros</div></div>
-            <div class="stat-grid" id="indicadoresGrid"></div>
-          </div>
-          <div class="panel">
             <div class="panel-head">
               <div class="section-title">Fluxo de Caixa</div>
               <select id="fluxoGranularity" onchange="renderFluxoCaixa()" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
@@ -598,6 +562,37 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title">Conciliação Financeira</div></div>
             <div class="hint" style="margin-bottom:10px;">Compara pedidos entregues, recebimentos, pagamentos e transferências pra encontrar possíveis inconsistências — não altera nada sozinho, só aponta o que vale a pena olhar.</div>
             <div id="conciliacaoWrap"></div>
+          </div>
+        </div>
+
+        <div id="finDashboardView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Indicadores Gerais</div></div>
+            <div class="stat-grid" id="finDashCardsGrid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Indicadores Financeiros</div></div>
+            <div class="stat-grid" id="indicadoresGrid"></div>
+          </div>
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">Fluxo de caixa diário (período selecionado)</div></div>
+              <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
+              <div class="bars" id="cashFlowDailyChart" style="height:130px;"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">Fluxo de caixa — últimos 12 meses</div></div>
+              <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
+              <div class="bars" id="cashFlowMonthlyChart" style="height:130px;"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Despesas por categoria</div></div>
+            <div id="pieDespesasChart"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Evolução do caixa — últimos 12 meses</div></div>
+            <div id="cashEvolutionChart"></div>
           </div>
         </div>
       </section>
@@ -1327,7 +1322,6 @@ function renderEstoque(){
       <td style="color:var(--muted)">${esc(m.note||'—')}</td>
     </tr>`).join('')}</tbody></table>`;
   }
-  renderEstoqueEvolucao();
 }
 
 // =========================================================
@@ -1876,12 +1870,12 @@ function finDashChangeMonth(delta){
   renderFinDashboard();
 }
 function renderFinDashboard(){
-  const box = document.getElementById('finDashCardsGrid');
-  if(!box) return;
+  const compactBox = document.getElementById('finCompactStats');
+  if(!compactBox) return;
   const range = finDashPeriodRange();
   const today = todayStr();
   const in7 = addDays(today, 7);
-  document.getElementById('finPeriodLabel').textContent = range.label ? ('Dashboard Financeiro — '+range.label.charAt(0).toUpperCase()+range.label.slice(1)) : 'Dashboard Financeiro';
+  document.getElementById('finPeriodLabel').textContent = range.label ? ('Resumo — '+range.label.charAt(0).toUpperCase()+range.label.slice(1)) : 'Resumo do período';
 
   const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
   const saldoPorTipo = tipo => state.financialAccounts.filter(a=>a.status==='ativa' && a.type===tipo).reduce((s,a)=>s+accountBalance(a.id),0);
@@ -1904,29 +1898,42 @@ function renderFinDashboard(){
   const contas7dias = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate>today && t.dueDate<=in7).length;
 
   const card = (label, value, onclick, color) => `<div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
-  box.innerHTML = [
+
+  // Resumo enxuto — sempre visível, o que mais importa no dia a dia
+  compactBox.innerHTML = [
     card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
-    card('💵 Saldo em Caixa', fmtMoney(saldoPorTipo('caixa')), "setFinTab('contas')"),
-    card('🏦 Saldo em Conta Bancária', fmtMoney(saldoPorTipo('banco')), "setFinTab('contas')"),
-    card('💳 Saldo Maquininha', fmtMoney(saldoPorTipo('maquininha')), "setFinTab('contas')"),
-    card('📥 Contas a Receber', fmtMoney(contasReceber), "setFinTab('receber')"),
-    card('📤 Contas a Pagar', fmtMoney(contasPagar), "setFinTab('pagar')"),
     card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
     card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
-    card('Lucro líquido', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
-    card('Faturamento bruto', fmtMoney(faturamentoBruto), "switchView('pedidos')"),
-    card('Ticket médio', fmtMoney(ticketMedio)),
-    card('Pedidos faturados', pedidosFaturados.length, "switchView('pedidos')"),
-    card('Qtd. de despesas', despesasQtd, "setFinTab('pagar')"),
-    card('🔴 Contas vencidas', contasVencidas, "setFinTab('pagar')", contasVencidas?'var(--danger)':null),
-    card('🟡 Vencem hoje', contasHoje, "setFinTab('pagar')"),
-    card('Vencem em 7 dias', contas7dias, "setFinTab('pagar')"),
   ].join('');
+
+  // Versão completa (16 indicadores) — só existe na aba Dashboard
+  const fullBox = document.getElementById('finDashCardsGrid');
+  if(fullBox){
+    fullBox.innerHTML = [
+      card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
+      card('💵 Saldo em Caixa', fmtMoney(saldoPorTipo('caixa')), "setFinTab('contas')"),
+      card('🏦 Saldo em Conta Bancária', fmtMoney(saldoPorTipo('banco')), "setFinTab('contas')"),
+      card('💳 Saldo Maquininha', fmtMoney(saldoPorTipo('maquininha')), "setFinTab('contas')"),
+      card('📥 Contas a Receber', fmtMoney(contasReceber), "setFinTab('receber')"),
+      card('📤 Contas a Pagar', fmtMoney(contasPagar), "setFinTab('pagar')"),
+      card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
+      card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
+      card('Lucro líquido', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
+      card('Faturamento bruto', fmtMoney(faturamentoBruto), "switchView('pedidos')"),
+      card('Ticket médio', fmtMoney(ticketMedio)),
+      card('Pedidos faturados', pedidosFaturados.length, "switchView('pedidos')"),
+      card('Qtd. de despesas', despesasQtd, "setFinTab('pagar')"),
+      card('🔴 Contas vencidas', contasVencidas, "setFinTab('pagar')", contasVencidas?'var(--danger)':null),
+      card('🟡 Vencem hoje', contasHoje, "setFinTab('pagar')"),
+      card('Vencem em 7 dias', contas7dias, "setFinTab('pagar')"),
+    ].join('');
+  }
 
   renderCashFlowDaily(range);
   renderCashFlowMonthly();
   renderCategoryPies(range);
   renderCashEvolution();
+  renderIndicadoresFinanceiros();
 }
 
 // ---- Gráficos do Dashboard Financeiro (Fase 5) ----
@@ -1963,9 +1970,10 @@ function renderCashFlowDaily(range){
   while(cursor <= range.to && guard<62){ days.push(cursor); cursor = addDays(cursor,1); guard++; }
   if(days.length>31) days = days.slice(-31); // limita a exibição pra não virar uma faixa ilegível de barras
   const entradasByDay = {}, saidasByDay = {};
-  state.transactions.filter(t=>t.status==='pago' && t.paymentDate).forEach(t=>{
-    if(t.type==='receita') entradasByDay[t.paymentDate] = (entradasByDay[t.paymentDate]||0)+t.amount;
-    else saidasByDay[t.paymentDate] = (saidasByDay[t.paymentDate]||0)+t.amount;
+  state.transactions.filter(t=>(t.status==='pago'||t.status==='parcial') && t.paymentDate).forEach(t=>{
+    const eff = t.status==='pago' ? t.amount : t.paidAmount;
+    if(t.type==='receita') entradasByDay[t.paymentDate] = (entradasByDay[t.paymentDate]||0)+eff;
+    else saidasByDay[t.paymentDate] = (saidasByDay[t.paymentDate]||0)+eff;
   });
   const max = Math.max(1, ...days.map(d=>Math.max(entradasByDay[d]||0, saidasByDay[d]||0)));
   box.innerHTML = days.map((d,i)=>{
@@ -1994,8 +2002,8 @@ function renderCashFlowMonthly(){
   if(!box) return;
   const months = last12Months();
   const data = months.map(mo=>{
-    const entradas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+t.amount,0);
-    const saidas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+t.amount,0);
+    const entradas = state.transactions.filter(t=>t.type==='receita' && (t.status==='pago'||t.status==='parcial') && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+(t.status==='pago'?t.amount:t.paidAmount),0);
+    const saidas = state.transactions.filter(t=>t.type==='despesa' && (t.status==='pago'||t.status==='parcial') && t.paymentDate>=mo.from && t.paymentDate<=mo.to).reduce((s,t)=>s+(t.status==='pago'?t.amount:t.paidAmount),0);
     return {...mo, entradas, saidas};
   });
   const max = Math.max(1, ...data.map(d=>Math.max(d.entradas,d.saidas)));
@@ -2010,16 +2018,14 @@ function renderCashFlowMonthly(){
   `).join('');
 }
 function renderCategoryPies(range){
-  const receitaBox = document.getElementById('pieReceitasChart');
   const despesaBox = document.getElementById('pieDespesasChart');
-  if(!receitaBox || !despesaBox) return;
+  if(!despesaBox) return;
   const byCategory = (type) => {
     const list = state.transactions.filter(t=>t.type===type && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
     const totals = {};
     list.forEach(t=>{ const label = t.category || 'Sem categoria'; totals[label] = (totals[label]||0) + t.amount; });
     return Object.entries(totals).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value);
   };
-  receitaBox.innerHTML = buildPieChartSvg(byCategory('receita'), fmtMoney);
   despesaBox.innerHTML = buildPieChartSvg(byCategory('despesa'), fmtMoney);
 }
 function renderCashEvolution(){
@@ -2196,13 +2202,15 @@ function setFinTab(tab){
   document.getElementById('finPagarView').style.display = tab==='pagar' ? 'block' : 'none';
   document.getElementById('finFluxoView').style.display = tab==='fluxo' ? 'block' : 'none';
   document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
+  document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
   if(tab==='contas') renderFinAccountsTable();
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
   if(tab==='pagar') renderPagarTable();
-  if(tab==='fluxo'){ renderFluxoCaixa(); renderIndicadoresFinanceiros(); }
+  if(tab==='fluxo') renderFluxoCaixa();
   if(tab==='conciliacao') renderConciliacao();
+  if(tab==='dashboard') renderFinDashboard();
 }
 
 // ---- Centro de Custos ----
@@ -4042,32 +4050,19 @@ function renderDashboard(){
   renderProducaoVendas();
 }
 
-// ---- Evolução do Estoque (Gráfico 1: quantidade / Gráfico 2: valor) ----
-// Consolida o saldo diário a partir da view v_estoque_diario (que por sua vez lê stock_movements),
-// sem duplicar dado nenhum. Dias sem movimentação repetem o saldo do dia anterior (saldo consolidado).
-function buildMonthSeries(rawSeries, year, month){
-  const daysInMonth = new Date(year, month+1, 0).getDate();
-  const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
-  let lastQty = 0, lastValue = 0;
-  const beforeMonth = rawSeries.filter(r => r.date < monthPrefix+'01');
-  if(beforeMonth.length){
-    const last = beforeMonth[beforeMonth.length-1];
-    lastQty = Number(last.saldo_qty); lastValue = Number(last.saldo_valor);
-  }
-  const byDate = {};
-  rawSeries.forEach(r=> byDate[r.date] = r);
-  const series = [];
-  for(let d=1; d<=daysInMonth; d++){
-    const iso = monthPrefix + String(d).padStart(2,'0');
-    if(byDate[iso]){ lastQty = Number(byDate[iso].saldo_qty); lastValue = Number(byDate[iso].saldo_valor); }
-    series.push({ day:d, date:iso, qty:lastQty, value:lastValue });
-  }
-  return series;
-}
 function buildLineChartSvg(values, labels){
   const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
-  const max = Math.max(1, ...values);
-  const min = Math.min(0, ...values);
+  // Mesma lógica de "zoom inteligente" usada nos gráficos de barra: se os valores variam pouco entre si
+  // e nunca chegam perto de zero (caso comum de saldo de caixa), forçar o eixo a incluir o zero espreme
+  // a linha toda numa faixinha do gráfico e esconde a variação real. Só usa zero como base quando os
+  // valores realmente passam perto disso.
+  const maxRaw = values.length ? Math.max(...values) : 0;
+  const minRaw = values.length ? Math.min(...values) : 0;
+  const spread = maxRaw - minRaw;
+  const avg = values.reduce((a,b)=>a+b,0) / (values.length||1);
+  const zoomed = avg>0 && spread < avg*0.4 && minRaw > 0;
+  const max = Math.max(1, maxRaw);
+  const min = zoomed ? Math.max(0, minRaw - spread*0.15) : Math.min(0, minRaw);
   const range = (max-min) || 1;
   const stepX = (w-padL-padR) / Math.max(1, values.length-1);
   const xOf = i => padL + i*stepX;
@@ -4078,78 +4073,15 @@ function buildLineChartSvg(values, labels){
   for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
   if(!labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <polyline points="${points}" style="fill:none;stroke:var(--accent-2);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;"/>
     <circle cx="${xOf(lastI)}" cy="${yOf(values[lastI])}" r="3.5" style="fill:var(--accent-2);"/>
     ${axisLabels}
   </svg>`;
+  return svg + (zoomed ? `<div class="hint" style="margin-top:2px;">Escala ajustada pra destacar a variação — o eixo não começa em zero.</div>` : '');
 }
-// Gráfico de barras com escala inteligente: quando os valores variam pouco entre si (comum em valor de
-// estoque, que não costuma saltar de um dia pro outro), começar do zero faz todas as barras parecerem
-// idênticas. Nesse caso, a escala "dá zoom" na faixa real de variação — sempre deixando isso visível
-// numa nota abaixo do gráfico, pra não passar a impressão errada de que o eixo começa em zero.
-function buildBarChartSvg(values, labels, formatValue){
-  const w = 700, h = 160, padL = 10, padR = 10, padT = 14, padB = 22;
-  const max = values.length ? Math.max(...values) : 0;
-  const min = values.length ? Math.min(...values) : 0;
-  const spread = max - min;
-  const avg = values.reduce((a,b)=>a+b,0) / (values.length||1);
-  const zoomed = avg>0 && spread < avg*0.15 && spread>0;
-  const base = zoomed ? Math.max(0, min - spread*0.15) : 0;
-  const range = (max-base) || 1;
-  const stepX = (w-padL-padR)/values.length;
-  const barW = Math.max(3, stepX-3);
-  const yOf = v => padT + (h-padT-padB) * (1 - (v-base)/range);
-  const baseline = h-padB;
-  const bars = values.map((v,i)=>{
-    const x = padL + i*stepX + (stepX-barW)/2;
-    const yTop = yOf(v);
-    const barH = Math.max(1, baseline-yTop);
-    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" style="fill:var(--accent);opacity:0.88;"><title>Dia ${labels[i]}: ${formatValue(v)}</title></rect>`;
-  }).join('');
-  const labelIdxs = [0];
-  for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
-  if(!labelIdxs.includes(values.length-1)) labelIdxs.push(values.length-1);
-  const axisLabels = labelIdxs.map(i=>{
-    const x = padL + i*stepX + stepX/2;
-    return `<text x="${x.toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`;
-  }).join('');
-  const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:160px;">
-    <line x1="${padL}" y1="${baseline}" x2="${w-padR}" y2="${baseline}" style="stroke:var(--border);stroke-width:1;"/>
-    ${bars}
-    ${axisLabels}
-  </svg>`;
-  return svg + (zoomed ? `<div class="hint" style="margin-top:2px;">Escala ajustada pra destacar a variação do período — o eixo não começa em zero.</div>` : '');
-}
-async function renderEstoqueEvolucao(){
-  const statsBox = document.getElementById('estoqueEvolStats');
-  if(!statsBox) return; // só existe na tela Estoque
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
-  const { data, error } = await sb.from('v_estoque_diario').select('*').gte('date', cutoff.toISOString().slice(0,10)).order('date');
-  if(error){ dbErr(error, 'Erro ao carregar evolução do estoque'); return; }
-  const now = new Date();
-  const series = buildMonthSeries(data||[], now.getFullYear(), now.getMonth());
-  const qtys = series.map(s=>s.qty);
-  const values = series.map(s=>s.value);
-  const atual = qtys[qtys.length-1] || 0;
-  const valorAtual = values[values.length-1] || 0;
-  const maior = qtys.length ? Math.max(...qtys) : 0;
-  const menor = qtys.length ? Math.min(...qtys) : 0;
-  const media = qtys.length ? (qtys.reduce((a,b)=>a+b,0)/qtys.length) : 0;
-
-  statsBox.innerHTML = `
-    <div class="stat-card"><div class="stat-label">📦 Pacotes disponíveis</div><div class="stat-value">${atual}</div></div>
-    <div class="stat-card"><div class="stat-label">💰 Valor atual</div><div class="stat-value">${fmtMoney(valorAtual)}</div></div>
-    <div class="stat-card"><div class="stat-label">📈 Maior no mês</div><div class="stat-value">${maior}</div></div>
-    <div class="stat-card"><div class="stat-label">📉 Menor no mês</div><div class="stat-value">${menor}</div></div>
-    <div class="stat-card"><div class="stat-label">📊 Média diária</div><div class="stat-value">${media.toFixed(0)}</div></div>
-  `;
-  document.getElementById('estoqueQtyChart').innerHTML = buildLineChartSvg(qtys, series.map(s=>s.day));
-  document.getElementById('estoqueValueChart').innerHTML = buildBarChartSvg(values, series.map(s=>s.day), v=>fmtMoney(v));
-}
-
 // ---- Produção × Vendas (Gráfico 3) ----
 function inferWeightKg(stockItem){
   if(!stockItem) return null;
