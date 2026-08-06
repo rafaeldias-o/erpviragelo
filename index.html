@@ -302,31 +302,24 @@ tr:last-child td{border-bottom:none;}
       <section class="view active" id="view-dashboard">
         <div id="coberturaBox"></div>
         <div class="stat-grid" id="dashStats"></div>
-        <div class="two-col">
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Faturamento x Despesas (6 meses)</div></div>
-            <div class="legend"><span><i style="background:var(--accent-2)"></i>Faturamento (pedidos)</span><span><i style="background:#F3C08A"></i>Despesas</span></div>
-            <div class="bars" id="chartBars"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Alertas</div></div>
-            <div id="alertsBox"></div>
-          </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">🔴 Alertas</div></div>
+          <div id="alertsBox"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="section-title">Evolução financeira do mês</div></div>
-          <div class="bars" id="financialSummaryBars" style="justify-content:space-around;"></div>
+          <div class="panel-head"><div class="section-title">Faturamento x Despesas (6 meses)</div></div>
+          <div class="legend"><span><i style="background:var(--accent-2)"></i>Faturamento (pedidos)</span><span><i style="background:#F3C08A"></i>Despesas</span></div>
+          <div class="bars" id="chartBars"></div>
+        </div>
+        <div class="panel">
+          <button class="btn btn-ghost btn-sm" id="dashMoreToggle" onclick="toggleDashMore()">📊 Ver mais indicadores</button>
+          <div id="dashMoreStats" style="display:none;margin-top:12px;">
+            <div class="stat-grid" id="dashStatsExtra"></div>
+          </div>
         </div>
         <div class="two-col">
           <div class="panel"><div class="panel-head"><div class="section-title">Últimos pedidos</div></div><div id="lastOrders"></div></div>
           <div class="panel"><div class="panel-head"><div class="section-title">Últimas movimentações de estoque</div></div><div id="lastMovements"></div></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">Produção × Vendas (mês atual)</div></div>
-          <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:12px;"></div>
-          <div id="producaoVendasWarnBox"></div>
-          <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
-          <div class="bars" id="producaoVendasChart" style="height:130px;"></div>
         </div>
       </section>
 
@@ -447,6 +440,13 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head"><div class="section-title">Registros de produção</div><button class="btn btn-primary" onclick="openProductionModal()">+ Nova produção</button></div>
           <div id="productionTableWrap" class="table-scroll"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Produção × Vendas (mês atual)</div></div>
+          <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:12px;"></div>
+          <div id="producaoVendasWarnBox"></div>
+          <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
+          <div class="bars" id="producaoVendasChart" style="height:130px;"></div>
         </div>
       </section>
 
@@ -1502,14 +1502,17 @@ async function deleteProduction(id){
 
 function renderProducao(){
   const wrap = document.getElementById('productionTableWrap');
-  if(state.production.length===0){ wrap.innerHTML = emptyState('Nenhuma produção registrada ainda.','Nova produção','openProductionModal()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Kg produzidos</th><th>Funcionário</th><th>Embalado (entrou em estoque)</th><th>Observações</th><th></th></tr></thead><tbody>
-  ${state.production.map(p=>`<tr>
-    <td>${fmtDate(p.date)}</td><td>${p.kg} kg</td><td>${esc(p.employee||'—')}</td>
-    <td style="font-size:12px;color:var(--muted)">${p.packs.length? p.packs.map(pk=>`${pk.qty}× ${esc(pk.finishedName)}`).join(', ') : '—'}</td>
-    <td style="color:var(--muted)">${esc(p.notes||'—')}</td>
-    <td class="row-actions"><button class="icon-btn" onclick="deleteProduction('${p.id}')" title="Excluir">${iconTrash}</button></td>
-  </tr>`).join('')}</tbody></table>`;
+  if(state.production.length===0){ wrap.innerHTML = emptyState('Nenhuma produção registrada ainda.','Nova produção','openProductionModal()'); }
+  else {
+    wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Kg produzidos</th><th>Funcionário</th><th>Embalado (entrou em estoque)</th><th>Observações</th><th></th></tr></thead><tbody>
+    ${state.production.map(p=>`<tr>
+      <td>${fmtDate(p.date)}</td><td>${p.kg} kg</td><td>${esc(p.employee||'—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${p.packs.length? p.packs.map(pk=>`${pk.qty}× ${esc(pk.finishedName)}`).join(', ') : '—'}</td>
+      <td style="color:var(--muted)">${esc(p.notes||'—')}</td>
+      <td class="row-actions"><button class="icon-btn" onclick="deleteProduction('${p.id}')" title="Excluir">${iconTrash}</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  }
+  renderProducaoVendas();
 }
 
 // =========================================================
@@ -4120,6 +4123,13 @@ function renderCRM(){ renderCrmStats(); renderKanban(); renderClientsTable(); re
 // =========================================================
 // DASHBOARD
 // =========================================================
+function toggleDashMore(){
+  const box = document.getElementById('dashMoreStats');
+  const btn = document.getElementById('dashMoreToggle');
+  const showing = box.style.display !== 'none';
+  box.style.display = showing ? 'none' : 'block';
+  btn.textContent = showing ? '📊 Ver mais indicadores' : '📊 Ocultar indicadores extras';
+}
 function renderDashboard(){
   renderCoberturaEstoque();
   const now = new Date();
@@ -4152,14 +4162,17 @@ function renderDashboard(){
     return sum + itemsMargin - (o.discount||0);
   }, 0);
 
+  // Resumo enxuto — só o que mais importa num relance. O resto fica atrás de "Ver mais indicadores".
   document.getElementById('dashStats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">Faturamento hoje</div><div class="stat-value">${fmtMoney(faturamentoDia)}</div></div>
     <div class="stat-card"><div class="stat-label">Faturamento do mês</div><div class="stat-value">${fmtMoney(faturamentoMes)}</div></div>
-    <div class="stat-card"><div class="stat-label">Faturamento do ano</div><div class="stat-value">${fmtMoney(faturamentoAno)}</div></div>
-    <div class="stat-card"><div class="stat-label">Margem bruta de vendas (mês)</div><div class="stat-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</div><div class="stat-note">preço de venda menos custo do produto</div></div>
-    <div class="stat-card"><div class="stat-label">Resultado de caixa do mês</div><div class="stat-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</div><div class="stat-note">receita menos todas as despesas do mês</div></div>
-    <div class="stat-card"><div class="stat-label">Despesas do mês</div><div class="stat-value">${fmtMoney(despesasMes)}</div></div>
+    <div class="stat-card"><div class="stat-label">Margem bruta de vendas</div><div class="stat-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</div></div>
+    <div class="stat-card"><div class="stat-label">Resultado de caixa do mês</div><div class="stat-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</div></div>
     <div class="stat-card"><div class="stat-label">Contas pendentes</div><div class="stat-value">${pendentes.length}</div><div class="stat-note ${vencidos.length?'danger':''}">${vencidos.length} vencida(s)</div></div>
+  `;
+  document.getElementById('dashStatsExtra').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Faturamento hoje</div><div class="stat-value">${fmtMoney(faturamentoDia)}</div></div>
+    <div class="stat-card"><div class="stat-label">Faturamento do ano</div><div class="stat-value">${fmtMoney(faturamentoAno)}</div></div>
+    <div class="stat-card"><div class="stat-label">Despesas do mês</div><div class="stat-value">${fmtMoney(despesasMes)}</div></div>
     <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value">${producaoMes} kg</div></div>
     <div class="stat-card"><div class="stat-label">Vendido no mês</div><div class="stat-value">${vendidoMes} un</div><div class="stat-note">${pedidosEntreguesMes.length} pedido(s) entregues</div></div>
     <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value">${fmtMoney(ticketMedio)}</div></div>
@@ -4179,18 +4192,6 @@ function renderDashboard(){
     <div class="bar-group"><div class="bar-pair"><div class="bar rev" style="height:${Math.round(totals[i].rev/max*100)}%" title="${fmtMoney(totals[i].rev)}"></div><div class="bar exp" style="height:${Math.round(totals[i].exp/max*100)}%" title="${fmtMoney(totals[i].exp)}"></div></div><div class="bar-label">${m.label}</div></div>
   `).join('');
 
-  // Segundo gráfico do Painel: evolução financeira do mês (estoque, faturamento, despesas, lucro) — mesmo padrão visual do gráfico acima
-  const summaryItems = [
-    {label:'Estoque', value: stockValue, color:'var(--accent-2)'},
-    {label:'Faturamento', value: faturamentoMes, color:'var(--accent)'},
-    {label:'Despesas', value: despesasMes, color:'#F3C08A'},
-    {label:'Resultado', value: lucroMes, color: lucroMes>=0 ? 'var(--success)' : 'var(--danger)'},
-  ];
-  const summaryMax = Math.max(1, ...summaryItems.map(it=>Math.abs(it.value)));
-  document.getElementById('financialSummaryBars').innerHTML = summaryItems.map(it=>`
-    <div class="bar-group"><div class="bar-pair" style="justify-content:center;"><div class="bar" style="width:36px;background:${it.color};height:${Math.round(Math.abs(it.value)/summaryMax*100)}%" title="${fmtMoney(it.value)}"></div></div><div class="bar-label">${it.label}<br><strong style="color:var(--ink);font-size:11px;">${fmtMoney(it.value)}</strong></div></div>
-  `).join('');
-
   // Alerts (estoque, financeiro, clientes parados, CRM: leads parados e tarefas atrasadas)
   const alerts = computeSystemAlerts();
   const alertsBox = document.getElementById('alertsBox');
@@ -4204,8 +4205,6 @@ function renderDashboard(){
   const lm = document.getElementById('lastMovements');
   lm.innerHTML = state.movements.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma movimentação ainda.</p></div>' :
     state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
-
-  renderProducaoVendas();
 }
 
 function buildLineChartSvg(values, labels){
