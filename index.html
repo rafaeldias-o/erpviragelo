@@ -3536,6 +3536,29 @@ async function geocodeAddress(query){
 function buildFullAddress(entity){
   return [entity.address, entity.neighborhood, entity.city, entity.state, entity.cep].filter(Boolean).join(', ');
 }
+// Tudo antes do primeiro número do endereço (ex: "Rua Guilherme Wileman, 428" -> "Rua Guilherme Wileman")
+function stripAddressNumber(address){
+  if(!address) return address;
+  const match = address.match(/^(.*?),?\s*\d+/);
+  return match ? match[1].trim() : address;
+}
+// Geocodifica um cliente/prospect com uma segunda tentativa: se o endereço completo (com número) não for
+// encontrado — o que acontece quando o serviço gratuito de mapas não tem aquele número específico mapeado,
+// mesmo a rua existindo — tenta de novo só com o nome da rua. É uma localização aproximada (fica marcada
+// como tal), mas ainda assim muito mais útil do que excluir a parada da rota por completo.
+async function geocodeEntityWithFallback(entity){
+  const fullQuery = buildFullAddress(entity);
+  if(!fullQuery) return { coords:null, approximate:false, queryUsed:null };
+  let coords = await geocodeAddress(fullQuery + ', Brasil');
+  if(coords) return { coords, approximate:false, queryUsed:fullQuery };
+  const streetOnly = stripAddressNumber(entity.address);
+  if(streetOnly && streetOnly !== entity.address){
+    const fallbackQuery = buildFullAddress({...entity, address:streetOnly});
+    coords = await geocodeAddress(fallbackQuery + ', Brasil');
+    if(coords) return { coords, approximate:true, queryUsed:fallbackQuery };
+  }
+  return { coords:null, approximate:false, queryUsed:fullQuery };
+}
 
 // ---- Frete por distância ----
 // Reaproveita o mesmo par geocoding (Nominatim) + roteamento (OSRM) já usado na Rota Otimizada,
@@ -3568,9 +3591,8 @@ async function ensureClientDistance(clientId, force){
 
   let lat = client.lat, lng = client.lng;
   if(lat==null || lng==null || force){
-    const addressQuery = buildFullAddress(client);
-    if(!addressQuery){ toast('Esse cliente não tem endereço suficiente para calcular a distância', true); return null; }
-    const coords = await geocodeAddress(addressQuery + ', Brasil');
+    if(!buildFullAddress(client)){ toast('Esse cliente não tem endereço suficiente para calcular a distância', true); return null; }
+    const { coords, approximate, queryUsed } = await geocodeEntityWithFallback(client);
     const now = new Date().toISOString();
     if(!coords){
       await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding: now }).eq('id', clientId);
@@ -3578,7 +3600,8 @@ async function ensureClientDistance(clientId, force){
       return null;
     }
     lat = coords.lat; lng = coords.lng;
-    await sb.from('clients').update({ lat, lng, geocoded_address: addressQuery, geocoding_status:'ok', last_geocoding: now }).eq('id', clientId);
+    await sb.from('clients').update({ lat, lng, geocoded_address: queryUsed, geocoding_status: approximate?'aproximado':'ok', last_geocoding: now }).eq('id', clientId);
+    if(approximate) toast('Endereço localizado de forma aproximada (não achamos o número exato, usamos a rua) — considere conferir manualmente', false);
   }
 
   const distanceKm = await routeDistanceKm(origin, {lat, lng});
@@ -3631,10 +3654,12 @@ async function saveClientDetail(id){
   const existing = id ? state.clients.find(c=>c.id===id) : null;
   const addressChanged = addressQuery && addressQuery !== existing?.geocodedAddress;
   if(addressChanged){
-    const coords = await geocodeAddress(addressQuery + ', Brasil');
+    const { coords, approximate, queryUsed } = await geocodeEntityWithFallback({ address: addressWithNumber, neighborhood: data.neighborhood, city: data.city, state: data.state, cep: data.cep });
     const now = new Date().toISOString();
-    if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = addressQuery; data.geocoding_status = 'ok'; data.last_geocoding = now; }
-    else {
+    if(coords){
+      data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = queryUsed; data.geocoding_status = approximate?'aproximado':'ok'; data.last_geocoding = now;
+      if(approximate) toast('Endereço salvo — localizamos de forma aproximada (não achamos o número exato, usamos a rua). Confira se está certo.', false);
+    } else {
       data.geocoding_status = 'nao_encontrado'; data.last_geocoding = now;
       toast('Endereço salvo, mas não localizei ele no mapa — confira rua, número, bairro e cidade. O cadastro foi salvo normalmente, você pode corrigir o endereço e salvar de novo quando quiser.', true);
     }
@@ -3673,6 +3698,7 @@ function renderClientFreight(clientId){
   const tier = c.freightTierId ? state.freightTiers.find(t=>t.id===c.freightTierId) : null;
   wrap.innerHTML = `
     ${c.geocodingStatus==='nao_encontrado' ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ Endereço não localizado no mapa (tentativa em ${c.lastGeocoding?fmtDateTime(c.lastGeocoding):'—'}). Confira rua, número, bairro e cidade, e salve de novo pra tentar corrigir.</div>` : ''}
+    ${c.geocodingStatus==='aproximado' ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">📍 Localização aproximada (não achamos o número exato — usamos a rua). Confira se a distância/frete calculados fazem sentido.</div>` : ''}
     ${c.geocodingStatus==='ok' ? `<div class="hint" style="color:var(--success);margin-bottom:10px;">✓ Endereço localizado no mapa (${c.lastGeocoding?fmtDateTime(c.lastGeocoding):'—'})</div>` : ''}
     <div class="stat-grid" style="margin-bottom:10px;">
       <div class="stat-card"><div class="stat-label">📍 Distância</div><div class="stat-value" style="font-size:16px;">${c.distanceKm!=null?c.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'—'}</div></div>
@@ -3844,12 +3870,19 @@ function renderWeekAgenda(){
 // ---- Rota otimizada do dia (OSRM — dados e roteamento OpenStreetMap) ----
 function fmtKm(meters){ return (meters/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' km'; }
 function fmtMin(seconds){ return Math.round(seconds/60) + ' min'; }
+// Prefere o endereço em texto (o próprio Google geocodifica isso melhor que o nosso serviço gratuito) —
+// só usa coordenada quando não tem endereço completo disponível. É essa troca que evita o Maps "advinhar"
+// outro número de prédio na mesma rua ao tentar geocodificar de volta uma coordenada aproximada.
+function mapsLocationParam(loc){
+  if(loc && loc.address) return buildFullAddress(loc) + ', Brasil';
+  return `${loc.lat},${loc.lng}`;
+}
 function buildGoogleMapsUrl(orderedStops, origin){
-  const originStr = origin ? `${origin.lat},${origin.lng}` : `${orderedStops[0].client.lat},${orderedStops[0].client.lng}`;
-  const destStr = origin ? originStr : `${orderedStops[orderedStops.length-1].client.lat},${orderedStops[orderedStops.length-1].client.lng}`;
+  const originLoc = origin || orderedStops[0].client;
+  const destLoc = origin ? origin : orderedStops[orderedStops.length-1].client;
   const waypointStops = origin ? orderedStops : orderedStops.slice(1, -1);
-  const waypoints = waypointStops.map(s=>`${s.client.lat},${s.client.lng}`).join('|');
-  return `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
+  const waypoints = waypointStops.map(s=>mapsLocationParam(s.client)).join('|');
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(mapsLocationParam(originLoc))}&destination=${encodeURIComponent(mapsLocationParam(destLoc))}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
 }
 async function openRouteModal(dateIso){
   openModal(`
@@ -4064,7 +4097,10 @@ function nearestNeighborOrder(startPoint, points){
   return orderedList;
 }
 function companyOrigin(){
-  return (state.company.lat!=null && state.company.lng!=null) ? { lat: state.company.lat, lng: state.company.lng } : null;
+  if(state.company.lat==null || state.company.lng==null) return null;
+  // geocodedAddress é a string exata que foi usada quando o endereço foi localizado da última vez —
+  // mais confiável pra reenviar ao Maps do que remontar o campo de endereço na hora.
+  return { lat: state.company.lat, lng: state.company.lng, address: state.company.geocodedAddress || state.company.address || null };
 }
 
 function openDeliveryEditModal(id){
@@ -4919,15 +4955,17 @@ async function crGenerateRoute(){
 
   // Geocodifica quem ainda não tem coordenada, usando o endereço completo (rua+número, bairro, cidade,
   // estado, CEP — nunca separa o número da rua) — e já grava no banco, pra não precisar geocodificar de novo.
+  // Se o endereço completo não for encontrado, tenta de novo só com a rua (localização aproximada) em vez
+  // de simplesmente excluir a parada da rota.
   for(const c of selected){
     if(c.lat==null || c.lng==null){
-      const fullAddress = buildFullAddress(c);
-      const coords = await geocodeAddress(fullAddress + ', Brasil');
+      const { coords, approximate, queryUsed } = await geocodeEntityWithFallback(c);
       const now = new Date().toISOString();
       if(coords){
-        c.lat = coords.lat; c.lng = coords.lng;
-        if(c.type==='client') await sb.from('clients').update({ lat:coords.lat, lng:coords.lng, geocoded_address:fullAddress, geocoding_status:'ok', last_geocoding:now }).eq('id', c.id);
-        else await sb.from('field_prospects').update({ lat:coords.lat, lng:coords.lng, geocoding_status:'ok', last_geocoding:now }).eq('id', c.id);
+        c.lat = coords.lat; c.lng = coords.lng; c.approximateLocation = approximate;
+        const status = approximate ? 'aproximado' : 'ok';
+        if(c.type==='client') await sb.from('clients').update({ lat:coords.lat, lng:coords.lng, geocoded_address:queryUsed, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
+        else await sb.from('field_prospects').update({ lat:coords.lat, lng:coords.lng, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
       } else {
         if(c.type==='client') await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
         else await sb.from('field_prospects').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
@@ -4994,7 +5032,7 @@ async function crGenerateRoute(){
   renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source);
 }
 function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source){
-  const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:{lat:s.lat,lng:s.lng}})), origin);
+  const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:s})), origin);
   document.getElementById('crwResultWrap').innerHTML = `
     <div class="stat-grid" style="margin-bottom:14px;">
       <div class="stat-card"><div class="stat-label">Paradas</div><div class="stat-value">${ordered.length}</div></div>
@@ -5007,7 +5045,7 @@ function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, to
       ${ordered.map((s,i)=>{
         const order = state.orders.filter(o=>o.clientId===s.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
         return `<li style="margin-bottom:10px;font-size:13px;">
-          <strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}
+          <strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}${s.approximateLocation?' <span class="badge badge-warn" title="Não encontramos o número exato — usamos a localização aproximada da rua">📍 aproximado</span>':''}
           <div style="color:var(--muted);font-size:12px;">${esc(s.address||'')}${s.neighborhood?' · '+esc(s.neighborhood):''}${s.city?' · '+esc(s.city):''}</div>
           <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">📍 ${fmtKm(legInfo[i].legDist)} até aqui · acumulado ${fmtKm(legInfo[i].cumulativeDist)} · 🚚 frete ${s.freightValue!=null?(s.freightValue===0?'isento':fmtMoney(s.freightValue)):'—'}${order?' · último pedido '+fmtMoney(order.total):''}</div>
         </li>`;
