@@ -496,6 +496,7 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
           <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
+          <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
         </div>
 
         <div id="finLancamentosView">
@@ -507,12 +508,22 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head">
               <div class="section-title">Lançamentos</div>
-              <div style="display:flex;gap:8px;align-items:center;">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="finSearch" placeholder="Pesquisar (descrição, categoria, cliente, fornecedor, valor...)" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:260px;" oninput="renderFinanceiro()">
                 <select id="finFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderFinanceiro()">
                   <option value="todos">Todos</option><option value="receita">Receitas (de pedidos)</option><option value="despesa">Despesas</option><option value="pendente">Pendentes</option><option value="vencido">Vencidos</option>
                 </select>
+                <button class="btn btn-ghost btn-sm" onclick="exportTransactionsCsv()">⬇️ CSV</button>
+                <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Imprimir</button>
                 <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
               </div>
+            </div>
+            <div id="finBulkBar" style="display:none;background:var(--info-bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;align-items:center;gap:10px;font-size:12.5px;">
+              <span id="finBulkCount"></span>
+              <button class="btn btn-ghost btn-sm" onclick="bulkMarkPaid()">Marcar como pago</button>
+              <select id="finBulkCategory" style="border:1px solid var(--border);border-radius:6px;padding:5px 7px;font-size:12px;" onchange="bulkChangeCategory()"><option value="">Alterar categoria...</option>${''}</select>
+              <button class="btn btn-danger-ghost btn-sm" onclick="bulkDelete()">Excluir selecionados</button>
+              <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()" style="margin-left:auto;">Limpar seleção</button>
             </div>
             <div id="transactionsTableWrap" class="table-scroll"></div>
           </div>
@@ -579,6 +590,14 @@ tr:last-child td{border-bottom:none;}
               </select>
             </div>
             <div id="fluxoCaixaTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="finConciliacaoView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Conciliação Financeira</div></div>
+            <div class="hint" style="margin-bottom:10px;">Compara pedidos entregues, recebimentos, pagamentos e transferências pra encontrar possíveis inconsistências — não altera nada sozinho, só aponta o que vale a pena olhar.</div>
+            <div id="conciliacaoWrap"></div>
           </div>
         </div>
       </section>
@@ -2022,15 +2041,24 @@ function renderCashEvolution(){
 function renderFinanceiro(){
   renderFinDashboard();
   const filter = document.getElementById('finFilter').value;
+  const search = (document.getElementById('finSearch')?.value||'').trim().toLowerCase();
   const today = todayStr();
   let list = state.transactions;
   if(filter==='receita') list = list.filter(t=>t.type==='receita');
   else if(filter==='despesa') list = list.filter(t=>t.type==='despesa');
   else if(filter==='pendente') list = list.filter(t=>t.status==='pendente');
   else if(filter==='vencido') list = list.filter(t=>t.status==='pendente' && t.dueDate < today);
+  if(search){
+    list = list.filter(t=>{
+      const supplier = t.supplierId ? state.suppliers.find(s=>s.id===t.supplierId) : null;
+      const client = t.clientId ? state.clients.find(c=>c.id===t.clientId) : null;
+      const haystack = [t.description, t.category, supplier?.name, client?.name, String(t.amount), t.status, t.paymentMethod].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(search);
+    });
+  }
 
   const wrap = document.getElementById('transactionsTableWrap');
-  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); return; }
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); updateBulkBar(); return; }
   const statusInfo = (t, overdue) => {
     if(t.status==='cancelado') return {label:'Cancelado', cls:'badge-muted'};
     if(overdue) return {label:'Vencido', cls:'badge-danger'};
@@ -2038,11 +2066,12 @@ function renderFinanceiro(){
     if(t.status==='parcial') return {label:'Parcial', cls:'badge-warn'};
     return {label:'Aberto', cls:'badge-warn'};
   };
-  wrap.innerHTML = `<table><thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
+  wrap.innerHTML = `<table><thead><tr><th style="width:28px;"><input type="checkbox" onchange="toggleSelectAllTx(this.checked)"></th><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map(t=>{
       const overdue = t.status==='pendente' && t.dueDate < today;
       const si = statusInfo(t, overdue);
       return `<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')">
+      <td onclick="event.stopPropagation();"><input type="checkbox" data-tx-checkbox value="${t.id}" ${finBulkSelected.has(t.id)?'checked':''} onchange="toggleTxSelect('${t.id}', this.checked)"></td>
       <td><strong>${esc(t.description)}</strong>${t.installmentTotal?` <span class="badge badge-muted">${t.installmentNumber}/${t.installmentTotal}</span>`:''}${t.clientId?`<div style="color:var(--muted);font-size:11.5px">${esc(clientNameOf(t.clientId))}</div>`:''}</td>
       <td>${esc(t.category)}</td>
       <td>${fmtDate(t.dueDate)}</td>
@@ -2051,7 +2080,110 @@ function renderFinanceiro(){
       <td class="row-actions" onclick="event.stopPropagation();">${t.type==='receita'?`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>`:`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteTransaction('${t.id}')" title="Excluir">${iconTrash}</button>`}</td>
     </tr>`;
     }).join('')}</tbody></table>`;
+  updateBulkBar();
 }
+
+// ---- Pesquisa Inteligente + Ações em lote (Fase 7) ----
+let finBulkSelected = new Set();
+function toggleTxSelect(id, checked){
+  if(checked) finBulkSelected.add(id); else finBulkSelected.delete(id);
+  updateBulkBar();
+}
+function toggleSelectAllTx(checked){
+  document.querySelectorAll('[data-tx-checkbox]').forEach(cb=>{ cb.checked = checked; if(checked) finBulkSelected.add(cb.value); else finBulkSelected.delete(cb.value); });
+  updateBulkBar();
+}
+function clearBulkSelection(){
+  finBulkSelected.clear();
+  renderFinanceiro();
+}
+function updateBulkBar(){
+  const bar = document.getElementById('finBulkBar');
+  if(!bar) return;
+  if(finBulkSelected.size===0){ bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('finBulkCount').textContent = `${finBulkSelected.size} selecionado(s)`;
+  const catSel = document.getElementById('finBulkCategory');
+  if(catSel && catSel.options.length<=1){
+    catSel.innerHTML = '<option value="">Alterar categoria...</option>' + state.financialCategories.filter(c=>c.status==='ativa').map(c=>`<option value="${c.id}">${esc(categoryFullLabel(c))}</option>`).join('');
+  }
+}
+async function bulkMarkPaid(){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para essa ação', true); return; }
+  const ids = [...finBulkSelected];
+  const { error } = await sb.from('transactions').update({ status:'pago', payment_date: todayStr() }).in('id', ids);
+  if(error){ dbErr(error, 'Erro ao marcar como pago'); return; }
+  toast(`${ids.length} lançamento(s) marcado(s) como pago`);
+  finBulkSelected.clear(); await loadAll(); renderAll();
+}
+async function bulkChangeCategory(){
+  const categoryId = document.getElementById('finBulkCategory').value;
+  if(!categoryId) return;
+  const category = state.financialCategories.find(c=>c.id===categoryId)?.name || null;
+  const ids = [...finBulkSelected];
+  const { error } = await sb.from('transactions').update({ category_id: categoryId, category }).in('id', ids);
+  if(error){ dbErr(error, 'Erro ao alterar categoria'); return; }
+  toast(`Categoria alterada em ${ids.length} lançamento(s)`);
+  finBulkSelected.clear(); await loadAll(); renderAll();
+}
+async function bulkDelete(){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para essa ação', true); return; }
+  const ids = [...finBulkSelected];
+  if(!confirm(`Excluir ${ids.length} lançamento(s) selecionado(s)? Receitas automáticas de pedido não são excluídas por aqui.`)) return;
+  const idsToDelete = ids.filter(id => state.transactions.find(t=>t.id===id)?.type !== 'receita');
+  const { error } = await sb.from('transactions').update({ deleted_at: new Date().toISOString() }).in('id', idsToDelete);
+  if(error){ dbErr(error, 'Erro ao excluir lançamentos'); return; }
+  const skipped = ids.length - idsToDelete.length;
+  toast(`${idsToDelete.length} excluído(s)${skipped?`, ${skipped} receita(s) ignorada(s)`:''}`);
+  finBulkSelected.clear(); await loadAll(); renderAll();
+}
+function exportTransactionsCsv(){
+  const filter = document.getElementById('finFilter').value;
+  const search = (document.getElementById('finSearch')?.value||'').trim().toLowerCase();
+  const today = todayStr();
+  let list = state.transactions;
+  if(filter==='receita') list = list.filter(t=>t.type==='receita');
+  else if(filter==='despesa') list = list.filter(t=>t.type==='despesa');
+  else if(filter==='pendente') list = list.filter(t=>t.status==='pendente');
+  else if(filter==='vencido') list = list.filter(t=>t.status==='pendente' && t.dueDate < today);
+  if(search) list = list.filter(t=>[t.description,t.category].filter(Boolean).join(' ').toLowerCase().includes(search));
+  const rows = [['Descrição','Tipo','Categoria','Vencimento','Pagamento','Valor','Status']];
+  list.forEach(t=> rows.push([t.description, t.type, t.category||'', t.dueDate, t.paymentDate||'', t.amount, t.status]));
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `lancamentos-${todayStr()}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---- Conciliação Financeira (Fase 7) ----
+function renderConciliacao(){
+  const wrap = document.getElementById('conciliacaoWrap');
+  if(!wrap) return;
+  const issues = [];
+  // Pedidos entregues sem receita correspondente registrada (o trigger do banco deveria ter criado sozinho)
+  state.orders.filter(o=>o.status==='entregue').forEach(o=>{
+    const hasReceita = state.transactions.some(t=>t.orderId===o.id && t.type==='receita' && t.status!=='cancelado');
+    if(!hasReceita) issues.push({ tipo:'Pedido sem receita', detalhe:`Pedido ${o.orderNumber||o.id.slice(0,8)} está entregue mas não tem receita registrada`, severidade:'alta' });
+  });
+  // Transações com conta financeira não preenchida (dificulta saber de onde saiu/entrou o dinheiro)
+  state.transactions.filter(t=>t.status==='pago' && !t.accountId).forEach(t=>{
+    issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média' });
+  });
+  // Transferências para/de contas inativas
+  state.accountTransfers.forEach(tr=>{
+    const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
+    const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
+    if(from?.status==='inativa' || to?.status==='inativa') issues.push({ tipo:'Transferência com conta inativa', detalhe:`Transferência de ${fmtMoney(tr.amount)} em ${fmtDate(tr.date)} envolve uma conta marcada como inativa`, severidade:'baixa' });
+  });
+  if(issues.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência encontrada.</p></div>'; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th></tr></thead><tbody>
+    ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td></tr>`).join('')}
+  </tbody></table>`;
+}
+
 
 // ---- Sub-abas do Financeiro ----
 function setFinTab(tab){
@@ -2063,12 +2195,14 @@ function setFinTab(tab){
   document.getElementById('finReceberView').style.display = tab==='receber' ? 'block' : 'none';
   document.getElementById('finPagarView').style.display = tab==='pagar' ? 'block' : 'none';
   document.getElementById('finFluxoView').style.display = tab==='fluxo' ? 'block' : 'none';
+  document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
   if(tab==='contas') renderFinAccountsTable();
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
   if(tab==='pagar') renderPagarTable();
   if(tab==='fluxo'){ renderFluxoCaixa(); renderIndicadoresFinanceiros(); }
+  if(tab==='conciliacao') renderConciliacao();
 }
 
 // ---- Centro de Custos ----
