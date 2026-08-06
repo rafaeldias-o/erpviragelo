@@ -428,6 +428,7 @@ tr:last-child td{border-bottom:none;}
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
         <div class="tabs">
+          <div class="tab" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
           <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
           <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
@@ -436,7 +437,6 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
-          <div class="tab" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
         </div>
 
         <div class="panel">
@@ -1899,6 +1899,13 @@ function renderFinDashboard(){
   const faturamentoBruto = pedidosFaturados.reduce((s,o)=>s+o.total,0);
   const ticketMedio = pedidosFaturados.length ? faturamentoBruto/pedidosFaturados.length : 0;
   const despesasQtd = despesasPeriodo.length;
+  // Margem bruta de vendas: preço de venda menos custo do produto — diferente do "resultado de caixa",
+  // que soma TODAS as despesas do período (inclusive as que não têm relação direta com a venda em si).
+  const stockByIdFin = {}; state.stockItems.forEach(s=>stockByIdFin[s.id]=s);
+  const margemBruta = pedidosFaturados.reduce((sum,o)=>{
+    const itemsMargin = o.items.reduce((s,it)=> s + (it.unitPrice - (stockByIdFin[it.productId]?.costPrice||0)) * it.qty, 0);
+    return sum + itemsMargin - (o.discount||0);
+  }, 0);
 
   const contasReceber = state.transactions.filter(t=>t.type==='receita' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
   const contasPagar = state.transactions.filter(t=>t.type==='despesa' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
@@ -1927,7 +1934,8 @@ function renderFinDashboard(){
       card('📤 Contas a Pagar', fmtMoney(contasPagar), "setFinTab('pagar')"),
       card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
       card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
-      card('Lucro líquido', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
+      card('Margem bruta de vendas', fmtMoney(margemBruta), "switchView('pedidos')", margemBruta<0?'var(--danger)':'var(--success)'),
+      card('Resultado de caixa', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
       card('Faturamento bruto', fmtMoney(faturamentoBruto), "switchView('pedidos')"),
       card('Ticket médio', fmtMoney(ticketMedio)),
       card('Pedidos faturados', pedidosFaturados.length, "switchView('pedidos')"),
@@ -2370,6 +2378,15 @@ function renderIndicadoresFinanceiros(){
   const lucro = receitaLiquida - despesaTotal;
   const margem = receitaLiquida>0 ? (lucro/receitaLiquida*100) : 0;
 
+  // Margem bruta de vendas: preço menos custo do produto, sem misturar com as despesas gerais do período —
+  // é o número certo pra responder "estou vendendo acima do custo?", diferente do resultado de caixa abaixo.
+  const pedidosPeriodo = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to);
+  const stockByIdInd = {}; state.stockItems.forEach(s=>stockByIdInd[s.id]=s);
+  const margemBrutaVendas = pedidosPeriodo.reduce((sum,o)=>{
+    const itemsMargin = o.items.reduce((s,it)=> s + (it.unitPrice - (stockByIdInd[it.productId]?.costPrice||0)) * it.qty, 0);
+    return sum + itemsMargin - (o.discount||0);
+  }, 0);
+
   // ponto de equilíbrio: despesas fixas / margem de contribuição (%) — quanto precisa faturar pra cobrir os custos fixos
   const margemContribuicao = receitaLiquida>0 ? (receitaLiquida-despesaVariavel)/receitaLiquida : 0;
   const pontoEquilibrio = margemContribuicao>0 ? despesaFixa/margemContribuicao : null;
@@ -2377,14 +2394,15 @@ function renderIndicadoresFinanceiros(){
   const lucroAcumulado = state.transactions.filter(t=>t.status==='pago').reduce((s,t)=> s + (t.type==='receita'?t.amount:-t.amount), 0);
 
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">Margem de lucro</div><div class="stat-value" style="color:${margem<0?'var(--danger)':'var(--success)'}">${margem.toFixed(1)}%</div></div>
-    <div class="stat-card"><div class="stat-label">Lucro líquido (período)</div><div class="stat-value" style="color:${lucro<0?'var(--danger)':'inherit'}">${fmtMoney(lucro)}</div></div>
+    <div class="stat-card"><div class="stat-label">Margem bruta de vendas</div><div class="stat-value" style="color:${margemBrutaVendas<0?'var(--danger)':'var(--success)'}">${fmtMoney(margemBrutaVendas)}</div><div class="stat-note">preço de venda menos custo do produto</div></div>
+    <div class="stat-card"><div class="stat-label">Margem de caixa</div><div class="stat-value" style="color:${margem<0?'var(--danger)':'var(--success)'}">${margem.toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Resultado de caixa (período)</div><div class="stat-value" style="color:${lucro<0?'var(--danger)':'inherit'}">${fmtMoney(lucro)}</div><div class="stat-note">receita menos todas as despesas do período</div></div>
     <div class="stat-card"><div class="stat-label">Receita bruta</div><div class="stat-value">${fmtMoney(receitaBruta)}</div></div>
     <div class="stat-card"><div class="stat-label">Receita líquida</div><div class="stat-value">${fmtMoney(receitaLiquida)}</div></div>
     <div class="stat-card"><div class="stat-label">Despesa fixa</div><div class="stat-value">${fmtMoney(despesaFixa)}</div></div>
     <div class="stat-card"><div class="stat-label">Despesa variável</div><div class="stat-value">${fmtMoney(despesaVariavel)}</div></div>
     <div class="stat-card"><div class="stat-label">Ponto de equilíbrio</div><div class="stat-value" style="font-size:15px;">${pontoEquilibrio!=null?fmtMoney(pontoEquilibrio):'—'}</div></div>
-    <div class="stat-card"><div class="stat-label">Lucro acumulado (total)</div><div class="stat-value" style="color:${lucroAcumulado<0?'var(--danger)':'inherit'}">${fmtMoney(lucroAcumulado)}</div></div>
+    <div class="stat-card"><div class="stat-label">Resultado acumulado (total)</div><div class="stat-value" style="color:${lucroAcumulado<0?'var(--danger)':'inherit'}">${fmtMoney(lucroAcumulado)}</div></div>
   `;
 }
 
@@ -4032,12 +4050,22 @@ function renderDashboard(){
   const pedidosEntreguesMes = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt.slice(0,7)===monthKey);
   const vendidoMes = pedidosEntreguesMes.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
   const ticketMedio = pedidosEntreguesMes.length ? pedidosEntreguesMes.reduce((s,o)=>s+o.total,0)/pedidosEntreguesMes.length : 0;
+  // Margem bruta de vendas: preço de venda menos o custo do produto, item a item — mostra se as vendas em si
+  // são lucrativas, sem misturar com despesas gerais do período (aluguel, impostos etc.). É diferente do
+  // "resultado de caixa do mês" abaixo, que pode ficar negativo num mês com despesas grandes mesmo vendendo
+  // tudo acima do custo — os dois números respondem perguntas diferentes.
+  const stockById2 = {}; state.stockItems.forEach(s=>stockById2[s.id]=s);
+  const margemBrutaMes = pedidosEntreguesMes.reduce((sum,o)=>{
+    const itemsMargin = o.items.reduce((s,it)=> s + (it.unitPrice - (stockById2[it.productId]?.costPrice||0)) * it.qty, 0);
+    return sum + itemsMargin - (o.discount||0);
+  }, 0);
 
   document.getElementById('dashStats').innerHTML = `
     <div class="stat-card"><div class="stat-label">Faturamento hoje</div><div class="stat-value">${fmtMoney(faturamentoDia)}</div></div>
     <div class="stat-card"><div class="stat-label">Faturamento do mês</div><div class="stat-value">${fmtMoney(faturamentoMes)}</div></div>
     <div class="stat-card"><div class="stat-label">Faturamento do ano</div><div class="stat-value">${fmtMoney(faturamentoAno)}</div></div>
-    <div class="stat-card"><div class="stat-label">Lucro do mês</div><div class="stat-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</div></div>
+    <div class="stat-card"><div class="stat-label">Margem bruta de vendas (mês)</div><div class="stat-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</div><div class="stat-note">preço de venda menos custo do produto</div></div>
+    <div class="stat-card"><div class="stat-label">Resultado de caixa do mês</div><div class="stat-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</div><div class="stat-note">receita menos todas as despesas do mês</div></div>
     <div class="stat-card"><div class="stat-label">Despesas do mês</div><div class="stat-value">${fmtMoney(despesasMes)}</div></div>
     <div class="stat-card"><div class="stat-label">Contas pendentes</div><div class="stat-value">${pendentes.length}</div><div class="stat-note ${vencidos.length?'danger':''}">${vencidos.length} vencida(s)</div></div>
     <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value">${producaoMes} kg</div></div>
@@ -4064,7 +4092,7 @@ function renderDashboard(){
     {label:'Estoque', value: stockValue, color:'var(--accent-2)'},
     {label:'Faturamento', value: faturamentoMes, color:'var(--accent)'},
     {label:'Despesas', value: despesasMes, color:'#F3C08A'},
-    {label:'Lucro', value: lucroMes, color: lucroMes>=0 ? 'var(--success)' : 'var(--danger)'},
+    {label:'Resultado', value: lucroMes, color: lucroMes>=0 ? 'var(--success)' : 'var(--danger)'},
   ];
   const summaryMax = Math.max(1, ...summaryItems.map(it=>Math.abs(it.value)));
   document.getElementById('financialSummaryBars').innerHTML = summaryItems.map(it=>`
