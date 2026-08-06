@@ -195,16 +195,36 @@ tr:last-child td{border-bottom:none;}
 #appRoot{display:none;}
 #appRoot.ready{display:block;}
 
+/* Navegação mobile: barra inferior fixa (alcance de polegar, padrão de app nativo) + folha "Mais" */
+.bottom-nav{display:none;}
+.more-sheet-overlay{display:none;}
+
 @media(max-width:760px){
   .app{flex-direction:column;}
-  .sidebar{width:100%;flex-direction:row;align-items:center;padding:10px 12px;overflow-x:auto;}
-  .brand{padding:0 10px 0 0;font-size:14px;}
-  .nav{flex-direction:row;gap:3px;}
-  .nav-item span{display:none;}
-  .sidebar-foot{display:none;}
-  .content{padding:16px;}
+  .sidebar{display:none;}
+  .content{padding:14px 14px 84px 14px;}
   .field-row,.field-row3{grid-template-columns:1fr;}
   .two-col,.three-col{grid-template-columns:1fr;}
+  .topbar{flex-wrap:wrap;gap:8px;}
+  .topbar-right{gap:8px;}
+
+  .bottom-nav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--sidebar);border-top:1px solid rgba(255,255,255,.08);padding:6px 4px calc(6px + env(safe-area-inset-bottom)) 4px;box-shadow:0 -4px 16px rgba(14,36,56,.18);}
+  .bottom-nav .nav-item{flex:1;flex-direction:column;gap:3px;padding:6px 2px;border-radius:10px;font-size:10px;text-align:center;position:relative;border:none;}
+  .bottom-nav .nav-item svg{width:20px;height:20px;}
+  .bottom-nav .nav-item span:not(.badge){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  .bottom-nav .nav-item .badge{position:absolute;top:2px;right:14%;min-width:15px;height:15px;font-size:9px;padding:0 3px;}
+  .bottom-nav .nav-item.active{box-shadow:none;}
+
+  .more-sheet-overlay{display:block;position:fixed;inset:0;background:rgba(14,36,56,.45);z-index:160;opacity:0;pointer-events:none;transition:opacity .18s;}
+  .more-sheet-overlay.active{opacity:1;pointer-events:auto;}
+  .more-sheet{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:10px 16px calc(20px + env(safe-area-inset-bottom)) 16px;transform:translateY(100%);transition:transform .22s ease;max-height:70vh;overflow-y:auto;}
+  .more-sheet-overlay.active .more-sheet{transform:translateY(0);}
+  .more-sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:6px auto 14px auto;}
+  .more-sheet-title{font-size:13px;font-weight:700;color:var(--muted);margin-bottom:10px;}
+  .more-sheet-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .more-sheet .nav-item{flex-direction:row;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;}
+  .more-sheet .nav-item svg{width:18px;height:18px;}
+  .more-sheet .nav-item.active{background:var(--info-bg);border-color:var(--accent-2);box-shadow:none;color:var(--ink);}
 }
 </style>
 </head>
@@ -231,7 +251,7 @@ tr:last-child td{border-bottom:none;}
     </div>
     <nav class="nav" id="navList">
       <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Painel</span></div>
-      <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="badge badge-danger" style="display:none;margin-left:auto;"></span></div>
+      <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="notif-badge badge badge-danger" style="display:none;margin-left:auto;"></span></div>
       <div class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
       <div class="nav-item" data-view="producao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
       <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
@@ -249,11 +269,32 @@ tr:last-child td{border-bottom:none;}
       <div><div class="page-title" id="pageTitle">Painel</div><div class="page-sub" id="pageSub">Visão geral da fábrica</div></div>
       <div class="topbar-right">
         <div class="today" id="todayLabel"></div>
-        <div id="userBadge" style="font-size:12px;color:var(--muted);text-align:right;"></div>
         <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sair</button>
         <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Alternar tema"></button>
       </div>
     </header>
+
+    <nav class="bottom-nav">
+      <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Painel</span></div>
+      <div class="nav-item" data-view="pedidos" onclick="switchView('pedidos')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
+      <div class="nav-item" data-view="notificacoes" onclick="switchView('notificacoes')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Alertas</span><span class="notif-badge badge badge-danger" style="display:none;"></span></div>
+      <div class="nav-item" data-view="financeiro" onclick="switchView('financeiro')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
+      <div class="nav-item" onclick="openMoreSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg><span>Mais</span></div>
+    </nav>
+    <div class="more-sheet-overlay" id="moreSheetOverlay" onclick="closeMoreSheet()">
+      <div class="more-sheet" onclick="event.stopPropagation()">
+        <div class="more-sheet-handle"></div>
+        <div class="more-sheet-title">Mais opções</div>
+        <div class="more-sheet-grid">
+          <div class="nav-item" data-view="estoque" onclick="switchView('estoque'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
+          <div class="nav-item" data-view="producao" onclick="switchView('producao'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
+          <div class="nav-item" data-view="crm" onclick="switchView('crm'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
+          <div class="nav-item" data-view="visitas" onclick="switchView('visitas'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas</span></div>
+          <div class="nav-item" data-view="relatorios" onclick="switchView('relatorios'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
+          <div class="nav-item" data-view="config" onclick="switchView('config'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
+        </div>
+      </div>
+    </div>
 
     <div class="content">
 
@@ -725,6 +766,10 @@ tr:last-child td{border-bottom:none;}
       <!-- CONFIGURACOES -->
       <section class="view" id="view-config">
         <div class="panel" style="max-width:520px;">
+          <div class="panel-head"><div class="section-title">Minha Conta</div></div>
+          <div id="minhaContaInfo" style="font-size:13px;color:var(--muted);"></div>
+        </div>
+        <div class="panel" style="max-width:520px;">
           <div class="panel-head"><div class="section-title">Dados da empresa</div></div>
           <div class="field"><label>Nome / Razão social</label><input id="cfg-name"></div>
           <div class="field-row">
@@ -884,7 +929,8 @@ async function afterLogin(session){
   myProfile = profile;
   document.getElementById('loginOverlay').classList.add('hidden');
   document.getElementById('appRoot').classList.add('ready');
-  document.getElementById('userBadge').textContent = `${profile.name} · ${roleLabel(profile.role)}`;
+  const minhaContaEl = document.getElementById('minhaContaInfo');
+  if(minhaContaEl) minhaContaEl.textContent = `${profile.name} · ${myUser.email||''} · ${roleLabel(profile.role)}`;
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   document.documentElement.setAttribute('data-theme','light');
@@ -6253,12 +6299,16 @@ function renderAssetMaintenance(assetId){
 }
 
 function updateNotifBadge(){
-  const badge = document.getElementById('notifBadge');
-  if(!badge) return;
+  const badges = document.querySelectorAll('.notif-badge');
+  if(!badges.length) return;
   const urgent = computeSystemAlerts().filter(a=>a.priority==='alta').length;
-  if(urgent>0){ badge.textContent = urgent; badge.style.display='inline-flex'; }
-  else badge.style.display = 'none';
+  badges.forEach(badge=>{
+    if(urgent>0){ badge.textContent = urgent; badge.style.display='inline-flex'; }
+    else badge.style.display = 'none';
+  });
 }
+function openMoreSheet(){ document.getElementById('moreSheetOverlay').classList.add('active'); }
+function closeMoreSheet(){ document.getElementById('moreSheetOverlay').classList.remove('active'); }
 
 function renderAll(){
   renderDashboard(); renderEstoque(); renderProducao(); renderPedidos();
