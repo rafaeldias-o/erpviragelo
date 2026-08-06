@@ -707,11 +707,18 @@ tr:last-child td{border-bottom:none;}
         </div>
         <div class="panel">
           <div class="panel-head">
-            <div class="section-title">Clientes Ativos</div>
+            <div class="section-title" id="clientesTabTitle">Clientes Recorrentes</div>
             <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="clientSearch" placeholder="Buscar cliente..." oninput="renderClientsTable()"></div>
           </div>
-          <div class="hint" style="margin-bottom:10px;">Clientes entram aqui automaticamente quando um lead do Funil é marcado como "Fechado", ou podem ser adicionados manualmente.</div>
-          <div style="margin-bottom:10px;"><button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button></div>
+          <div class="tabs">
+            <div class="tab active" data-clienttab="recorrente" onclick="setClientTypeTab('recorrente')">🔁 Recorrentes</div>
+            <div class="tab" data-clienttab="pontual" onclick="setClientTypeTab('pontual')">🎉 Pontuais</div>
+          </div>
+          <div class="hint" id="clientesTabHint" style="margin-bottom:10px;">Clientes que recebem gelo com regularidade — abastecimento contínuo. Entram aqui automaticamente quando um lead do Funil é fechado, ou podem ser adicionados manualmente.</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button>
+            <select id="clientBairroFilter" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;" onchange="renderClientsTable()"><option value="">Todos os bairros</option></select>
+          </div>
           <div id="clientsTableWrap" class="table-scroll"></div>
         </div>
       </section>
@@ -1154,7 +1161,7 @@ async function loadAll(){
     notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
     distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
     freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
-    geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding,
+    geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding, clientType: c.client_type || 'recorrente',
     createdAt: (c.created_at||'').slice(0,10)
   }));
 
@@ -2942,7 +2949,7 @@ function computeSystemAlerts(){
     alerts.push({type:'conta_em_breve', icon:'💰', color:'var(--info)', priority:'baixa', text:`Conta vence em breve: ${t.description} — ${fmtMoney(t.amount)} (${fmtDate(t.dueDate)})`, date: t.dueDate, entityId:t.id}));
 
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
-  state.clients.filter(c=>c.status==='ativo').forEach(c=>{
+  state.clients.filter(c=>c.status==='ativo' && (c.clientType||'recorrente')==='recorrente').forEach(c=>{
     const st = clientStats(c.id);
     if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today, entityId:c.id});
   });
@@ -3406,28 +3413,73 @@ function clientStats(clientId){
   return { count: orders.length, total, ticket: orders.length? total/orders.length : 0, first: orders[0]?.deliveredAt || null, last: orders[orders.length-1]?.deliveredAt || null };
 }
 function clientBadge(c){ return c && c.hasFreezer ? ' <span class="badge badge-info" title="Freezer em comodato">🧊 Freezer em comodato</span>' : ''; }
+let clientTypeTab = 'recorrente';
+function setClientTypeTab(tab){
+  clientTypeTab = tab;
+  document.querySelectorAll('[data-clienttab]').forEach(t=>t.classList.toggle('active', t.dataset.clienttab===tab));
+  document.getElementById('clientesTabTitle').textContent = tab==='recorrente' ? 'Clientes Recorrentes' : 'Clientes Pontuais';
+  document.getElementById('clientesTabHint').textContent = tab==='recorrente'
+    ? 'Clientes que recebem gelo com regularidade — abastecimento contínuo. Entram aqui automaticamente quando um lead do Funil é fechado, ou podem ser adicionados manualmente.'
+    : 'Compras avulsas — evento, festa, ocasião única. Ficam separados dos recorrentes pra não misturar quem você visita regularmente com quem comprou uma vez só.';
+  const bairroFilter = document.getElementById('clientBairroFilter');
+  if(bairroFilter) bairroFilter.value = '';
+  renderClientsTable();
+}
 function renderClientsTable(){
   const q = (document.getElementById('clientSearch').value||'').toLowerCase();
-  const list = state.clients.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q));
+  const bairroSel = document.getElementById('clientBairroFilter');
+  const bairroFilter = bairroSel ? bairroSel.value : '';
+  const byType = state.clients.filter(c => (c.clientType||'recorrente')===clientTypeTab);
+
+  // Atualiza as opções do filtro de bairro com o que existe dentro do tipo de cliente atual
+  if(bairroSel){
+    const bairros = [...new Set(byType.map(c=>c.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const current = bairroSel.value;
+    bairroSel.innerHTML = '<option value="">Todos os bairros</option>' + bairros.map(b=>`<option value="${esc(b)}" ${current===b?'selected':''}>${esc(b)}</option>`).join('');
+  }
+
+  let list = byType.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q));
+  if(bairroFilter) list = list.filter(c => c.neighborhood===bairroFilter);
+
   const wrap = document.getElementById('clientsTableWrap');
-  if(state.clients.length===0){ wrap.innerHTML = emptyState('Nenhum cliente ainda. Clientes são criados manualmente ou automaticamente quando um lead do funil é fechado.', 'Novo cliente', 'openClientDetailModal()'); return; }
+  if(byType.length===0){
+    wrap.innerHTML = emptyState(clientTypeTab==='recorrente'
+      ? 'Nenhum cliente recorrente ainda. Clientes são criados manualmente ou automaticamente quando um lead do funil é fechado.'
+      : 'Nenhum cliente pontual ainda.', 'Novo cliente', 'openClientDetailModal()');
+    return;
+  }
   if(list.length===0){ wrap.innerHTML = `<div class="empty-state"><p>Nenhum cliente encontrado.</p></div>`; return; }
+
   const statusBadge = s => s==='ativo' ? '<span class="badge badge-success">Ativo</span>' : s==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
-  wrap.innerHTML = `<table><thead><tr><th>Cliente</th><th>Contato</th><th>Pedidos</th><th>Total comprado</th><th>Ticket médio</th><th>Última compra</th><th>Origem</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map(c=>{
-      const st = clientStats(c.id);
-      return `<tr>
-        <td><strong>${esc(c.name)}</strong>${clientBadge(c)}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
-        <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
-        <td>${st.count}</td>
-        <td>${fmtMoney(st.total)}</td>
-        <td>${fmtMoney(st.ticket)}</td>
-        <td>${fmtDate(st.last)}</td>
-        <td>${c.fromLeadId?'<span class="badge badge-info">Funil CRM</span>':'<span class="badge badge-muted">Manual</span>'}</td>
-        <td>${statusBadge(c.status)}</td>
-        <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Ver / editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></td>
-      </tr>`;
-    }).join('')}</tbody></table>`;
+  const rowHtml = c => {
+    const st = clientStats(c.id);
+    return `<tr>
+      <td><strong>${esc(c.name)}</strong>${clientBadge(c)}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
+      <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
+      <td>${st.count}</td>
+      <td>${fmtMoney(st.total)}</td>
+      <td>${fmtMoney(st.ticket)}</td>
+      <td>${fmtDate(st.last)}</td>
+      <td>${c.fromLeadId?'<span class="badge badge-info">Funil CRM</span>':'<span class="badge badge-muted">Manual</span>'}</td>
+      <td>${statusBadge(c.status)}</td>
+      <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Ver / editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></td>
+    </tr>`;
+  };
+  const tableHead = `<tr><th>Cliente</th><th>Contato</th><th>Pedidos</th><th>Total comprado</th><th>Ticket médio</th><th>Última compra</th><th>Origem</th><th>Status</th><th></th></tr>`;
+
+  // Recorrentes, sem um bairro específico selecionado, mostra agrupado por bairro — ajuda a organizar
+  // visitas de abastecimento por região. Com busca, bairro específico, ou na aba Pontuais, mostra lista simples.
+  if(clientTypeTab==='recorrente' && !bairroFilter && !q){
+    const groups = {};
+    list.forEach(c => { const key = c.neighborhood || 'Sem bairro cadastrado'; (groups[key]=groups[key]||[]).push(c); });
+    const sortedKeys = Object.keys(groups).sort((a,b)=> a==='Sem bairro cadastrado' ? 1 : b==='Sem bairro cadastrado' ? -1 : a.localeCompare(b));
+    wrap.innerHTML = sortedKeys.map(bairro => `
+      <div class="subhead" style="margin-top:16px;">📍 ${esc(bairro)} <span style="color:var(--muted);font-weight:400;">(${groups[bairro].length})</span></div>
+      <table><thead>${tableHead}</thead><tbody>${groups[bairro].map(rowHtml).join('')}</tbody></table>
+    `).join('');
+  } else {
+    wrap.innerHTML = `<table><thead>${tableHead}</thead><tbody>${list.map(rowHtml).join('')}</tbody></table>`;
+  }
 }
 
 // ---- Client detail modal: cadastro + freezer + entregas + pedidos vinculados ----
@@ -3459,7 +3511,13 @@ function openClientDetailModal(id){
       <div class="field"><label>CEP</label><input id="c-cep" value="${c?esc(c.cep||''):''}" placeholder="Ex: 88701-000"></div>
     </div>
     <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
-    <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo de cliente</label><select id="c-clienttype">
+        <option value="recorrente" ${(!c||c.clientType==='recorrente')?'selected':''}>Recorrente (abastecimento regular)</option>
+        <option value="pontual" ${c&&c.clientType==='pontual'?'selected':''}>Pontual (compra avulsa, evento)</option>
+      </select></div>
+      <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
+    </div>
     <div class="field"><label>Observações</label><textarea id="c-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
 
     <div class="subhead">Freezer em comodato</div>
@@ -3629,6 +3687,7 @@ async function saveClientDetail(id){
     state: document.getElementById('c-state').value.trim(), cep: document.getElementById('c-cep').value.trim(),
     complement: document.getElementById('c-complement').value.trim(),
     status: document.getElementById('c-status').value, notes: document.getElementById('c-notes').value.trim(),
+    client_type: document.getElementById('c-clienttype').value,
     has_freezer: document.getElementById('c-hasfreezer').value === 'true',
     freezer_model: document.getElementById('c-freezermodel')?.value.trim() || null,
     freezer_asset_number: document.getElementById('c-freezerasset')?.value.trim() || null,
