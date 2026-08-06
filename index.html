@@ -586,9 +586,27 @@ tr:last-child td{border-bottom:none;}
 
         <div id="finPagarView" style="display:none;">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Contas a Pagar</div><button class="btn btn-primary btn-sm" onclick="openTransactionModal()">+ Nova despesa</button></div>
+            <div class="panel-head">
+              <div class="section-title">Contas a Pagar</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="pagarChangeMonth(-1)" id="pagarPrevMonthBtn">←</button>
+                <span id="pagarMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
+                <button class="btn btn-ghost btn-sm" onclick="pagarChangeMonth(1)" id="pagarNextMonthBtn">→</button>
+                <button class="btn btn-ghost btn-sm" id="pagarShowAllBtn" onclick="pagarToggleShowAll()">Ver completo</button>
+                <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
+              </div>
+            </div>
             <div class="stat-grid" id="pagarStats" style="margin-bottom:14px;"></div>
-            <div id="pagarTableWrap" class="table-scroll"></div>
+            <div class="two-col">
+              <div>
+                <div class="subhead" style="margin-top:0;">✅ Contas Pagas</div>
+                <div id="pagarPagasWrap" class="table-scroll"></div>
+              </div>
+              <div>
+                <div class="subhead" style="margin-top:0;">🕒 Contas a Pagar</div>
+                <div id="pagarAbertasWrap" class="table-scroll"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2826,38 +2844,66 @@ function renderReceberTable(){
     }).join('')}
   </tbody></table>`;
 }
-function renderPagarTable(){
-  const wrap = document.getElementById('pagarTableWrap');
-  const statsBox = document.getElementById('pagarStats');
-  if(!wrap) return;
+let pagarMonthOffset = 0;
+let pagarShowAll = false;
+function pagarChangeMonth(delta){ pagarMonthOffset += delta; pagarShowAll = false; renderPagarTable(); }
+function pagarToggleShowAll(){ pagarShowAll = !pagarShowAll; renderPagarTable(); }
+function pagarMonthRange(){
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+pagarMonthOffset);
+  const y=base.getFullYear(), m=base.getMonth();
+  return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
+}
+function renderTxRow(t){
   const today = todayStr();
-  const list = state.transactions.filter(t=>t.type==='despesa' && t.status!=='cancelado').sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const totalAberto = list.filter(t=>t.status!=='pago').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const vencido = list.filter(t=>t.status!=='pago' && t.dueDate<today).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const pagoMes = list.filter(t=>t.status==='pago' && t.paymentDate && t.paymentDate.slice(0,7)===today.slice(0,7)).reduce((s,t)=>s+t.amount,0);
+  const overdue = t.status!=='pago' && t.dueDate<today;
+  const supplier = t.supplierId ? state.suppliers.find(s=>s.id===t.supplierId) : null;
+  return `<tr>
+    <td><strong>${esc(t.description)}</strong>${t.installmentTotal?` <span class="badge badge-muted">${t.installmentNumber}/${t.installmentTotal}</span>`:''}<div style="color:var(--muted);font-size:11px;">${supplier?esc(supplier.name):''}</div></td>
+    <td>${fmtDate(t.dueDate)}</td>
+    <td>${fmtMoney(transactionTotalDue(t))}</td>
+    <td><span class="badge ${overdue?'badge-danger':t.status==='pago'?'badge-success':t.status==='parcial'?'badge-warn':'badge-warn'}">${overdue?'Vencido':t.status==='pago'?'Pago':t.status==='parcial'?'Parcial':'Aberto'}</span></td>
+    <td class="row-actions">
+      ${t.status!=='pago'?`<button class="icon-btn" onclick="registerPartialPayment('${t.id}')" title="Registrar pagamento">💰</button>`:''}
+      <button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>
+    </td>
+  </tr>`;
+}
+function renderPagarTable(){
+  const pagasWrap = document.getElementById('pagarPagasWrap');
+  const abertasWrap = document.getElementById('pagarAbertasWrap');
+  const statsBox = document.getElementById('pagarStats');
+  if(!pagasWrap) return;
+  const today = todayStr();
+
+  const monthRange = pagarMonthRange();
+  const monthLabelEl = document.getElementById('pagarMonthLabel');
+  if(monthLabelEl){
+    monthLabelEl.textContent = pagarShowAll ? 'Todas as contas' : (monthRange.label.charAt(0).toUpperCase()+monthRange.label.slice(1));
+    document.getElementById('pagarPrevMonthBtn').style.display = pagarShowAll ? 'none' : 'inline-flex';
+    document.getElementById('pagarNextMonthBtn').style.display = pagarShowAll ? 'none' : 'inline-flex';
+    document.getElementById('pagarShowAllBtn').textContent = pagarShowAll ? '📅 Ver por mês' : '📋 Ver completo';
+  }
+
+  // Indicadores continuam globais (visão geral da saúde financeira), independente do mês navegado abaixo
+  const allOpen = state.transactions.filter(t=>t.type==='despesa' && t.status!=='cancelado');
+  const totalAberto = allOpen.filter(t=>t.status!=='pago').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const vencido = allOpen.filter(t=>t.status!=='pago' && t.dueDate<today).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const pagoMes = allOpen.filter(t=>t.status==='pago' && t.paymentDate && t.paymentDate.slice(0,7)===today.slice(0,7)).reduce((s,t)=>s+t.amount,0);
   statsBox.innerHTML = `
     <div class="stat-card"><div class="stat-label">Total a pagar</div><div class="stat-value">${fmtMoney(totalAberto)}</div></div>
     <div class="stat-card"><div class="stat-label">Vencido</div><div class="stat-value" style="color:${vencido?'var(--danger)':'inherit'}">${fmtMoney(vencido)}</div></div>
     <div class="stat-card"><div class="stat-label">Pago este mês</div><div class="stat-value">${fmtMoney(pagoMes)}</div></div>
   `;
-  wrap.innerHTML = list.length===0 ? emptyState('Nenhuma conta a pagar.','Nova despesa','openTransactionModal()') : `<table><thead><tr><th>Descrição</th><th>Fornecedor</th><th>Vencimento</th><th>Valor</th><th>Pago</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map(t=>{
-      const overdue = t.status!=='pago' && t.dueDate<today;
-      const supplier = t.supplierId ? state.suppliers.find(s=>s.id===t.supplierId) : null;
-      return `<tr>
-        <td><strong>${esc(t.description)}</strong>${t.installmentTotal?` <span class="badge badge-muted">${t.installmentNumber}/${t.installmentTotal}</span>`:''}</td>
-        <td style="color:var(--muted);font-size:12px;">${supplier?esc(supplier.name):'—'}</td>
-        <td>${fmtDate(t.dueDate)}</td>
-        <td>${fmtMoney(transactionTotalDue(t))}</td>
-        <td style="color:var(--muted);">${fmtMoney(t.paidAmount)}</td>
-        <td><span class="badge ${overdue?'badge-danger':t.status==='pago'?'badge-success':t.status==='parcial'?'badge-warn':'badge-warn'}">${overdue?'Vencido':t.status==='pago'?'Pago':t.status==='parcial'?'Parcial':'Aberto'}</span></td>
-        <td class="row-actions">
-          ${t.status!=='pago'?`<button class="icon-btn" onclick="registerPartialPayment('${t.id}')" title="Registrar pagamento">💰</button>`:''}
-          <button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>
-        </td>
-      </tr>`;
-    }).join('')}
-  </tbody></table>`;
+
+  let list = allOpen;
+  if(!pagarShowAll) list = list.filter(t => t.dueDate >= monthRange.from && t.dueDate <= monthRange.to);
+  list = list.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const pagas = list.filter(t=>t.status==='pago');
+  const abertas = list.filter(t=>t.status!=='pago');
+
+  const tableHead = `<table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>`;
+  pagasWrap.innerHTML = pagas.length===0 ? emptyState('Nenhuma conta paga nesse período.', null) : tableHead + pagas.map(renderTxRow).join('') + '</tbody></table>';
+  abertasWrap.innerHTML = abertas.length===0 ? emptyState('Nenhuma conta em aberto nesse período.','Nova despesa','openTransactionModal()') : tableHead + abertas.map(renderTxRow).join('') + '</tbody></table>';
 }
 
 // =========================================================
