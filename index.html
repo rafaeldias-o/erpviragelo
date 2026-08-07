@@ -1721,6 +1721,40 @@ function renderOrderItems(){
     `;
   }
 }
+// Chamado sempre que um pedido é marcado como "entregue" pela primeira vez (seja pelo status rápido na
+// lista de Pedidos, seja salvando o pedido com status Entregue) — pergunta quem fez a entrega, e com a
+// resposta cria (ou atualiza, se já existir uma entrega vinculada a esse pedido pela Agenda) o registro
+// de entrega com o motorista e a distância calculada. É isso que alimenta os quadrantes de Taxa de
+// Entrega em Contas a Pagar — sem essa etapa, a entrega nunca fica associada a nenhum motorista.
+function promptOrderDriver(orderId){
+  openModal(`
+    <div class="modal-head"><h3>Quem entregou esse pedido?</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Será entregue por:</label><select id="odp-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
+    <div class="hint" style="margin-bottom:14px;">Usado pra calcular a taxa de entrega do motorista (Financeiro → Contas a Pagar). Pode pular e definir depois, editando a entrega em Clientes → Agenda de entregas.</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal(); loadAll().then(renderAll);">Pular</button>
+      <button class="btn btn-primary" onclick="confirmOrderDriver('${orderId}')">Confirmar</button>
+    </div>
+  `);
+}
+async function confirmOrderDriver(orderId){
+  const driver = document.getElementById('odp-driver').value || null;
+  closeModal();
+  if(driver) await assignDriverToOrderDelivery(orderId, driver);
+  await loadAll(); renderAll();
+}
+async function assignDriverToOrderDelivery(orderId, driver){
+  const order = state.orders.find(o=>o.id===orderId);
+  if(!order) return;
+  const result = await ensureClientDistance(order.clientId);
+  const distanceKm = result ? result.distanceKm : null;
+  const existingDelivery = state.deliveries.find(d=>d.orderId===orderId);
+  if(existingDelivery){
+    await sb.from('deliveries').update({ driver, distance_km: distanceKm, status:'entregue' }).eq('id', existingDelivery.id);
+  } else {
+    await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm });
+  }
+}
 async function saveOrder(id){
   const clientId = document.getElementById('o-client').value;
   if(!clientId){ toast('Selecione um cliente', true); return; }
@@ -1734,6 +1768,7 @@ async function saveOrder(id){
   const total = Math.max(0, subtotal-discount) + freightAmount;
   const needsFulfillStep = desiredStatus === 'entregue'; // a baixa de estoque e a receita só disparam numa transição real de status (trigger do banco)
   let orderId;
+  let justFulfilled = false;
   const _btn = lockButton(); // evita clique duplo criando pedido/receita repetidos
 
   if(id){
@@ -1751,6 +1786,7 @@ async function saveOrder(id){
     if(needsFulfillStep && !alreadyDelivered){
       const { error: fErr } = await sb.from('orders').update({ status:'entregue' }).eq('id', id);
       if(fErr){ dbErr(fErr, 'Erro ao marcar como entregue'); unlockButton(_btn); return; }
+      justFulfilled = true;
     }
   } else {
     const { data: created, error: insErr } = await sb.from('orders').insert({
@@ -1763,14 +1799,22 @@ async function saveOrder(id){
     if(needsFulfillStep){
       const { error: fErr } = await sb.from('orders').update({ status:'entregue' }).eq('id', orderId);
       if(fErr){ dbErr(fErr, 'Erro ao marcar como entregue'); unlockButton(_btn); return; }
+      justFulfilled = true;
     }
   }
   closeModal(); toast('Pedido salvo — estoque, financeiro e dashboard atualizados'); await loadAll(); renderAll();
+  if(justFulfilled) promptOrderDriver(orderId);
 }
 async function updateOrderStatus(id, newStatus){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
+  const wasAlreadyDelivered = state.orders.find(o=>o.id===id)?.status === 'entregue';
   const { error } = await sb.from('orders').update({ status: newStatus }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao atualizar status'); return; }
+  if(newStatus==='entregue' && !wasAlreadyDelivered){
+    await loadAll(); renderAll();
+    promptOrderDriver(id);
+    return;
+  }
   toast('Status atualizado'); await loadAll(); renderAll();
 }
 async function deleteOrder(id){
