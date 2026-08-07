@@ -5244,6 +5244,10 @@ const VISIT_STATUSES = [
   {v:'virou_cliente', label:'⭐ Virou Cliente', cls:'badge-success'},
 ];
 function visitStatusInfo(v){ return VISIT_STATUSES.find(s=>s.v===v) || VISIT_STATUSES[0]; }
+function stopTargetEntity(stop){
+  if(stop.targetType==='client') return state.clients.find(x=>x.id===stop.clientId);
+  return state.fieldProspects.find(x=>x.id===stop.prospectId);
+}
 function stopTargetName(stop){
   if(stop.targetType==='client'){ const c = state.clients.find(x=>x.id===stop.clientId); return c?c.name:'Cliente'; }
   const p = state.fieldProspects.find(x=>x.id===stop.prospectId); return p?p.name:'Prospect';
@@ -5251,6 +5255,19 @@ function stopTargetName(stop){
 function stopTargetAddress(stop){
   if(stop.targetType==='client'){ const c = state.clients.find(x=>x.id===stop.clientId); return c?c.address:''; }
   const p = state.fieldProspects.find(x=>x.id===stop.prospectId); return p?p.address:'';
+}
+// Reabre no Google Maps uma rota comercial já salva — pensada pra rota planejada num dia e iniciada
+// no outro, sem precisar recriar do zero. Reaproveita o mesmo endereço em texto (não coordenada) já
+// corrigido antes, na mesma ordem de paradas que foi salva.
+function startCommercialRoute(routeId){
+  const route = state.commercialRoutes.find(r=>r.id===routeId);
+  if(!route) return;
+  const origin = companyOrigin();
+  if(!origin){ toast('Cadastre o endereço da fábrica em Configurações antes de iniciar a rota', true); return; }
+  const stopsWithEntity = route.stops.map(s=>({ client: stopTargetEntity(s) })).filter(s=>s.client);
+  if(stopsWithEntity.length===0){ toast('Nenhuma parada dessa rota tem cliente/prospect válido pra abrir no mapa', true); return; }
+  const url = buildGoogleMapsUrl(stopsWithEntity, origin);
+  window.open(url, '_blank');
 }
 
 function openRouteDetailModal(routeId){
@@ -5262,7 +5279,10 @@ function openRouteDetailModal(routeId){
     <div class="modal-head"><h3>Rota Comercial — ${esc(city?city.name:'')}${neighborhood?' · '+esc(neighborhood.name):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="margin-bottom:14px;">${fmtDate(route.plannedDate)}${route.plannedStartTime?' · início '+route.plannedStartTime.slice(0,5):''}${route.distanceKm!=null?' · '+route.distanceKm.toFixed(1)+' km':''} · <span class="badge badge-info">${route.status}</span></div>
     <div id="routeStopsWrap" class="modal-inner-scroll"></div>
-    <div class="modal-foot"><button class="btn btn-danger-ghost" onclick="deleteCommercialRoute('${routeId}')">Excluir rota</button></div>
+    <div class="modal-foot">
+      <button class="btn btn-danger-ghost" onclick="deleteCommercialRoute('${routeId}')">Excluir rota</button>
+      <button class="btn btn-primary" onclick="startCommercialRoute('${routeId}')">🗺️ Iniciar rota</button>
+    </div>
   `, 'xwide');
   renderRouteStops(routeId);
 }
