@@ -325,7 +325,7 @@ tr:last-child td{border-bottom:none;}
         </div>
         <div class="three-col">
           <div class="panel panel-soft-blue">
-            <div class="panel-head"><div class="section-title">🔴 Alertas</div></div>
+            <div class="panel-head"><div class="section-title">🔴 Visitas Pendentes</div></div>
             <div id="alertsBox"></div>
           </div>
           <div class="panel">
@@ -4372,12 +4372,15 @@ let dashAlertsList = [];
 function renderDashboardAlerts(){
   const alertsBox = document.getElementById('alertsBox');
   if(!alertsBox) return;
-  let alerts = computeSystemAlerts();
+  // Esse quadrante do Início é só pra alertas de "cliente precisa de visita" — os demais (manutenção,
+  // garantia, financeiro, leads parados etc.) continuam aparecendo normalmente na Central de Notificações,
+  // sem mudança nenhuma lá.
+  let alerts = computeSystemAlerts().filter(a=>a.type==='contato_recorrente_pendente');
   const prioRank = {alta:0, média:1, baixa:2};
   alerts.sort((a,b)=> (prioRank[a.priority]??3) - (prioRank[b.priority]??3) || a.date.localeCompare(b.date));
   alerts = alerts.slice(0,12);
   dashAlertsList = alerts;
-  alertsBox.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
+  alertsBox.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma visita pendente no momento.</p></div>' :
     alerts.map((a,i)=>`<div class="alert-row" style="cursor:pointer;" onclick="openAlertDetail(${i}, dashAlertsList)"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span></div>`).join('');
 }
 function renderDashboard(){
