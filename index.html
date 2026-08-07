@@ -1170,6 +1170,7 @@ async function loadAll(){
     distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
     freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
     geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding, clientType: c.client_type || 'recorrente',
+    orderFrequencyType: c.order_frequency_type, orderFrequencyDays: c.order_frequency_days, nextExpectedContact: c.next_expected_contact,
     createdAt: (c.created_at||'').slice(0,10)
   }));
 
@@ -2963,6 +2964,14 @@ function computeSystemAlerts(){
     const st = clientStats(c.id);
     if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today, entityId:c.id});
   });
+  // Visita esperada de cliente recorrente — mesma lógica de "dias restantes" já usada em manutenção e
+  // garantia: mostra sempre que estiver vencida ou a até 3 dias de vencer, com prioridade que sobe
+  // conforme o prazo aperta.
+  state.clients.filter(c=>c.status==='ativo' && c.clientType==='recorrente' && c.nextExpectedContact).forEach(c=>{
+    const daysLeft = -daysSince(c.nextExpectedContact);
+    if(daysLeft < 0) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--danger)', priority:'alta', text:`Visitar ${c.name} — pedido esperado há ${Math.abs(daysLeft)} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
+    else if(daysLeft <= 3) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--warn)', priority:'média', text:`Visitar ${c.name} — pedido esperado em ${daysLeft} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
+  });
   state.leads.filter(isStalled).forEach(l=>
     alerts.push({type:'lead_parado', icon:'🧲', color:'var(--danger)', priority:'média', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`, date: today, entityId:l.id}));
   state.tasks.filter(t=>t.status==='pendente' && t.date<today).forEach(t=>
@@ -3463,6 +3472,12 @@ function renderClientsTable(){
   const statusBadge = s => s==='ativo' ? '<span class="badge badge-success">Ativo</span>' : s==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
   const rowHtml = c => {
     const st = clientStats(c.id);
+    let nextContactCell = '<span style="color:var(--muted);">—</span>';
+    if(c.nextExpectedContact){
+      const daysLeft = -daysSince(c.nextExpectedContact);
+      const color = daysLeft<0 ? 'var(--danger)' : daysLeft<=3 ? 'var(--warn)' : 'inherit';
+      nextContactCell = `<span style="color:${color};font-weight:${daysLeft<=3?'600':'400'};">${fmtDate(c.nextExpectedContact)}</span>`;
+    }
     return `<tr>
       <td><strong>${esc(c.name)}</strong>${clientBadge(c)}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
       <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
@@ -3470,12 +3485,13 @@ function renderClientsTable(){
       <td>${fmtMoney(st.total)}</td>
       <td>${fmtMoney(st.ticket)}</td>
       <td>${fmtDate(st.last)}</td>
+      <td>${nextContactCell}</td>
       <td>${c.fromLeadId?'<span class="badge badge-info">Funil CRM</span>':'<span class="badge badge-muted">Manual</span>'}</td>
       <td>${statusBadge(c.status)}</td>
       <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Ver / editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></td>
     </tr>`;
   };
-  const tableHead = `<tr><th>Cliente</th><th>Contato</th><th>Pedidos</th><th>Total comprado</th><th>Ticket médio</th><th>Última compra</th><th>Origem</th><th>Status</th><th></th></tr>`;
+  const tableHead = `<tr><th>Cliente</th><th>Contato</th><th>Pedidos</th><th>Total comprado</th><th>Ticket médio</th><th>Última compra</th><th>Próxima visita esperada</th><th>Origem</th><th>Status</th><th></th></tr>`;
 
   // Recorrentes, sem um bairro específico selecionado, mostra agrupado por bairro — ajuda a organizar
   // visitas de abastecimento por região. Com busca, bairro específico, ou na aba Pontuais, mostra lista simples.
@@ -3493,6 +3509,38 @@ function renderClientsTable(){
 }
 
 // ---- Client detail modal: cadastro + freezer + entregas + pedidos vinculados ----
+const CLIENT_FREQ_TYPES = [
+  {v:'semanal', label:'Semanal'}, {v:'quinzenal', label:'Quinzenal (a cada 15 dias)'},
+  {v:'mensal', label:'Mensal'}, {v:'personalizada', label:'Personalizada (a cada X dias)'},
+];
+function clientFrequencyNextDate(fromDate, freqType, freqDays){
+  if(freqType==='semanal') return addDays(fromDate, 7);
+  if(freqType==='quinzenal') return addDays(fromDate, 15);
+  if(freqType==='mensal') return addMonthsFin(fromDate, 1);
+  if(freqType==='personalizada') return addDays(fromDate, freqDays||30);
+  return null;
+}
+function onClientTypeChange(){
+  const isRecorrente = document.getElementById('c-clienttype').value === 'recorrente';
+  document.getElementById('c-freqwrap').style.display = isRecorrente ? 'flex' : 'none';
+}
+function onClientFreqTypeChange(){
+  const v = document.getElementById('c-freqtype').value;
+  document.getElementById('c-freqdayswrap').style.display = v==='personalizada' ? 'block' : 'none';
+}
+// Avança a partir da PRÓPRIA data esperada (não de hoje) — assim a periodicidade fica estável (ex: "toda
+// terça-feira") mesmo que a visita aconteça um pouco atrasada, em vez de ir empurrando o dia da semana
+// pra frente a cada atraso.
+async function registerClientContact(clientId){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para registrar contato com cliente', true); return; }
+  const c = state.clients.find(x=>x.id===clientId);
+  if(!c || !c.orderFrequencyType) return;
+  const nextDate = clientFrequencyNextDate(c.nextExpectedContact || todayStr(), c.orderFrequencyType, c.orderFrequencyDays);
+  const { error } = await sb.from('clients').update({ next_expected_contact: nextDate }).eq('id', clientId);
+  if(error){ dbErr(error, 'Erro ao registrar contato'); return; }
+  toast('Contato registrado — próxima visita esperada calculada automaticamente');
+  closeModal(); await loadAll(); renderAll();
+}
 function openClientDetailModal(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar clientes', true); return; }
   const c = id ? state.clients.find(x=>x.id===id) : null;
@@ -3522,11 +3570,18 @@ function openClientDetailModal(id){
     </div>
     <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
     <div class="field-row">
-      <div class="field"><label>Tipo de cliente</label><select id="c-clienttype">
+      <div class="field"><label>Tipo de cliente</label><select id="c-clienttype" onchange="onClientTypeChange()">
         <option value="recorrente" ${(!c||c.clientType==='recorrente')?'selected':''}>Recorrente (abastecimento regular)</option>
         <option value="pontual" ${c&&c.clientType==='pontual'?'selected':''}>Pontual (compra avulsa, evento)</option>
       </select></div>
       <div class="field"><label>Status</label><select id="c-status"><option value="prospect" ${c&&c.status==='prospect'?'selected':''}>Prospect</option><option value="ativo" ${!c||c.status==='ativo'?'selected':''}>Ativo</option><option value="inativo" ${c&&c.status==='inativo'?'selected':''}>Inativo</option></select></div>
+    </div>
+    <div class="field-row" id="c-freqwrap" style="display:${(!c||c.clientType==='recorrente')?'flex':'none'};">
+      <div class="field"><label>Periodicidade esperada de pedido</label><select id="c-freqtype" onchange="onClientFreqTypeChange()">
+        <option value="">— Não definida —</option>
+        ${CLIENT_FREQ_TYPES.map(f=>`<option value="${f.v}" ${c&&c.orderFrequencyType===f.v?'selected':''}>${f.label}</option>`).join('')}
+      </select></div>
+      <div class="field" id="c-freqdayswrap" style="display:${c&&c.orderFrequencyType==='personalizada'?'block':'none'}"><label>A cada quantos dias</label><input id="c-freqdays" type="number" min="1" value="${c&&c.orderFrequencyDays?c.orderFrequencyDays:''}"></div>
     </div>
     <div class="field"><label>Observações</label><textarea id="c-notes" rows="2">${c?esc(c.notes||''):''}</textarea></div>
 
@@ -3728,12 +3783,26 @@ async function saveClientDetail(id){
     freezer_install_date: document.getElementById('c-freezerdate')?.value || null,
     freezer_notes: document.getElementById('c-freezernotes')?.value.trim() || null,
   };
+  const existing = id ? state.clients.find(c=>c.id===id) : null;
+  // Periodicidade só é salva pra clientes recorrentes. Só recalcula a "próxima visita esperada" quando
+  // a periodicidade muda de verdade (ou é a primeira vez que é definida) — resalvar o cadastro sem mexer
+  // nisso não deve empurrar a contagem pra frente à toa.
+  const clientType = document.getElementById('c-clienttype').value;
+  const freqType = clientType==='recorrente' ? (document.getElementById('c-freqtype').value || null) : null;
+  const freqDays = freqType==='personalizada' ? (parseInt(document.getElementById('c-freqdays').value)||null) : null;
+  data.order_frequency_type = freqType;
+  data.order_frequency_days = freqDays;
+  const freqChanged = !existing || existing.orderFrequencyType!==freqType || (freqType==='personalizada' && existing.orderFrequencyDays!==freqDays);
+  if(freqType && (freqChanged || !existing?.nextExpectedContact)){
+    data.next_expected_contact = clientFrequencyNextDate(todayStr(), freqType, freqDays);
+  } else if(!freqType){
+    data.next_expected_contact = null;
+  }
   // Endereço completo pro geocodificador: rua+número (já juntos no campo Endereço) + bairro + cidade + estado + CEP.
   // Se ainda existir um "número" cadastrado separadamente (endereços antigos), soma também — sem duplicar quando
   // o número já estiver escrito dentro do próprio endereço.
   const addressWithNumber = (data.number && !data.address.includes(data.number)) ? `${data.address}, ${data.number}` : data.address;
   const addressQuery = buildFullAddress({ address: addressWithNumber, neighborhood: data.neighborhood, city: data.city, state: data.state, cep: data.cep });
-  const existing = id ? state.clients.find(c=>c.id===id) : null;
   const addressChanged = addressQuery && addressQuery !== existing?.geocodedAddress;
   if(addressChanged){
     const { coords, approximate, queryUsed } = await geocodeEntityWithFallback({ address: addressWithNumber, neighborhood: data.neighborhood, city: data.city, state: data.state, cep: data.cep });
@@ -5959,6 +6028,9 @@ function alertActionsHtml(alert){
     btns.push(btn('Abrir Lead', `closeModal(); openLeadModal('${alert.entityId}')`, true));
   } else if(alert.type==='cliente_inativo'){
     btns.push(btn('Abrir cliente', `closeModal(); openClientDetailModal('${alert.entityId}')`, true));
+  } else if(alert.type==='contato_recorrente_pendente'){
+    btns.push(btn('Registrar visita/contato', `registerClientContact('${alert.entityId}')`, true));
+    btns.push(btn('Abrir cliente', `closeModal(); openClientDetailModal('${alert.entityId}')`));
   } else if(alert.type==='tarefa_atrasada'){
     const task = state.tasks.find(t=>t.id===alert.entityId);
     btns.push(btn('Concluir', `setTaskStatus('${alert.entityId}','concluida').then(()=>{closeModal();renderNotifications();})`, true));
