@@ -6091,10 +6091,16 @@ function openAlertDetail(index, list){
   const alert = (list || notifAlertsList)[index];
   if(!alert) return;
   const isCustom = alert.type==='alerta_personalizado'; // esse tipo já tem seu próprio ciclo de vida (status/snooze), não usa o mecanismo genérico de ignorar
+  const isMaintenance = ['manutencao_vencida','manutencao_proxima'].includes(alert.type);
   openModal(`
     <div class="modal-head"><h3>${alert.icon} Detalhe do alerta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <p style="font-size:14px;margin-bottom:16px;">${esc(alert.text)}</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">${alertActionsHtml(alert)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${isMaintenance?'10px':'18px'};">${alertActionsHtml(alert)}</div>
+    ${isMaintenance ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;">
+      <input type="date" id="alert-reschedule-date" value="${alert.date}" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
+      <button class="btn btn-ghost btn-sm" onclick="rescheduleMaintenanceFromAlert('${alert.assetId}','${alert.entityId}')">📅 Reagendar</button>
+    </div>` : ''}
     ${!isCustom ? `
     <div class="subhead">Gestão do alerta</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -6103,6 +6109,15 @@ function openAlertDetail(index, list){
       <button class="btn btn-danger-ghost btn-sm" onclick="dismissAlert('${alert.key}', null)">Marcar como resolvido</button>
     </div>` : ''}
   `);
+}
+async function rescheduleMaintenanceFromAlert(assetId, planId){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para reagendar manutenção', true); return; }
+  const newDate = document.getElementById('alert-reschedule-date').value;
+  if(!newDate){ toast('Escolha uma data', true); return; }
+  const { error } = await sb.from('asset_maintenance_plans').update({ next_date: newDate }).eq('id', planId);
+  if(error){ dbErr(error, 'Erro ao reagendar manutenção'); return; }
+  toast('Manutenção reagendada');
+  closeModal(); await loadAll(); renderNotifications();
 }
 
 // =========================================================
