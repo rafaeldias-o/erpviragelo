@@ -86,6 +86,7 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .section-title{font-size:15px;font-weight:700;}
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
+.two-col-equal{grid-template-columns:1fr 1fr;}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 @media(max-width:920px){.two-col,.three-col{grid-template-columns:1fr;}}
 
@@ -309,7 +310,7 @@ tr:last-child td{border-bottom:none;}
 
       <!-- DASHBOARD (Início) -->
       <section class="view active" id="view-dashboard">
-        <div class="two-col" style="grid-template-columns:1fr 1fr;">
+        <div class="two-col two-col-equal">
           <div id="coberturaBox"></div>
           <div class="panel" id="dashFinanceiroBox"></div>
         </div>
