@@ -3586,7 +3586,7 @@ function normalizeCityName(s){
 async function geocodeAddress(query, expectedCity){
   if(!query || !query.trim()) return null;
   try{
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=br&addressdetails=1&q=' + encodeURIComponent(query);
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=br&addressdetails=1&q=' + encodeURIComponent(query);
     const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
     if(!res.ok) return null;
     const data = await res.json();
@@ -3595,8 +3595,15 @@ async function geocodeAddress(query, expectedCity){
       const expected = normalizeCityName(expectedCity);
       const match = data.find(d=>{
         const addr = d.address || {};
-        const candidates = [addr.city, addr.town, addr.village, addr.municipality, addr.county].filter(Boolean).map(normalizeCityName);
-        return candidates.some(c => c.includes(expected) || expected.includes(c));
+        // Cidades pequenas/bairros às vezes vêm em campos diferentes dependendo de como a região foi
+        // mapeada no OpenStreetMap (city, town, village, municipality, county, ou até suburb/state_district
+        // em casos raros) — checamos todos, e como reforço final, se o nome da cidade aparece em QUALQUER
+        // lugar do endereço completo formatado (display_name), que praticamente sempre inclui a cidade.
+        const candidates = [addr.city, addr.town, addr.village, addr.municipality, addr.county, addr.suburb, addr.state_district]
+          .filter(Boolean).map(normalizeCityName);
+        const structuredMatch = candidates.some(c => c.includes(expected) || expected.includes(c));
+        const displayNameMatch = normalizeCityName(d.display_name).includes(expected);
+        return structuredMatch || displayNameMatch;
       });
       if(!match) return null; // nenhum resultado bate com a cidade cadastrada — melhor não geocodificar errado
       return { lat: parseFloat(match.lat), lng: parseFloat(match.lon) };
@@ -5091,7 +5098,7 @@ async function crGenerateRoute(){
     }
   }
   const withCoords = selected.filter(c=>c.lat!=null && c.lng!=null);
-  const withoutCoords = selected.length - withCoords.length;
+  const withoutCoordsList = selected.filter(c=>c.lat==null || c.lng==null);
   if(withCoords.length===0){
     document.getElementById('crwLoading').textContent = '';
     document.getElementById('crwResultWrap').innerHTML = emptyState('Nenhum dos selecionados tem endereço localizável no mapa. Confira se o endereço está completo (rua, número, bairro, cidade).', null);
@@ -5103,14 +5110,13 @@ async function crGenerateRoute(){
   const points = [origin, ...withCoords.map(c=>({lat:c.lat,lng:c.lng}))];
   const { distances, durations, source } = await getDistanceMatrix(points);
 
-  // Se tem mais candidatos que o limite, prioriza os mais próximos da fábrica (distância real, índice 0 da matriz)
+  // Ordem da rota: sempre pela distância direta até a fábrica, do mais próximo pro mais distante —
+  // 1º parada = endereço mais próximo da fábrica, 2º parada = segundo mais próximo, e assim por diante.
+  // Não considera a posição das paradas entre si, só a distância de cada uma até a fábrica.
   let candidateIdxs = withCoords.map((c,i)=>i+1); // +1 porque o índice 0 é a fábrica
-  if(withCoords.length > crWizardMaxVisits){
-    candidateIdxs = [...candidateIdxs].sort((a,b)=>distances[0][a]-distances[0][b]).slice(0, crWizardMaxVisits);
-  }
-
-  // Algoritmo guloso: fábrica -> mais próximo -> mais próximo da posição atual -> ... -> último
-  const orderIdxs = greedyNearestNeighbor(distances, 0, candidateIdxs);
+  candidateIdxs.sort((a,b)=>distances[0][a]-distances[0][b]);
+  if(withCoords.length > crWizardMaxVisits) candidateIdxs = candidateIdxs.slice(0, crWizardMaxVisits);
+  const orderIdxs = candidateIdxs;
   const ordered = orderIdxs.map(idx => withCoords[idx-1]);
 
   // Acumula distância/tempo passo a passo, na mesma ordem escolhida (não é o que a OSRM "acha" melhor — é a ordem gulosa mesmo)
@@ -5152,9 +5158,9 @@ async function crGenerateRoute(){
   const factoryDist = orderIdxs.map(idx => distances[0][idx]);
 
   await loadAll();
-  renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source, factoryDist);
+  renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoordsList, origin, source, factoryDist);
 }
-function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source, factoryDist){
+function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoordsList, origin, source, factoryDist){
   const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:s})), origin);
   document.getElementById('crwResultWrap').innerHTML = `
     <div class="stat-grid" style="margin-bottom:14px;">
@@ -5163,7 +5169,12 @@ function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, to
       <div class="stat-card"><div class="stat-label">Tempo estimado</div><div class="stat-value">${fmtMin(totalDuration)}</div></div>
     </div>
     ${source==='haversine'?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ Não foi possível calcular a distância real por vias agora — os valores abaixo são estimados em linha reta.</div>`:''}
-    ${withoutCoords>0?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${withoutCoords} selecionado(s) ficaram de fora por não terem endereço localizável.</div>`:''}
+    ${withoutCoordsList.length>0?`<div class="hint" style="color:var(--warn);margin-bottom:10px;">
+      ⚠️ ${withoutCoordsList.length} selecionado(s) ficaram de fora da rota por não terem endereço localizável — adicione essas paradas manualmente no Google Maps:
+      <ul style="margin:6px 0 0 18px;padding:0;">
+        ${withoutCoordsList.map(c=>`<li>${esc(c.name)} — ${esc(buildFullAddress(c))||'endereço incompleto'}</li>`).join('')}
+      </ul>
+    </div>`:''}
     <ol style="padding-left:20px;margin:0 0 14px 0;">
       ${ordered.map((s,i)=>{
         const order = state.orders.filter(o=>o.clientId===s.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
