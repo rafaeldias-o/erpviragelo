@@ -111,6 +111,13 @@ th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;text-transf
 td{padding:10px 9px;border-bottom:1px solid var(--border);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
 .table-scroll{overflow-x:auto;}
+/* Usado dentro de modais com conteúdo que pode crescer bastante (lista de bairros, paradas de rota) —
+   o scroll acontece só nessa área interna, mantendo o cabeçalho e o rodapé do modal sempre visíveis,
+   sem precisar rolar a tela/overlay inteiro pra alcançar os botões. */
+.modal-inner-scroll{max-height:320px;overflow-y:auto;}
+@media(max-width:760px){
+  .modal-inner-scroll{max-height:calc(100vh - 260px);}
+}
 .row-actions{display:flex;gap:2px;justify-content:flex-end;}
 .empty-state{text-align:center;padding:36px 20px;color:var(--muted);}
 .empty-state svg{width:34px;height:34px;color:var(--accent-2);margin-bottom:8px;}
@@ -141,7 +148,7 @@ tr:last-child td{border-bottom:none;}
 .modal.xwide{max-width:820px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .modal-head h3{margin:0;font-size:16px;}
-.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+.modal-foot{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:16px;}
 
 .search-box{position:relative;max-width:240px;}
 .search-box svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--muted);}
@@ -4877,7 +4884,7 @@ function renderCRWizardStep1(){
     ${crWizardCityId && neighborhoods.length>0?`
     <div class="subhead">💡 Prospecção Inteligente</div>
     <div class="hint" style="margin-bottom:8px;">Ajuda a escolher onde vale mais a pena focar a próxima rota.</div>
-    <div id="prospeccaoInteligenteWrap" class="table-scroll"></div>
+    <div id="prospeccaoInteligenteWrap" class="table-scroll modal-inner-scroll"></div>
     ` : ''}
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -5254,7 +5261,7 @@ function openRouteDetailModal(routeId){
   openModal(`
     <div class="modal-head"><h3>Rota Comercial — ${esc(city?city.name:'')}${neighborhood?' · '+esc(neighborhood.name):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="margin-bottom:14px;">${fmtDate(route.plannedDate)}${route.plannedStartTime?' · início '+route.plannedStartTime.slice(0,5):''}${route.distanceKm!=null?' · '+route.distanceKm.toFixed(1)+' km':''} · <span class="badge badge-info">${route.status}</span></div>
-    <div id="routeStopsWrap"></div>
+    <div id="routeStopsWrap" class="modal-inner-scroll"></div>
     <div class="modal-foot"><button class="btn btn-danger-ghost" onclick="deleteCommercialRoute('${routeId}')">Excluir rota</button></div>
   `, 'xwide');
   renderRouteStops(routeId);
