@@ -653,6 +653,10 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
           </div>
+          <div class="two-col">
+            <div class="panel" id="driverFeeBox-beto"></div>
+            <div class="panel" id="driverFeeBox-gui"></div>
+          </div>
         </div>
 
         <div id="finFluxoView" style="display:none;">
@@ -843,6 +847,17 @@ tr:last-child td{border-bottom:none;}
           <div class="field"><label>E-mail</label><input id="cfg-email"></div>
           <div class="field"><label>Endereço</label><input id="cfg-address"></div>
           <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+            <button class="btn btn-ghost btn-sm" id="fuelSettingsToggle" onclick="toggleFuelSettings()">⛽ Combustível e taxa de entrega</button>
+            <div id="fuelSettingsWrap" style="display:none;margin-top:10px;">
+              <div class="field-row">
+                <div class="field"><label>Preço da gasolina (R$/L)</label><input id="cfg-fuel-price" type="number" step="0.01"></div>
+                <div class="field"><label>Autonomia dos carros (km/L)</label><input id="cfg-fuel-efficiency" type="number" step="0.1"></div>
+              </div>
+              <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas (Financeiro → Contas a Pagar) e o alerta mensal de pagamento.</div>
+              <button class="btn btn-primary btn-sm" onclick="saveFuelSettings()">Salvar</button>
+            </div>
+          </div>
         </div>
         <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">Política de Frete</div></div>
@@ -1205,6 +1220,7 @@ async function loadAll(){
     value: Number(l.value), stage: l.stage, owner: l.owner_name, notes: l.notes, lastInteraction: l.last_interaction,
     clientId: l.client_id, closedAt: l.closed_at ? l.closed_at.slice(0,10) : null,
     cep: l.cep, address: l.address, number: l.number, complement: l.complement, neighborhood: l.neighborhood, state: l.state,
+    clientType: l.client_type || 'recorrente', orderFrequencyType: l.order_frequency_type, orderFrequencyDays: l.order_frequency_days,
     createdAt: (l.created_at||'').slice(0,10), history: historyByLead[l.id] || []
   }));
 
@@ -1219,11 +1235,15 @@ async function loadAll(){
   });
   state.deliveries = (delRes.data||[]).map(d => ({
     id: d.id, clientId: d.client_id, date: d.date, time: d.time, status: d.status, notes: d.notes,
-    orderId: d.order_id || null, items: itemsByDelivery[d.id] || [], createdAt: (d.created_at||'').slice(0,10)
+    orderId: d.order_id || null, items: itemsByDelivery[d.id] || [], createdAt: (d.created_at||'').slice(0,10),
+    driver: d.driver || null, distanceKm: d.distance_km!=null ? Number(d.distance_km) : null,
   }));
 
   const co = (coRes.data||[])[0];
-  state.company = co ? { name:co.name, cnpj:co.cnpj, phone:co.phone, email:co.email, address:co.address, lat:co.lat, lng:co.lng, geocodedAddress:co.geocoded_address } : {};
+  state.company = co ? { name:co.name, cnpj:co.cnpj, phone:co.phone, email:co.email, address:co.address, lat:co.lat, lng:co.lng, geocodedAddress:co.geocoded_address,
+    fuelPricePerLiter: co.fuel_price_per_liter!=null ? Number(co.fuel_price_per_liter) : 6.20,
+    fuelEfficiencyKmL: co.fuel_efficiency_km_l!=null ? Number(co.fuel_efficiency_km_l) : 10,
+  } : {};
 }
 
 // ================= THEME =================
@@ -2986,6 +3006,63 @@ function renderTxRow(t){
     </td>
   </tr>`;
 }
+const DELIVERY_DRIVERS = [{v:'beto', label:'Beto'}, {v:'gui', label:'Gui'}];
+// Descrição padronizada — usada tanto pra criar o lançamento quanto pra checar se aquele mês daquele
+// motorista já foi lançado antes (evita duplicar o pagamento por engano).
+function driverFeeDescription(driver, monthLabel){
+  const label = DELIVERY_DRIVERS.find(d=>d.v===driver)?.label || driver;
+  return `Taxa de entrega — ${label} (${monthLabel})`;
+}
+// Km rodados e valor a receber de um motorista, num intervalo de datas (baseado na data da entrega).
+// A distância já vem gravada em cada entrega (calculada uma vez, no momento de agendar) — aqui só soma.
+function driverFeeForPeriod(driver, fromDate, toDate){
+  const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=fromDate && d.date<=toDate);
+  const totalKm = dels.reduce((s,d)=>s+d.distanceKm,0);
+  const efficiency = state.company.fuelEfficiencyKmL || 10;
+  const price = state.company.fuelPricePerLiter || 6.20;
+  const liters = totalKm / efficiency;
+  const value = liters * price;
+  return { count: dels.length, totalKm, liters, value };
+}
+// Lança a taxa de entrega do mês anterior como despesa em Contas a Pagar — como "pendente", não "pago",
+// porque marcar como pago exige escolher de qual conta o dinheiro sai (mesma trava que já existe pra
+// qualquer despesa, pra o saldo de caixa nunca ficar errado). O pagamento de fato acontece normalmente
+// depois, pelo botão 💰 já existente em Contas a Pagar.
+async function payDriverFee(driver, fromDate, toDate){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para lançar despesas', true); return; }
+  const fee = driverFeeForPeriod(driver, fromDate, toDate);
+  if(fee.count===0){ toast('Nenhuma entrega encontrada nesse período', true); return; }
+  const monthLabel = new Date(fromDate+'T00:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const desc = driverFeeDescription(driver, monthLabel);
+  const jaLancado = state.transactions.some(t=>t.description===desc);
+  if(jaLancado){ toast('Essa taxa de entrega já foi lançada antes', true); closeModal(); return; }
+  const { error } = await sb.from('transactions').insert({
+    type:'despesa', description: desc, amount: fee.value, status:'pendente',
+    category: 'Taxa de Entrega', due_date: todayStr(),
+  });
+  if(error){ dbErr(error, 'Erro ao lançar despesa'); return; }
+  toast('Lançado em Contas a Pagar — registre o pagamento por lá quando efetuar, escolhendo a conta de saída');
+  closeModal(); await loadAll(); renderNotifications();
+}
+function renderDriverFeeBoxes(){
+  const anyBox = document.getElementById('driverFeeBox-beto');
+  if(!anyBox) return;
+  const range = pagarMonthRange();
+  DELIVERY_DRIVERS.forEach(dr=>{
+    const box = document.getElementById('driverFeeBox-'+dr.v);
+    const fee = driverFeeForPeriod(dr.v, range.from, range.to);
+    box.innerHTML = `
+      <div class="panel-head"><div class="section-title">🚚 Taxa entrega ${dr.label}</div></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Entregas no mês</span><span class="stat-row-value">${fee.count}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Km percorridos</span><span class="stat-row-value">${fee.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span></div>
+        <div class="stat-row"><span class="stat-row-label">Combustível estimado</span><span class="stat-row-value">${fee.liters.toLocaleString('pt-BR',{maximumFractionDigits:1})} L</span></div>
+        <div class="stat-row"><span class="stat-row-label">Valor a receber</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(fee.value)}</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px;">Base: ${state.company.fuelEfficiencyKmL||10} km/L · ${fmtMoney(state.company.fuelPricePerLiter||6.20)}/L — <a href="#" onclick="switchView('config'); return false;">editar em Configurações</a></div>
+    `;
+  });
+}
 function renderPagarTable(){
   const pagasWrap = document.getElementById('pagarPagasWrap');
   const abertasWrap = document.getElementById('pagarAbertasWrap');
@@ -3022,6 +3099,7 @@ function renderPagarTable(){
   const tableHead = `<table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>`;
   pagasWrap.innerHTML = pagas.length===0 ? emptyState('Nenhuma conta paga nesse período.', null) : tableHead + pagas.map(renderTxRow).join('') + '</tbody></table>';
   abertasWrap.innerHTML = abertas.length===0 ? emptyState('Nenhuma conta em aberto nesse período.','Nova despesa','openTransactionModal()') : tableHead + abertas.map(renderTxRow).join('') + '</tbody></table>';
+  renderDriverFeeBoxes();
 }
 
 // =========================================================
@@ -3060,6 +3138,26 @@ function computeSystemAlerts(){
     if(daysLeft < 0) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--danger)', priority:'alta', text:`Visitar ${c.name} — pedido esperado há ${Math.abs(daysLeft)} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
     else if(daysLeft <= 3) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--warn)', priority:'média', text:`Visitar ${c.name} — pedido esperado em ${daysLeft} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
   });
+  // Taxa de entrega dos motoristas — só aparece do dia 1 ao 5 do mês, mostrando o valor do MÊS ANTERIOR
+  // (já rodado, ainda não pago). Some de novo assim que a despesa correspondente é lançada no Financeiro,
+  // checando pela descrição exata (evita pagar duas vezes o mesmo mês por engano).
+  const todayDateObj = new Date();
+  if(todayDateObj.getDate() <= 5){
+    const prevMonthDate = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth()-1, 1);
+    const prevFrom = prevMonthDate.toISOString().slice(0,10);
+    const prevTo = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth()+1, 0).toISOString().slice(0,10);
+    const prevMonthLabel = prevMonthDate.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+    DELIVERY_DRIVERS.forEach(dr=>{
+      const fee = driverFeeForPeriod(dr.v, prevFrom, prevTo);
+      if(fee.count===0) return;
+      const desc = driverFeeDescription(dr.v, prevMonthLabel);
+      const alreadyLancado = state.transactions.some(t=>t.description===desc);
+      if(alreadyLancado) return;
+      alerts.push({type:'pagamento_entregador_pendente', icon:'🚚', color:'var(--warn)', priority:'média',
+        text:`Taxa de entrega — ${dr.label} — ${fmtMoney(fee.value)} referente a ${prevMonthLabel} (${fee.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km)`,
+        date: today, entityId: dr.v, driverFeeFrom: prevFrom, driverFeeTo: prevTo});
+    });
+  }
   state.leads.filter(isStalled).forEach(l=>
     alerts.push({type:'lead_parado', icon:'🧲', color:'var(--danger)', priority:'média', text:`Lead parado: ${l.name} (${daysSince(l.lastInteraction)} dias sem interação)`, date: today, entityId:l.id}));
   state.tasks.filter(t=>t.status==='pendente' && t.date<today).forEach(t=>
@@ -3105,6 +3203,14 @@ function computeSystemAlerts(){
   });
 }
 
+function onLeadClientTypeChange(){
+  const isRecorrente = document.getElementById('l-clienttype').value === 'recorrente';
+  document.getElementById('l-freqwrap').style.display = isRecorrente ? 'flex' : 'none';
+}
+function onLeadFreqTypeChange(){
+  const v = document.getElementById('l-freqtype').value;
+  document.getElementById('l-freqdayswrap').style.display = v==='personalizada' ? 'block' : 'none';
+}
 function openLeadModal(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar o CRM', true); return; }
   activeLeadId = id || null;
@@ -3139,6 +3245,20 @@ function openLeadModal(id){
       <div class="field"><label>Etapa</label><select id="l-stage">${LEAD_STAGES.map(s=>`<option value="${s.v}" ${l&&l.stage===s.v?'selected':(!l&&s.v==='lead'?'selected':'')}>${s.label}</option>`).join('')}</select></div>
     </div>
     <div class="field-row">
+      <div class="field"><label>Tipo de cliente (ao fechar)</label><select id="l-clienttype" onchange="onLeadClientTypeChange()">
+        <option value="recorrente" ${!l||l.clientType==='recorrente'?'selected':''}>Recorrente (abastecimento regular)</option>
+        <option value="pontual" ${l&&l.clientType==='pontual'?'selected':''}>Pontual (compra avulsa, evento)</option>
+      </select></div>
+      <div></div>
+    </div>
+    <div class="field-row" id="l-freqwrap" style="display:${!l||l.clientType==='recorrente'?'flex':'none'};">
+      <div class="field"><label>Periodicidade esperada de pedido</label><select id="l-freqtype" onchange="onLeadFreqTypeChange()">
+        <option value="">— Não definida —</option>
+        ${CLIENT_FREQ_TYPES.map(f=>`<option value="${f.v}" ${l&&l.orderFrequencyType===f.v?'selected':''}>${f.label}</option>`).join('')}
+      </select></div>
+      <div class="field" id="l-freqdayswrap" style="display:${l&&l.orderFrequencyType==='personalizada'?'block':'none'}"><label>A cada quantos dias</label><input id="l-freqdays" type="number" min="1" value="${l&&l.orderFrequencyDays?l.orderFrequencyDays:''}"></div>
+    </div>
+    <div class="field-row">
       <div class="field"><label>Responsável</label><input id="l-owner" value="${l?esc(l.owner||''):''}"></div>
       <div></div>
     </div>
@@ -3162,6 +3282,9 @@ function openLeadModal(id){
 async function saveLead(id){
   const name = document.getElementById('l-name').value.trim();
   if(!name){ toast('Informe o nome do lead', true); return; }
+  const clientType = document.getElementById('l-clienttype').value;
+  const freqType = clientType==='recorrente' ? (document.getElementById('l-freqtype').value || null) : null;
+  const freqDays = freqType==='personalizada' ? (parseInt(document.getElementById('l-freqdays').value)||null) : null;
   const data = {
     name, company: document.getElementById('l-company').value.trim(),
     phone: document.getElementById('l-phone').value.trim(), whatsapp: document.getElementById('l-whatsapp').value.trim(),
@@ -3170,6 +3293,7 @@ async function saveLead(id){
     cep: document.getElementById('l-cep').value.trim(), address: document.getElementById('l-address').value.trim(),
     number: document.getElementById('l-number').value.trim(), complement: document.getElementById('l-complement').value.trim(),
     neighborhood: document.getElementById('l-neighborhood').value.trim(), state: document.getElementById('l-state').value.trim(),
+    client_type: clientType, order_frequency_type: freqType, order_frequency_days: freqDays,
   };
   const newStage = document.getElementById('l-stage').value;
   let convertedLeadId = null;
@@ -3191,7 +3315,18 @@ async function saveLead(id){
     }
   }
   closeModal(); toast('Lead salvo'); await loadAll(); renderAll();
-  if(convertedLeadId) await maybeOpenFirstOrderWizard(convertedLeadId);
+  if(convertedLeadId){
+    // A trigger do banco cria o cliente automaticamente, mas não sabe sobre tipo/periodicidade (isso só
+    // existe na tela de Lead) — completa esses campos no cliente recém-criado logo em seguida.
+    const newClient = state.clients.find(c=>c.fromLeadId===convertedLeadId);
+    if(newClient){
+      const patch = { client_type: clientType, order_frequency_type: freqType, order_frequency_days: freqDays };
+      if(freqType) patch.next_expected_contact = clientFrequencyNextDate(todayStr(), freqType, freqDays);
+      await sb.from('clients').update(patch).eq('id', newClient.id);
+      await loadAll();
+    }
+    await maybeOpenFirstOrderWizard(convertedLeadId);
+  }
 }
 async function deleteLead(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir leads', true); return; }
@@ -4000,6 +4135,7 @@ function showDeliveryForm(clientId){
       <div class="field" style="margin-bottom:6px;"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="dv-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}">${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
+    <div class="field"><label>Será entregue por:</label><select id="dv-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
     <div id="deliveryItemsWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="addDeliveryItemRow('${clientId}')" ${finished.length===0?'disabled':''}>+ Adicionar produto</button>
     <div class="field" style="margin-top:8px;"><label>Observações</label><input id="dv-notes"></div>
@@ -4031,7 +4167,15 @@ async function saveDelivery(clientId){
   const status = document.getElementById('dv-status').value;
   const notes = document.getElementById('dv-notes').value.trim();
   const orderId = document.getElementById('dv-order')?.value || null;
-  const { data: created, error } = await sb.from('deliveries').insert({ client_id: clientId, date, time, status, notes, order_id: orderId }).select().single();
+  const driver = document.getElementById('dv-driver')?.value || null;
+  // Calcula a distância da fábrica até o cliente pra essa entrega específica (fica gravada na entrega,
+  // não recalcula depois — assim a taxa de um mês passado não muda se o endereço do cliente for editado).
+  let distanceKm = null;
+  if(driver){
+    const result = await ensureClientDistance(clientId);
+    if(result) distanceKm = result.distanceKm;
+  }
+  const { data: created, error } = await sb.from('deliveries').insert({ client_id: clientId, date, time, status, notes, order_id: orderId, driver, distance_km: distanceKm }).select().single();
   if(error){ dbErr(error, 'Erro ao agendar entrega'); return; }
   if(deliveryDraftItems.length){
     const rows = deliveryDraftItems.map(it=>{
@@ -4388,6 +4532,10 @@ function openDeliveryEditModal(id){
       <div class="field"><label>Status</label><select id="ed-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select></div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="ed-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}" ${o.id===d.orderId?'selected':''}>${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
+    <div class="field-row">
+      <div class="field"><label>Será entregue por:</label><select id="ed-driver"><option value="">— Não definido —</option><option value="beto" ${d.driver==='beto'?'selected':''}>Beto</option><option value="gui" ${d.driver==='gui'?'selected':''}>Gui</option></select></div>
+      <div class="field"><label>Distância até o cliente</label><div style="padding:8px 0;font-size:13px;color:var(--muted);">${d.distanceKm!=null?d.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'Calculada ao salvar com motorista definido'}</div></div>
+    </div>
     <div id="editDeliveryItemsWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="addEditDeliveryItem()">+ Adicionar produto</button>
     <div class="field" style="margin-top:8px;"><label>Observações</label><input id="ed-notes" value="${esc(d.notes||'')}"></div>
@@ -4423,7 +4571,18 @@ async function saveDeliveryEdit(id){
   const status = document.getElementById('ed-status').value;
   const orderId = document.getElementById('ed-order')?.value || null;
   const notes = document.getElementById('ed-notes').value.trim();
-  const { error } = await sb.from('deliveries').update({ date, time, status, order_id: orderId, notes }).eq('id', id);
+  const driver = document.getElementById('ed-driver')?.value || null;
+  const d = state.deliveries.find(x=>x.id===id);
+  // Só recalcula a distância se o motorista mudou (ou foi definido agora e ainda não tinha) — assim não
+  // fica batendo o serviço de rota toda vez que só edita observação, por exemplo.
+  let distanceKm = d?.distanceKm ?? null;
+  if(driver && (driver !== d?.driver || distanceKm==null)){
+    const result = await ensureClientDistance(d.clientId);
+    if(result) distanceKm = result.distanceKm;
+  } else if(!driver){
+    distanceKm = null;
+  }
+  const { error } = await sb.from('deliveries').update({ date, time, status, order_id: orderId, notes, driver, distance_km: distanceKm }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao salvar entrega'); return; }
   await sb.from('delivery_items').delete().eq('delivery_id', id);
   if(deliveryDraftItems.length){
@@ -5660,7 +5819,20 @@ function renderConfig(){
   document.getElementById('cfg-phone').value = state.company.phone || '';
   document.getElementById('cfg-email').value = state.company.email || '';
   document.getElementById('cfg-address').value = state.company.address || '';
+  document.getElementById('cfg-fuel-price').value = state.company.fuelPricePerLiter ?? 6.20;
+  document.getElementById('cfg-fuel-efficiency').value = state.company.fuelEfficiencyKmL ?? 10;
   renderFreightTiers();
+}
+function toggleFuelSettings(){
+  const wrap = document.getElementById('fuelSettingsWrap');
+  wrap.style.display = wrap.style.display==='none' ? 'block' : 'none';
+}
+async function saveFuelSettings(){
+  const price = parseFloat(document.getElementById('cfg-fuel-price').value) || 6.20;
+  const efficiency = parseFloat(document.getElementById('cfg-fuel-efficiency').value) || 10;
+  const { error } = await sb.from('company_settings').upsert({ id:true, fuel_price_per_liter: price, fuel_efficiency_km_l: efficiency });
+  if(error){ dbErr(error, 'Erro ao salvar configuração de combustível'); return; }
+  toast('Configuração de combustível salva'); await loadAll(); renderAll();
 }
 async function saveCompany(){
   const data = {
@@ -6153,6 +6325,9 @@ function alertActionsHtml(alert){
   } else if(alert.type==='contato_recorrente_pendente'){
     btns.push(btn('Registrar visita/contato', `registerClientContact('${alert.entityId}')`, true));
     btns.push(btn('Abrir cliente', `closeModal(); openClientDetailModal('${alert.entityId}')`));
+  } else if(alert.type==='pagamento_entregador_pendente'){
+    btns.push(btn('Lançar em Contas a Pagar', `payDriverFee('${alert.entityId}', '${alert.driverFeeFrom}', '${alert.driverFeeTo}')`, true));
+    btns.push(btn('Ver Contas a Pagar', `closeModal(); switchView('financeiro'); setFinTab('pagar');`));
   } else if(alert.type==='tarefa_atrasada'){
     const task = state.tasks.find(t=>t.id===alert.entityId);
     btns.push(btn('Concluir', `setTaskStatus('${alert.entityId}','concluida').then(()=>{closeModal();renderNotifications();})`, true));
