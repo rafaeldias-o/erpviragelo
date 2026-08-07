@@ -456,7 +456,27 @@ tr:last-child td{border-bottom:none;}
         </div>
         <div class="panel">
           <div class="panel-head"><div class="section-title">Histórico de movimentações</div></div>
+          <div class="tabs">
+            <div class="tab active" data-movtab="todos" onclick="setMovementTab('todos')">Tudo</div>
+            <div class="tab" data-movtab="entrada" onclick="setMovementTab('entrada')">Entradas</div>
+            <div class="tab" data-movtab="saida" onclick="setMovementTab('saida')">Saídas</div>
+          </div>
           <div id="movementsTableWrap" class="table-scroll"></div>
+        </div>
+        <div class="three-col">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title" style="font-size:13px;">Evolução do estoque (mês)</div></div>
+            <div id="stockEvolutionChart"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title" style="font-size:13px;">Entradas x Saídas (acumulado)</div></div>
+            <div class="legend" style="margin-bottom:2px;"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#F3C08A"></i>Saídas</span></div>
+            <div class="bars" id="stockInOutChart" style="height:90px;"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title" style="font-size:13px;">Valor em estoque (mês)</div></div>
+            <div id="stockValueChart"></div>
+          </div>
         </div>
       </section>
 
@@ -1412,16 +1432,82 @@ function renderEstoque(){
   document.getElementById('stockTotalLine').textContent = `Valor total em ${isFinished?'produtos acabados':'matéria-prima'}: ${fmtMoney(catTotal)}`;
 
   const mwrap = document.getElementById('movementsTableWrap');
-  if(state.movements.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação registrada ainda.</p></div>`; }
+  const movFiltered = movementTab==='todos' ? state.movements : state.movements.filter(m=>m.type===movementTab);
+  if(movFiltered.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação ${movementTab==='todos'?'registrada ainda':movementTab==='entrada'?'de entrada':'de saída'}.</p></div>`; }
   else {
     mwrap.innerHTML = `<table><thead><tr><th>Data</th><th>Item</th><th>Tipo</th><th>Qtd.</th><th>Origem</th><th>Observação</th></tr></thead><tbody>
-    ${state.movements.slice(0,60).map(m=>`<tr>
+    ${movFiltered.slice(0,60).map(m=>`<tr>
       <td>${fmtDate(m.date)}</td><td>${esc(m.itemName)}</td>
       <td>${m.type==='entrada'?'<span class="badge badge-success">Entrada</span>':'<span class="badge badge-danger">Saída</span>'}</td>
       <td>${m.qty}</td><td style="color:var(--muted)">${({manual:'Manual',producao:'Produção',pedido:'Pedido'})[m.source]||'—'}</td>
       <td style="color:var(--muted)">${esc(m.note||'—')}</td>
     </tr>`).join('')}</tbody></table>`;
   }
+  renderStockCharts(items, isFinished);
+}
+let movementTab = 'todos';
+function setMovementTab(tab){
+  movementTab = tab;
+  document.querySelectorAll('[data-movtab]').forEach(t=>t.classList.toggle('active', t.dataset.movtab===tab));
+  renderEstoque();
+}
+
+// ---- Gráficos de evolução do estoque (mês atual) — reconstrói o total de cada dia "desfazendo" as
+// movimentações a partir do saldo de hoje, em vez de precisar de uma tabela de histórico diário à parte. ----
+async function renderStockCharts(items, isFinished){
+  const evoBox = document.getElementById('stockEvolutionChart');
+  const valBox = document.getElementById('stockValueChart');
+  const inOutBox = document.getElementById('stockInOutChart');
+  if(!evoBox) return;
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+  const todayDay = now.getDate();
+  const targetDays = [1,10,20,30].filter(d=>d<=todayDay);
+  if(targetDays[targetDays.length-1] !== todayDay) targetDays.push(todayDay); // garante que "hoje" sempre aparece
+  const targetDates = targetDays.map(d=>monthPrefix+String(d).padStart(2,'0'));
+
+  const itemIds = new Set(items.map(i=>i.id));
+  const { data, error } = await sb.from('stock_movements').select('*').gte('date', monthPrefix+'01').order('date');
+  if(error){ dbErr(error, 'Erro ao carregar movimentações do mês'); return; }
+  const monthMovements = (data||[]).filter(m => itemIds.has(m.stock_item_id));
+
+  // Reconstrói, pra cada data-alvo, a quantidade de CADA item — desfazendo as movimentações mais recentes
+  // primeiro, partindo do saldo de hoje. Serve tanto pro gráfico de quantidade quanto pro de valor.
+  const sortedTargets = [...targetDates].sort().reverse();
+  const runningQty = {}; items.forEach(i=> runningQty[i.id] = i.qty);
+  const sortedMovs = [...monthMovements].sort((a,b)=> b.date.localeCompare(a.date));
+  const perDateQty = {};
+  let movIdx = 0;
+  for(const target of sortedTargets){
+    while(movIdx < sortedMovs.length && sortedMovs[movIdx].date > target){
+      const m = sortedMovs[movIdx];
+      if(runningQty[m.stock_item_id] != null) runningQty[m.stock_item_id] += (m.type==='entrada' ? -Number(m.qty) : Number(m.qty));
+      movIdx++;
+    }
+    perDateQty[target] = {...runningQty};
+  }
+
+  const qtySeries = targetDates.map(t => Object.values(perDateQty[t]).reduce((s,q)=>s+q,0));
+  const valueSeries = targetDates.map(t => items.reduce((s,i)=> s + (perDateQty[t][i.id]||0) * (isFinished?(i.salePrice||0):(i.costPrice||0)), 0));
+  const dayLabels = targetDays.map(d=>String(d));
+
+  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels) + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'}</div>`;
+  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels) + `<div class="hint" style="margin-top:4px;">${valueSeries.map(v=>fmtMoney(v)).join(' · ')}</div>`;
+
+  // Entradas x Saídas acumuladas dentro do mês, até cada data-alvo
+  const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
+  const saidaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='saida' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
+  const maxInOut = Math.max(1, ...entradaSeries, ...saidaSeries);
+  inOutBox.innerHTML = targetDays.map((d,i)=>`
+    <div class="bar-group">
+      <div class="bar-pair">
+        <div class="bar rev" style="width:9px;height:${Math.round(entradaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Entradas acumuladas: ${entradaSeries[i]}"></div>
+        <div class="bar exp" style="width:9px;height:${Math.round(saidaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Saídas acumuladas: ${saidaSeries[i]}"></div>
+      </div>
+      <div class="bar-label" style="font-size:9px;">${d}</div>
+    </div>
+  `).join('');
 }
 
 // =========================================================
