@@ -71,6 +71,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .stat-row-list{display:flex;flex-direction:column;}
 .stat-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);gap:10px;}
 .stat-row:last-child{border-bottom:none;}
+.stat-row.clickable{cursor:pointer;margin:0 -8px;padding:8px;border-radius:6px;transition:background .12s;}
+.stat-row.clickable:hover{background:var(--info-bg);}
 .stat-row .stat-row-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
 .stat-row .stat-row-value{font-size:14.5px;font-weight:700;text-align:right;white-space:nowrap;}
 .panel-soft-blue{background:rgba(79,195,224,.08);border-color:rgba(79,195,224,.25);}
@@ -500,7 +502,11 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head">
             <div class="section-title">Pedidos</div>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="pedidosChangeMonth(-1)" id="pedidosPrevMonthBtn">←</button>
+              <span id="pedidosMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
+              <button class="btn btn-ghost btn-sm" onclick="pedidosChangeMonth(1)" id="pedidosNextMonthBtn">→</button>
+              <button class="btn btn-ghost btn-sm" id="pedidosShowAllBtn" onclick="pedidosToggleShowAll()">Ver completo</button>
               <select id="orderFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderPedidos()">
                 <option value="todos">Todos os status</option>
               </select>
@@ -1754,6 +1760,7 @@ async function assignDriverToOrderDelivery(orderId, driver){
   } else {
     await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm });
   }
+  if(!distanceKm) toast('Não localizei o endereço no mapa pra calcular a km — edite a entrega em Clientes → Agenda de entregas e digite a quilometragem manualmente', true);
 }
 async function saveOrder(id){
   const clientId = document.getElementById('o-client').value;
@@ -1826,14 +1833,34 @@ async function deleteOrder(id){
 }
 function clientNameOf(id){ const c = state.clients.find(x=>x.id===id); return c?c.name:'Cliente'; }
 
+let pedidosMonthOffset = 0;
+let pedidosShowAll = false;
+function pedidosChangeMonth(delta){ pedidosMonthOffset += delta; pedidosShowAll = false; renderPedidos(); }
+function pedidosToggleShowAll(){ pedidosShowAll = !pedidosShowAll; renderPedidos(); }
+function pedidosMonthRange(){
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+pedidosMonthOffset);
+  const y=base.getFullYear(), m=base.getMonth();
+  return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
+}
 function renderPedidos(){
   const filterSel = document.getElementById('orderFilter');
   if(filterSel.options.length<=1){ filterSel.innerHTML = '<option value="todos">Todos os status</option>' + ORDER_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join(''); }
   const filter = filterSel.value;
+
+  const monthRange = pedidosMonthRange();
+  const monthLabelEl = document.getElementById('pedidosMonthLabel');
+  if(monthLabelEl){
+    monthLabelEl.textContent = pedidosShowAll ? 'Todos os pedidos' : (monthRange.label.charAt(0).toUpperCase()+monthRange.label.slice(1));
+    document.getElementById('pedidosPrevMonthBtn').style.display = pedidosShowAll ? 'none' : 'inline-flex';
+    document.getElementById('pedidosNextMonthBtn').style.display = pedidosShowAll ? 'none' : 'inline-flex';
+    document.getElementById('pedidosShowAllBtn').textContent = pedidosShowAll ? '📅 Ver por mês' : '📋 Ver completo';
+  }
+
   let list = state.orders;
+  if(!pedidosShowAll) list = list.filter(o => o.createdAt >= monthRange.from && o.createdAt <= monthRange.to);
   if(filter!=='todos') list = list.filter(o=>o.status===filter);
   const wrap = document.getElementById('ordersTableWrap');
-  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum pedido encontrado.','Novo pedido','openOrderModal()'); return; }
+  if(list.length===0){ wrap.innerHTML = emptyState(pedidosShowAll ? 'Nenhum pedido encontrado.' : 'Nenhum pedido nesse mês.','Novo pedido','openOrderModal()'); return; }
   wrap.innerHTML = `<table><thead><tr><th>Nº</th><th>Cliente</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>
   ${list.map(o=>{
     return `<tr>
@@ -4578,8 +4605,9 @@ function openDeliveryEditModal(id){
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="ed-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}" ${o.id===d.orderId?'selected':''}>${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
     <div class="field-row">
       <div class="field"><label>Será entregue por:</label><select id="ed-driver"><option value="">— Não definido —</option><option value="beto" ${d.driver==='beto'?'selected':''}>Beto</option><option value="gui" ${d.driver==='gui'?'selected':''}>Gui</option></select></div>
-      <div class="field"><label>Distância até o cliente</label><div style="padding:8px 0;font-size:13px;color:var(--muted);">${d.distanceKm!=null?d.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km':'Calculada ao salvar com motorista definido'}</div></div>
+      <div class="field"><label>Distância até o cliente (km)</label><input id="ed-distance" type="number" step="0.1" min="0" value="${d.distanceKm!=null?d.distanceKm:''}" placeholder="Calculada automaticamente"></div>
     </div>
+    <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Se o endereço do cliente não for encontrado no mapa automaticamente, digite a quilometragem manualmente aqui.</div>
     <div id="editDeliveryItemsWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="addEditDeliveryItem()">+ Adicionar produto</button>
     <div class="field" style="margin-top:8px;"><label>Observações</label><input id="ed-notes" value="${esc(d.notes||'')}"></div>
@@ -4617,14 +4645,15 @@ async function saveDeliveryEdit(id){
   const notes = document.getElementById('ed-notes').value.trim();
   const driver = document.getElementById('ed-driver')?.value || null;
   const d = state.deliveries.find(x=>x.id===id);
-  // Só recalcula a distância se o motorista mudou (ou foi definido agora e ainda não tinha) — assim não
-  // fica batendo o serviço de rota toda vez que só edita observação, por exemplo.
-  let distanceKm = d?.distanceKm ?? null;
-  if(driver && (driver !== d?.driver || distanceKm==null)){
+  // A distância agora é editável na tela — se a pessoa digitou um valor, respeita exatamente esse valor
+  // (não sobrescreve). Só tenta calcular automaticamente quando o campo está vazio e tem motorista definido —
+  // útil pro caso do endereço não ser encontrado pelo geocodificador (ex: rua não mapeada com precisão).
+  const distanceInput = document.getElementById('ed-distance').value;
+  let distanceKm = distanceInput !== '' ? parseFloat(distanceInput) : null;
+  if(driver && distanceKm==null){
     const result = await ensureClientDistance(d.clientId);
     if(result) distanceKm = result.distanceKm;
-  } else if(!driver){
-    distanceKm = null;
+    else toast('Não localizei o endereço no mapa — digite a quilometragem manualmente e salve de novo', true);
   }
   const { error } = await sb.from('deliveries').update({ date, time, status, order_id: orderId, notes, driver, distance_km: distanceKm }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao salvar entrega'); return; }
@@ -4646,6 +4675,15 @@ function renderClientesModule(){ renderClientsTable(); renderWeekAgenda(); }
 // =========================================================
 // DASHBOARD
 // =========================================================
+// Navegação a partir dos cards clicáveis do Início
+function goToPedidosMonth(){
+  pedidosMonthOffset = 0; pedidosShowAll = false;
+  switchView('pedidos');
+}
+function goToFinTab(tab){
+  switchView('financeiro');
+  setFinTab(tab);
+}
 function toggleDashMore(){
   const box = document.getElementById('dashMoreStats');
   const btn = document.getElementById('dashMoreToggle');
@@ -4713,12 +4751,12 @@ function renderDashboard(){
   document.getElementById('dashFinanceiroBox').innerHTML = `
     <div class="panel-head"><div class="section-title">💰 Financeiro</div></div>
     <div class="stat-row-list">
-      <div class="stat-row"><span class="stat-row-label">Faturamento do mês</span><span class="stat-row-value">${fmtMoney(faturamentoMes)}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Margem bruta de vendas</span><span class="stat-row-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Despesas do mês</span><span class="stat-row-value">${fmtMoney(despesasMes)}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Pedidos realizados (mês)</span><span class="stat-row-value">${pedidosEntreguesMes.length}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Contas pendentes (mês)</span><span class="stat-row-value">${pendentesMes.length}${vencidosMes.length?` <span style="color:var(--danger);font-size:11px;font-weight:600;">(${vencidosMes.length} vencida${vencidosMes.length>1?'s':''})</span>`:''}</span></div>
+      <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Faturamento do mês</span><span class="stat-row-value">${fmtMoney(faturamentoMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Margem bruta de vendas</span><span class="stat-row-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToFinTab('lancamentos')"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Despesas do mês</span><span class="stat-row-value">${fmtMoney(despesasMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Pedidos realizados (mês)</span><span class="stat-row-value">${pedidosEntreguesMes.length}</span></div>
+      <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Contas pendentes (mês)</span><span class="stat-row-value">${pendentesMes.length}${vencidosMes.length?` <span style="color:var(--danger);font-size:11px;font-weight:600;">(${vencidosMes.length} vencida${vencidosMes.length>1?'s':''})</span>`:''}</span></div>
     </div>
   `;
   document.getElementById('dashStatsExtra').innerHTML = `
@@ -4755,16 +4793,16 @@ function renderDashboard(){
     </div>` :
     entregasHojeList.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).map(d=>{
       const c = state.clients.find(x=>x.id===d.clientId);
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(c?c.name:'Cliente')}</strong><div style="color:var(--muted);font-size:11px">${d.time?d.time.slice(0,5)+' · ':''}${esc(c&&c.address||'')}</div></div><span class="badge ${deliveryStatusInfo(d.status).cls}">${deliveryStatusInfo(d.status).label}</span></div>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('clientes'); openClientDetailModal('${d.clientId}')"><div><strong>${esc(c?c.name:'Cliente')}</strong><div style="color:var(--muted);font-size:11px">${d.time?d.time.slice(0,5)+' · ':''}${esc(c&&c.address||'')}</div></div><span class="badge ${deliveryStatusInfo(d.status).cls}">${deliveryStatusInfo(d.status).label}</span></div>`;
     }).join('');
 
   const lo = document.getElementById('lastOrders');
   lo.innerHTML = state.orders.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum pedido ainda.</p></div>' :
-    state.orders.slice(0,6).map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(clientNameOf(o.clientId))}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(o.createdAt)} · ${fmtMoney(o.total)}</div></div><span class="badge ${orderStatusInfo(o.status).cls}">${orderStatusInfo(o.status).label}</span></div>`).join('');
+    state.orders.slice(0,6).map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('pedidos'); openOrderModal('${o.id}')"><div><strong>${esc(clientNameOf(o.clientId))}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(o.createdAt)} · ${fmtMoney(o.total)}</div></div><span class="badge ${orderStatusInfo(o.status).cls}">${orderStatusInfo(o.status).label}</span></div>`).join('');
 
   const lm = document.getElementById('lastMovements');
   lm.innerHTML = state.movements.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma movimentação ainda.</p></div>' :
-    state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
+    state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('estoque')"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
 }
 
 function buildLineChartSvg(values, labels){
@@ -4859,11 +4897,11 @@ function renderCoberturaEstoque(){
       <div style="font-size:32px;font-weight:700;margin-bottom:2px;">${cobertura!=null ? cobertura.toFixed(1)+' dias' : '—'}</div>
       <div class="stat-note ${nivelClass}" style="font-size:13px;font-weight:600;margin-bottom:10px;">${nivelLabel}</div>
       <div class="stat-row-list">
-        <div class="stat-row"><span class="stat-row-label">Estoque atual</span><span class="stat-row-value">${fmtKgNum(estoqueKg)} kg</span></div>
-        <div class="stat-row"><span class="stat-row-label">Pacotes de 3kg em estoque</span><span class="stat-row-value">${pacotes3kg}</span></div>
-        <div class="stat-row"><span class="stat-row-label">Média diária vendida</span><span class="stat-row-value">${fmtKgNum(mediaDiaria)} kg</span></div>
-        <div class="stat-row"><span class="stat-row-label">Consumo últimos ${windowDays}d</span><span class="stat-row-value">${fmtKgNum(consumoTotalKg)} kg</span></div>
-        <div class="stat-row"><span class="stat-row-label">Última produção</span><span class="stat-row-value" style="font-size:12.5px;">${ultimaProducao?fmtDate(ultimaProducao.date)+' · '+fmtKgNum(Number(ultimaProducao.kg))+'kg':'—'}</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Estoque atual</span><span class="stat-row-value">${fmtKgNum(estoqueKg)} kg</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Pacotes de 3kg em estoque</span><span class="stat-row-value">${pacotes3kg}</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Média diária vendida</span><span class="stat-row-value">${fmtKgNum(mediaDiaria)} kg</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Consumo últimos ${windowDays}d</span><span class="stat-row-value">${fmtKgNum(consumoTotalKg)} kg</span></div>
+        <div class="stat-row clickable" onclick="switchView('producao')"><span class="stat-row-label">Última produção</span><span class="stat-row-value" style="font-size:12.5px;">${ultimaProducao?fmtDate(ultimaProducao.date)+' · '+fmtKgNum(Number(ultimaProducao.kg))+'kg':'—'}</span></div>
       </div>
       ${semPeso>0?`<div class="hint" style="color:var(--warn);margin-top:10px;">⚠️ ${semPeso} produto(s) acabado(s) sem peso definido não entraram no cálculo do estoque em kg.</div>`:''}
     </div>
