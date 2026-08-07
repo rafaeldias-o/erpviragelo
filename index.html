@@ -115,6 +115,8 @@ tr:last-child td{border-bottom:none;}
    o scroll acontece só nessa área interna, mantendo o cabeçalho e o rodapé do modal sempre visíveis,
    sem precisar rolar a tela/overlay inteiro pra alcançar os botões. */
 .modal-inner-scroll{max-height:320px;overflow-y:auto;}
+.next-visit-pill{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;transition:opacity .15s;}
+.next-visit-pill:hover{opacity:.82;}
 @media(max-width:760px){
   .modal-inner-scroll{max-height:calc(100vh - 260px);}
 }
@@ -3472,12 +3474,9 @@ function renderClientsTable(){
   const statusBadge = s => s==='ativo' ? '<span class="badge badge-success">Ativo</span>' : s==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
   const rowHtml = c => {
     const st = clientStats(c.id);
-    let nextContactCell = '<span style="color:var(--muted);">—</span>';
-    if(c.nextExpectedContact){
-      const daysLeft = -daysSince(c.nextExpectedContact);
-      const color = daysLeft<0 ? 'var(--danger)' : daysLeft<=3 ? 'var(--warn)' : 'inherit';
-      nextContactCell = `<span style="color:${color};font-weight:${daysLeft<=3?'600':'400'};">${fmtDate(c.nextExpectedContact)}</span>`;
-    }
+    const nextContactCell = c.nextExpectedContact
+      ? `<button class="next-visit-pill" onclick="openNextVisitModal('${c.id}')">📅 ${fmtDate(c.nextExpectedContact)}</button>`
+      : '<span style="color:var(--muted);">—</span>';
     return `<tr>
       <td><strong>${esc(c.name)}</strong>${clientBadge(c)}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
       <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
@@ -3539,6 +3538,40 @@ async function registerClientContact(clientId){
   const { error } = await sb.from('clients').update({ next_expected_contact: nextDate }).eq('id', clientId);
   if(error){ dbErr(error, 'Erro ao registrar contato'); return; }
   toast('Contato registrado — próxima visita esperada calculada automaticamente');
+  closeModal(); await loadAll(); renderAll();
+}
+// Tela de detalhe/edição da próxima visita esperada — clicando no botão azul da lista de Clientes Recorrentes.
+// Editar a data aqui muda a referência: as próximas visitas passam a contar a periodicidade a partir dessa
+// nova data (não da antiga), útil quando o cliente combina algo diferente direto com o vendedor.
+function openNextVisitModal(clientId){
+  const c = state.clients.find(x=>x.id===clientId);
+  if(!c) return;
+  const freqLabel = c.orderFrequencyType ? (CLIENT_FREQ_TYPES.find(f=>f.v===c.orderFrequencyType)?.label || c.orderFrequencyType) : 'Não definida';
+  const daysLeft = c.nextExpectedContact ? -daysSince(c.nextExpectedContact) : null;
+  const situacao = daysLeft==null ? '—' : daysLeft<0 ? `${Math.abs(daysLeft)} dia(s) atrasado` : daysLeft===0 ? 'Hoje' : `em ${daysLeft} dia(s)`;
+  const situacaoColor = daysLeft==null ? 'inherit' : daysLeft<0 ? 'var(--danger)' : daysLeft<=3 ? 'var(--warn)' : 'var(--success)';
+  openModal(`
+    <div class="modal-head"><h3>Próxima visita — ${esc(c.name)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Periodicidade</div><div class="stat-value" style="font-size:15px;">${freqLabel}</div></div>
+      <div class="stat-card"><div class="stat-label">Situação</div><div class="stat-value" style="font-size:15px;color:${situacaoColor}">${situacao}</div></div>
+    </div>
+    <div class="field"><label>Data da próxima visita esperada</label><input id="nv-date" type="date" value="${c.nextExpectedContact||''}"></div>
+    <div class="hint" style="margin-bottom:14px;">Editar aqui muda a data de referência — as próximas visitas passam a seguir a periodicidade a partir dessa nova data, não da anterior. Use quando o cliente combinar algo diferente com o vendedor (ex: "só precisa daqui 20 dias dessa vez").</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      ${c.orderFrequencyType?`<button class="btn btn-ghost" onclick="registerClientContact('${c.id}')">✔ Registrar visita agora</button>`:''}
+      <button class="btn btn-primary" onclick="saveNextVisitDate('${c.id}')">Salvar data</button>
+    </div>
+  `);
+}
+async function saveNextVisitDate(clientId){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão pra editar isso', true); return; }
+  const newDate = document.getElementById('nv-date').value;
+  if(!newDate){ toast('Escolha uma data', true); return; }
+  const { error } = await sb.from('clients').update({ next_expected_contact: newDate }).eq('id', clientId);
+  if(error){ dbErr(error, 'Erro ao salvar data'); return; }
+  toast('Data da próxima visita atualizada');
   closeModal(); await loadAll(); renderAll();
 }
 function openClientDetailModal(id){
