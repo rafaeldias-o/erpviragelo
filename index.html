@@ -3576,14 +3576,31 @@ function setHasFreezer(v){
 // ---- Geocodificação (Nominatim/OpenStreetMap) — usado pra localizar clientes e a fábrica no mapa ----
 // Serviço público e gratuito, sem necessidade de chave de API. Só geocodificamos quando o endereço
 // realmente muda (comparando com geocoded_address salvo), respeitando o uso ocasional da política deles.
-async function geocodeAddress(query){
+// Nomes de rua comuns (tipo "Rua Floresta") existem em várias cidades do Brasil — sem validar a cidade,
+// o geocodificador pode escolher o resultado errado (de outra cidade) mesmo com "Tubarão" no texto da
+// busca. Por isso pedimos alguns candidatos (limit=3) e conferimos qual bate com a cidade que o próprio
+// cadastro informa, em vez de confiar cegamente no primeiro resultado.
+function normalizeCityName(s){
+  return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+}
+async function geocodeAddress(query, expectedCity){
   if(!query || !query.trim()) return null;
   try{
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=' + encodeURIComponent(query);
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=br&addressdetails=1&q=' + encodeURIComponent(query);
     const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } });
     if(!res.ok) return null;
     const data = await res.json();
     if(!data || !data.length) return null;
+    if(expectedCity){
+      const expected = normalizeCityName(expectedCity);
+      const match = data.find(d=>{
+        const addr = d.address || {};
+        const candidates = [addr.city, addr.town, addr.village, addr.municipality, addr.county].filter(Boolean).map(normalizeCityName);
+        return candidates.some(c => c.includes(expected) || expected.includes(c));
+      });
+      if(!match) return null; // nenhum resultado bate com a cidade cadastrada — melhor não geocodificar errado
+      return { lat: parseFloat(match.lat), lng: parseFloat(match.lon) };
+    }
     return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
   }catch(e){ console.warn('Geocodificação falhou:', e); return null; }
 }
@@ -3606,12 +3623,12 @@ function stripAddressNumber(address){
 async function geocodeEntityWithFallback(entity){
   const fullQuery = buildFullAddress(entity);
   if(!fullQuery) return { coords:null, approximate:false, queryUsed:null };
-  let coords = await geocodeAddress(fullQuery + ', Brasil');
+  let coords = await geocodeAddress(fullQuery + ', Brasil', entity.city);
   if(coords) return { coords, approximate:false, queryUsed:fullQuery };
   const streetOnly = stripAddressNumber(entity.address);
   if(streetOnly && streetOnly !== entity.address){
     const fallbackQuery = buildFullAddress({...entity, address:streetOnly});
-    coords = await geocodeAddress(fallbackQuery + ', Brasil');
+    coords = await geocodeAddress(fallbackQuery + ', Brasil', entity.city);
     if(coords) return { coords, approximate:true, queryUsed:fallbackQuery };
   }
   return { coords:null, approximate:false, queryUsed:fullQuery };
@@ -5129,10 +5146,15 @@ async function crGenerateRoute(){
   const { error: stopsErr } = await sb.from('commercial_route_stops').insert(stopsPayload);
   if(stopsErr){ dbErr(stopsErr, 'Erro ao salvar paradas da rota'); return; }
 
+  // Distância direta da fábrica até cada parada (não é o trecho percorrido na rota, é fábrica -> parada
+  // isoladamente) — mostrado na tela pra deixar claro qual foi realmente a mais próxima da fábrica,
+  // sem confundir com "km até aqui" (que é a distância do trecho anterior da rota, não da fábrica).
+  const factoryDist = orderIdxs.map(idx => distances[0][idx]);
+
   await loadAll();
-  renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source);
+  renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source, factoryDist);
 }
-function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source){
+function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, totalDuration, withoutCoords, origin, source, factoryDist){
   const mapsUrl = buildGoogleMapsUrl(ordered.map(s=>({client:s})), origin);
   document.getElementById('crwResultWrap').innerHTML = `
     <div class="stat-grid" style="margin-bottom:14px;">
@@ -5148,7 +5170,7 @@ function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, to
         return `<li style="margin-bottom:10px;font-size:13px;">
           <strong>${expectedTimes[i]}</strong> — ${esc(s.name)} ${s.type==='prospect'?'<span class="badge badge-muted">Prospect</span>':''}${s.approximateLocation?' <span class="badge badge-warn" title="Não encontramos o número exato — usamos a localização aproximada da rua">📍 aproximado</span>':''}
           <div style="color:var(--muted);font-size:12px;">${esc(s.address||'')}${s.neighborhood?' · '+esc(s.neighborhood):''}${s.city?' · '+esc(s.city):''}</div>
-          <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">📍 ${fmtKm(legInfo[i].legDist)} até aqui · acumulado ${fmtKm(legInfo[i].cumulativeDist)} · 🚚 frete ${s.freightValue!=null?(s.freightValue===0?'isento':fmtMoney(s.freightValue)):'—'}${order?' · último pedido '+fmtMoney(order.total):''}</div>
+          <div style="color:var(--muted);font-size:11.5px;margin-top:2px;">📍 ${fmtKm(legInfo[i].legDist)} desde a parada anterior · acumulado na rota ${fmtKm(legInfo[i].cumulativeDist)} · 🏭 ${fmtKm(factoryDist[i])} direto da fábrica · 🚚 frete ${s.freightValue!=null?(s.freightValue===0?'isento':fmtMoney(s.freightValue)):'—'}${order?' · último pedido '+fmtMoney(order.total):''}</div>
         </li>`;
       }).join('')}
     </ol>
