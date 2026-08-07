@@ -141,7 +141,7 @@ tr:last-child td{border-bottom:none;}
 .radio-opt.selected{border-color:var(--accent);background:var(--surface-2);color:var(--accent);}
 .hint{font-size:11px;color:var(--muted);margin-top:3px;}
 
-.modal-overlay{position:fixed;inset:0;background:rgba(14,36,56,.45);display:none;align-items:flex-start;justify-content:center;padding:36px 16px;z-index:50;overflow-y:auto;}
+.modal-overlay{position:fixed;inset:0;background:rgba(14,36,56,.45);display:none;align-items:flex-start;justify-content:center;padding:36px 16px;z-index:170;overflow-y:auto;}
 .modal-overlay.active{display:flex;}
 .modal{background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:20px;box-shadow:0 20px 50px rgba(14,36,56,.25);}
 .modal.wide{max-width:680px;}
@@ -172,7 +172,7 @@ tr:last-child td{border-bottom:none;}
 .order-items-table th,.order-items-table td{padding:6px 8px;font-size:12.5px;}
 .line-remove{color:var(--danger);cursor:pointer;background:none;border:none;font-size:16px;}
 
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:9px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:100;max-width:90vw;text-align:center;}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:9px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:250;max-width:90vw;text-align:center;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.toast-error{background:var(--danger);color:#fff;}
 
@@ -1912,11 +1912,13 @@ async function openTransactionHistoryModal(id){
   state.financialAccounts; // no-op, só garante que state existe (mantém padrão do arquivo)
   openModal(`
     <div class="modal-head"><h3>Histórico — ${esc(t?t.description:'')}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-inner-scroll">
     ${(!data||data.length===0) ? '<div class="hint">Nenhuma alteração registrada ainda.</div>' :
       data.map(h=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;">
         <strong>${esc(h.field_name)}</strong> alterado
         <div style="color:var(--muted);font-size:11.5px;">de "${esc(h.old_value||'—')}" para "${esc(h.new_value||'—')}" · ${fmtDateTime(h.changed_at)}</div>
       </div>`).join('')}
+    </div>
   `);
 }
 async function toggleTxStatus(id){
@@ -4730,7 +4732,7 @@ function openBulkImportModal(){
       <textarea id="bi-paste" rows="8" placeholder="Mercado Altas Horas	Mercado	Rua Guilherme Wileman, 428
 Mercado Buss	Mercado	R. Floresta, 435" oninput="parseBulkImport()"></textarea>
     </div>
-    <div id="biPreviewWrap"></div>
+    <div id="biPreviewWrap" class="modal-inner-scroll"></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" id="biConfirmBtn" onclick="confirmBulkImport()" disabled>Importar</button>
@@ -6325,7 +6327,7 @@ function openAssetModal(id){
     <div id="assetMaintenanceWrap"></div>
     <div id="maintenanceFormWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="showMaintenanceForm('${a.id}')">+ Novo plano de manutenção</button>
-    <div class="subhead">Histórico</div><div id="assetHistoryWrap"></div>` : ''}
+    <div class="subhead">Histórico</div><div id="assetHistoryWrap" class="modal-inner-scroll"></div>` : ''}
   `, 'wide');
   if(a){ renderAssetHistory(a.id); renderAssetMaintenance(a.id); }
 }
