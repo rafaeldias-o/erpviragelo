@@ -206,6 +206,10 @@ tr:last-child td{border-bottom:none;}
 .subhead:first-of-type{border-top:none;padding-top:0;}
 
 /* Login */
+#splashScreen{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;z-index:400;}
+#splashScreen.hidden{display:none;}
+.splash-spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(28,127,163,.18);border-top-color:var(--accent);animation:splash-spin .8s linear infinite;}
+@keyframes splash-spin{to{transform:rotate(360deg);}}
 #loginOverlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:200;}
 #loginOverlay.hidden{display:none;}
 .login-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px;width:100%;max-width:360px;box-shadow:0 20px 50px rgba(14,36,56,.15);}
@@ -249,7 +253,12 @@ tr:last-child td{border-bottom:none;}
 </head>
 <body>
 
-<div id="loginOverlay">
+<div id="splashScreen">
+  <img src="icons/icon-512.png" alt="ViraGelo" style="width:140px;height:140px;border-radius:28px;box-shadow:0 8px 30px rgba(14,36,56,.18);">
+  <div class="splash-spinner"></div>
+</div>
+
+<div id="loginOverlay" class="hidden">
   <div class="login-card">
     <div class="login-brand" style="flex-direction:column;background:var(--sidebar);margin:-32px -32px 22px -32px;padding:28px 32px;border-radius:14px 14px 0 0;">
       <img src="logo-full.png" alt="ViraGelo" style="width:100%;max-width:220px;height:auto;">
@@ -1007,11 +1016,14 @@ async function afterLogin(session){
     errBox.textContent = 'Login feito, mas não encontrei seu perfil na tabela profiles. Peça para o administrador conferir.';
     errBox.style.display = 'block';
     await sb.auth.signOut();
+    document.getElementById('splashScreen').classList.add('hidden');
+    document.getElementById('loginOverlay').classList.remove('hidden');
     return;
   }
   myProfile = profile;
   document.getElementById('loginOverlay').classList.add('hidden');
   document.getElementById('appRoot').classList.add('ready');
+  document.getElementById('splashScreen').classList.add('hidden');
   const minhaContaEl = document.getElementById('minhaContaInfo');
   if(minhaContaEl) minhaContaEl.textContent = `${profile.name} · ${myUser.email||''} · ${roleLabel(profile.role)}`;
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
@@ -7077,6 +7089,7 @@ function renderAll(){
 (async function init(){
   const { data: { session } } = await sb.auth.getSession();
   if(session){ await afterLogin(session); }
+  else { document.getElementById('splashScreen').classList.add('hidden'); document.getElementById('loginOverlay').classList.remove('hidden'); }
 })();
 
 // ================= PWA: instalação, offline básico e aviso de nova versão =================
