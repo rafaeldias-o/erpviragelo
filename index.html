@@ -1795,14 +1795,15 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
   } else {
     await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm });
   }
-  // Vincula a receita criada automaticamente (pelo gatilho do banco, ao marcar o pedido como entregue) à
-  // conta certa — sem isso, o saldo daquela conta específica nunca refletia a venda, mesmo o faturamento
-  // geral aparecendo certo em outros lugares do sistema.
-  if(accountId){
-    const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita');
-    if(revenueTx){
-      await sb.from('transactions').update({ account_id: accountId, status:'pago', payment_date: revenueTx.paymentDate || todayStr() }).eq('id', revenueTx.id);
-    }
+  // Garante que a receita criada automaticamente (pelo gatilho do banco, ao marcar o pedido como
+  // entregue) sempre tenha data de pagamento preenchida — sem isso, ela conta certo no Faturamento do
+  // Início (que usa a data de vencimento), mas fica de fora do Financeiro (que usa a data de pagamento),
+  // causando os dois números baterem diferente. Vincula à conta certa também, se uma foi escolhida.
+  const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita');
+  if(revenueTx){
+    const patch = { status:'pago', payment_date: revenueTx.paymentDate || todayStr() };
+    if(accountId) patch.account_id = accountId;
+    await sb.from('transactions').update(patch).eq('id', revenueTx.id);
   }
 }
 async function saveOrder(id){
