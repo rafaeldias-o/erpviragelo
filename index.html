@@ -1801,7 +1801,7 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
   // causando os dois números baterem diferente. Vincula à conta certa também, se uma foi escolhida.
   const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita');
   if(revenueTx){
-    const patch = { status:'pago', payment_date: revenueTx.paymentDate || todayStr() };
+    const patch = { status:'pago', payment_date: revenueTx.paymentDate || todayStr(), payment_method: revenueTx.paymentMethod || order.paymentMethod || null };
     if(accountId) patch.account_id = accountId;
     await sb.from('transactions').update(patch).eq('id', revenueTx.id);
   }
