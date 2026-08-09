@@ -1728,39 +1728,82 @@ function renderOrderItems(){
   }
 }
 // Chamado sempre que um pedido é marcado como "entregue" pela primeira vez (seja pelo status rápido na
-// lista de Pedidos, seja salvando o pedido com status Entregue) — pergunta quem fez a entrega, e com a
-// resposta cria (ou atualiza, se já existir uma entrega vinculada a esse pedido pela Agenda) o registro
-// de entrega com o motorista e a distância calculada. É isso que alimenta os quadrantes de Taxa de
-// Entrega em Contas a Pagar — sem essa etapa, a entrega nunca fica associada a nenhum motorista.
+// lista de Pedidos, seja salvando o pedido com status Entregue) — esse é o ÚNICO lugar do sistema onde
+// se define quem entregou, a distância percorrida, e em qual conta o pagamento entra. Mostra o endereço
+// e tenta calcular a distância sozinho; se não conseguir, oferece um campo pra digitar a km manualmente.
 function promptOrderDriver(orderId){
+  const order = state.orders.find(o=>o.id===orderId);
+  const client = order ? state.clients.find(c=>c.id===order.clientId) : null;
+  const address = client ? buildFullAddress(client) : '';
+  const suggested = suggestedAccountForPaymentMethod(order?.paymentMethod);
+  const activeAccounts = state.financialAccounts.filter(a=>a.status!=='inativo');
   openModal(`
-    <div class="modal-head"><h3>Quem entregou esse pedido?</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>Confirmar entrega</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="stat-row-list" style="margin-bottom:14px;">
+      <div class="stat-row"><span class="stat-row-label">Cliente</span><span class="stat-row-value">${esc(client?client.name:'—')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Endereço</span><span class="stat-row-value" style="font-size:12px;text-align:right;">${esc(address||'Não cadastrado')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(order?.paymentMethod||'—')}</span></div>
+    </div>
+    <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
     <div class="field"><label>Será entregue por:</label><select id="odp-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
-    <div class="hint" style="margin-bottom:14px;">Usado pra calcular a taxa de entrega do motorista (Financeiro → Contas a Pagar). Pode pular e definir depois, editando a entrega em Clientes → Agenda de entregas.</div>
+    <div class="field"><label>Creditar pagamento na conta</label><select id="odp-account">
+      <option value="">— Não creditar em nenhuma conta —</option>
+      ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
+    </select></div>
+    <div class="hint" style="margin-bottom:14px;">${suggested ? `Sugerido automaticamente com base na forma de pagamento (${esc(order?.paymentMethod)}). Pode trocar se precisar.` : 'Não há uma conta padrão pra essa forma de pagamento — escolha manualmente, ou deixe em branco pra ajustar depois em Financeiro.'}</div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal(); loadAll().then(renderAll);">Pular</button>
-      <button class="btn btn-primary" onclick="confirmOrderDriver('${orderId}')">Confirmar</button>
+      <button class="btn btn-primary" onclick="confirmOrderDriver('${orderId}')">Confirmar entrega</button>
     </div>
   `);
+  loadDeliveryDistanceIntoModal(client);
+}
+async function loadDeliveryDistanceIntoModal(client){
+  const wrap = document.getElementById('odp-distance-wrap');
+  if(!wrap || !client){ if(wrap) wrap.innerHTML = `<div class="field"><label>Distância até o cliente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`; return; }
+  const result = await ensureClientDistance(client.id);
+  if(!document.body.contains(wrap)) return; // modal já foi fechado antes de terminar de calcular
+  if(result && result.distanceKm!=null){
+    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${result.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${result.distanceKm}">`;
+  } else {
+    wrap.innerHTML = `<div class="field"><label>Não localizei o endereço no mapa — digite a distância manualmente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`;
+  }
+}
+// Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco, Cartão -> Maquininha.
+function suggestedAccountForPaymentMethod(paymentMethod){
+  const typeMap = { 'Dinheiro':'caixa', 'Pix':'banco', 'Cartão de crédito':'maquininha', 'Cartão de débito':'maquininha' };
+  const type = typeMap[paymentMethod];
+  if(!type) return null;
+  return state.financialAccounts.find(a=>a.type===type && a.status!=='inativo') || null;
 }
 async function confirmOrderDriver(orderId){
   const driver = document.getElementById('odp-driver').value || null;
+  const accountId = document.getElementById('odp-account').value || null;
+  const autoEl = document.getElementById('odp-distance-auto');
+  const manualEl = document.getElementById('odp-distance-manual');
+  const distanceKm = autoEl ? parseFloat(autoEl.value) : (manualEl && manualEl.value!=='' ? parseFloat(manualEl.value) : null);
   closeModal();
-  if(driver) await assignDriverToOrderDelivery(orderId, driver);
+  await finalizeOrderDelivery(orderId, driver, distanceKm, accountId);
   await loadAll(); renderAll();
 }
-async function assignDriverToOrderDelivery(orderId, driver){
+async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return;
-  const result = await ensureClientDistance(order.clientId);
-  const distanceKm = result ? result.distanceKm : null;
   const existingDelivery = state.deliveries.find(d=>d.orderId===orderId);
   if(existingDelivery){
     await sb.from('deliveries').update({ driver, distance_km: distanceKm, status:'entregue' }).eq('id', existingDelivery.id);
   } else {
     await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm });
   }
-  if(!distanceKm) toast('Não localizei o endereço no mapa pra calcular a km — edite a entrega em Clientes → Agenda de entregas e digite a quilometragem manualmente', true);
+  // Vincula a receita criada automaticamente (pelo gatilho do banco, ao marcar o pedido como entregue) à
+  // conta certa — sem isso, o saldo daquela conta específica nunca refletia a venda, mesmo o faturamento
+  // geral aparecendo certo em outros lugares do sistema.
+  if(accountId){
+    const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita');
+    if(revenueTx){
+      await sb.from('transactions').update({ account_id: accountId, status:'pago', payment_date: revenueTx.paymentDate || todayStr() }).eq('id', revenueTx.id);
+    }
+  }
 }
 async function saveOrder(id){
   const clientId = document.getElementById('o-client').value;
@@ -4206,7 +4249,6 @@ function showDeliveryForm(clientId){
       <div class="field" style="margin-bottom:6px;"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="dv-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}">${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
-    <div class="field"><label>Será entregue por:</label><select id="dv-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
     <div id="deliveryItemsWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="addDeliveryItemRow('${clientId}')" ${finished.length===0?'disabled':''}>+ Adicionar produto</button>
     <div class="field" style="margin-top:8px;"><label>Observações</label><input id="dv-notes"></div>
@@ -4238,15 +4280,7 @@ async function saveDelivery(clientId){
   const status = document.getElementById('dv-status').value;
   const notes = document.getElementById('dv-notes').value.trim();
   const orderId = document.getElementById('dv-order')?.value || null;
-  const driver = document.getElementById('dv-driver')?.value || null;
-  // Calcula a distância da fábrica até o cliente pra essa entrega específica (fica gravada na entrega,
-  // não recalcula depois — assim a taxa de um mês passado não muda se o endereço do cliente for editado).
-  let distanceKm = null;
-  if(driver){
-    const result = await ensureClientDistance(clientId);
-    if(result) distanceKm = result.distanceKm;
-  }
-  const { data: created, error } = await sb.from('deliveries').insert({ client_id: clientId, date, time, status, notes, order_id: orderId, driver, distance_km: distanceKm }).select().single();
+  const { data: created, error } = await sb.from('deliveries').insert({ client_id: clientId, date, time, status, notes, order_id: orderId }).select().single();
   if(error){ dbErr(error, 'Erro ao agendar entrega'); return; }
   if(deliveryDraftItems.length){
     const rows = deliveryDraftItems.map(it=>{
@@ -4603,11 +4637,6 @@ function openDeliveryEditModal(id){
       <div class="field"><label>Status</label><select id="ed-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select></div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="ed-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}" ${o.id===d.orderId?'selected':''}>${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
-    <div class="field-row">
-      <div class="field"><label>Será entregue por:</label><select id="ed-driver"><option value="">— Não definido —</option><option value="beto" ${d.driver==='beto'?'selected':''}>Beto</option><option value="gui" ${d.driver==='gui'?'selected':''}>Gui</option></select></div>
-      <div class="field"><label>Distância até o cliente (km)</label><input id="ed-distance" type="number" step="0.1" min="0" value="${d.distanceKm!=null?d.distanceKm:''}" placeholder="Calculada automaticamente"></div>
-    </div>
-    <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Se o endereço do cliente não for encontrado no mapa automaticamente, digite a quilometragem manualmente aqui.</div>
     <div id="editDeliveryItemsWrap"></div>
     <button class="btn btn-ghost btn-sm" onclick="addEditDeliveryItem()">+ Adicionar produto</button>
     <div class="field" style="margin-top:8px;"><label>Observações</label><input id="ed-notes" value="${esc(d.notes||'')}"></div>
@@ -4643,19 +4672,9 @@ async function saveDeliveryEdit(id){
   const status = document.getElementById('ed-status').value;
   const orderId = document.getElementById('ed-order')?.value || null;
   const notes = document.getElementById('ed-notes').value.trim();
-  const driver = document.getElementById('ed-driver')?.value || null;
-  const d = state.deliveries.find(x=>x.id===id);
-  // A distância agora é editável na tela — se a pessoa digitou um valor, respeita exatamente esse valor
-  // (não sobrescreve). Só tenta calcular automaticamente quando o campo está vazio e tem motorista definido —
-  // útil pro caso do endereço não ser encontrado pelo geocodificador (ex: rua não mapeada com precisão).
-  const distanceInput = document.getElementById('ed-distance').value;
-  let distanceKm = distanceInput !== '' ? parseFloat(distanceInput) : null;
-  if(driver && distanceKm==null){
-    const result = await ensureClientDistance(d.clientId);
-    if(result) distanceKm = result.distanceKm;
-    else toast('Não localizei o endereço no mapa — digite a quilometragem manualmente e salve de novo', true);
-  }
-  const { error } = await sb.from('deliveries').update({ date, time, status, order_id: orderId, notes, driver, distance_km: distanceKm }).eq('id', id);
+  // Motorista e distância são definidos só ao marcar o pedido como entregue (aba Pedidos) — aqui não
+  // mexe nesses campos, pra não sobrescrever o que já foi definido por lá.
+  const { error } = await sb.from('deliveries').update({ date, time, status, order_id: orderId, notes }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao salvar entrega'); return; }
   await sb.from('delivery_items').delete().eq('delivery_id', id);
   if(deliveryDraftItems.length){
