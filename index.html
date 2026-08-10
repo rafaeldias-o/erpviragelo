@@ -4095,8 +4095,17 @@ async function geocodeAddress(query, expectedCity){
 // Monta o endereço completo na ordem que o geocodificador espera: Rua e número (já vêm juntos no
 // campo "endereço", seguindo o padrão de cadastro) + Bairro + Cidade + Estado + CEP. Nunca separa o
 // número do nome da rua — usa o campo de endereço exatamente como foi digitado.
+// Alguns endereços (principalmente de importação em massa) já vêm com um bairro/cidade DIFERENTE
+// embutido no próprio texto (ex: "R. Aldo Hulse, 25 - Centro, Tubarão - SC", mesmo o prospect estando
+// cadastrado no bairro Andrino) — isso deixa a busca contraditória (dois bairros, cidade repetida) e
+// confunde o geocodificador. Remove esse sufixo embutido antes de montar o endereço final.
+function cleanEmbeddedLocality(address){
+  if(!address) return address;
+  return address.replace(/\s*-\s*[^,]+,\s*[^-]+-\s*[A-Z]{2}\s*$/,'').trim();
+}
 function buildFullAddress(entity){
-  return [entity.address, entity.neighborhood, entity.city, entity.state, entity.cep].filter(Boolean).join(', ');
+  const cleanAddress = cleanEmbeddedLocality(entity.address);
+  return [cleanAddress, entity.neighborhood, entity.city, entity.state, entity.cep].filter(Boolean).join(', ');
 }
 // Tudo antes do primeiro número do endereço (ex: "Rua Guilherme Wileman, 428" -> "Rua Guilherme Wileman")
 function stripAddressNumber(address){
@@ -4104,10 +4113,10 @@ function stripAddressNumber(address){
   const match = address.match(/^(.*?),?\s*\d+/);
   return match ? match[1].trim() : address;
 }
-// Geocodifica um cliente/prospect com uma segunda tentativa: se o endereço completo (com número) não for
-// encontrado — o que acontece quando o serviço gratuito de mapas não tem aquele número específico mapeado,
-// mesmo a rua existindo — tenta de novo só com o nome da rua. É uma localização aproximada (fica marcada
-// como tal), mas ainda assim muito mais útil do que excluir a parada da rota por completo.
+// Geocodifica um cliente/prospect com fallbacks progressivos: 1) endereço completo; 2) sem o nome do
+// bairro (bairros pequenos/informais às vezes não são reconhecidos pelo serviço de mapas, e incluir um
+// nome que ele não conhece atrapalha em vez de ajudar); 3) só o nome da rua, sem o número. Cada etapa é
+// uma localização progressivamente mais aproximada, mas ainda assim mais útil do que excluir a parada.
 // Respeita o limite de 1 requisição por segundo do serviço gratuito de mapas (Nominatim) — sem essa
 // pausa, gerar uma rota com muitos endereços de uma vez (ex: um bairro com 15+ prospects) dispara
 // requisições rápido demais, o serviço passa a rejeitar tudo, e NENHUM endereço é encontrado, mesmo
@@ -4118,10 +4127,18 @@ async function geocodeEntityWithFallback(entity){
   if(!fullQuery) return { coords:null, approximate:false, queryUsed:null };
   let coords = await geocodeAddress(fullQuery + ', Brasil', entity.city);
   if(coords) return { coords, approximate:false, queryUsed:fullQuery };
-  const streetOnly = stripAddressNumber(entity.address);
+
+  if(entity.neighborhood){
+    await sleepMs(1100);
+    const withoutNeighborhood = buildFullAddress({...entity, neighborhood:null});
+    coords = await geocodeAddress(withoutNeighborhood + ', Brasil', entity.city);
+    if(coords) return { coords, approximate:true, queryUsed:withoutNeighborhood };
+  }
+
+  const streetOnly = stripAddressNumber(cleanEmbeddedLocality(entity.address));
   if(streetOnly && streetOnly !== entity.address){
     await sleepMs(1100);
-    const fallbackQuery = buildFullAddress({...entity, address:streetOnly});
+    const fallbackQuery = buildFullAddress({...entity, address:streetOnly, neighborhood:null});
     coords = await geocodeAddress(fallbackQuery + ', Brasil', entity.city);
     if(coords) return { coords, approximate:true, queryUsed:fallbackQuery };
   }
