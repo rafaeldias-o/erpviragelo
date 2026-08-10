@@ -91,6 +91,13 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .two-col-equal{grid-template-columns:1fr 1fr;}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 @media(max-width:920px){.two-col,.three-col{grid-template-columns:1fr;}}
+@media print{
+  .sidebar,.topbar,.bottom-nav,.tabs,.btn,.row-actions,.icon-btn,.more-sheet-overlay,.modal-overlay,.toast{display:none !important;}
+  .content{padding:0;margin:0;max-width:100%;}
+  .panel{border:none;box-shadow:none;padding:0;margin-bottom:18px;page-break-inside:avoid;}
+  body,.app{background:#fff !important;}
+  table{font-size:12px;}
+}
 
 .tabs{display:flex;gap:4px;background:var(--surface-2);padding:4px;border-radius:9px;width:fit-content;margin-bottom:14px;}
 .tab{padding:7px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);}
@@ -834,26 +841,46 @@ tr:last-child td{border-bottom:none;}
 
       <!-- RELATORIOS -->
       <section class="view" id="view-relatorios">
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">Relatórios</div></div>
-          <div class="field-row3">
-            <div class="field"><label>Tipo de relatório</label>
-              <select id="reportType" onchange="renderReport()">
-                <option value="faturamento">Faturamento (pedidos)</option>
-                <option value="despesas">Despesas</option>
-                <option value="pedidos">Pedidos</option>
-                <option value="producao">Produção</option>
-                <option value="estoque">Estoque atual</option>
-                <option value="mais_vendidos">Produtos mais vendidos</option>
-                <option value="melhores_clientes">Clientes que mais compram</option>
-                <option value="funil">Funil de vendas</option>
-              </select>
+        <div class="tabs">
+          <div class="tab active" data-reporttab="filtros" onclick="setReportTab('filtros')">Relatório Personalizado</div>
+          <div class="tab" data-reporttab="mensal" onclick="setReportTab('mensal')">📊 Relatório Mensal</div>
+        </div>
+        <div id="reportFiltrosView">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Relatórios</div></div>
+            <div class="field-row3">
+              <div class="field"><label>Tipo de relatório</label>
+                <select id="reportType" onchange="renderReport()">
+                  <option value="faturamento">Faturamento (pedidos)</option>
+                  <option value="despesas">Despesas</option>
+                  <option value="pedidos">Pedidos</option>
+                  <option value="producao">Produção</option>
+                  <option value="estoque">Estoque atual</option>
+                  <option value="mais_vendidos">Produtos mais vendidos</option>
+                  <option value="melhores_clientes">Clientes que mais compram</option>
+                  <option value="funil">Funil de vendas</option>
+                </select>
+              </div>
+              <div class="field"><label>De</label><input type="date" id="reportFrom" onchange="renderReport()"></div>
+              <div class="field"><label>Até</label><input type="date" id="reportTo" onchange="renderReport()"></div>
             </div>
-            <div class="field"><label>De</label><input type="date" id="reportFrom" onchange="renderReport()"></div>
-            <div class="field"><label>Até</label><input type="date" id="reportTo" onchange="renderReport()"></div>
+            <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-ghost btn-sm" onclick="exportReportCSV()">Exportar CSV</button></div>
+            <div id="reportTableWrap" class="table-scroll"></div>
           </div>
-          <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-ghost btn-sm" onclick="exportReportCSV()">Exportar CSV</button></div>
-          <div id="reportTableWrap" class="table-scroll"></div>
+        </div>
+        <div id="reportMensalView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Relatório Mensal Fechado</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(-1)">←</button>
+                <span id="reportMensalMonthLabel" style="font-weight:600;min-width:130px;text-align:center;"></span>
+                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(1)">→</button>
+                <button class="btn btn-primary btn-sm" onclick="window.print()">🖨️ Imprimir / Exportar PDF</button>
+              </div>
+            </div>
+            <div id="reportMensalWrap"></div>
+          </div>
         </div>
       </section>
 
@@ -5886,6 +5913,108 @@ async function convertProspectDirectlyToClient(prospectId){
 // =========================================================
 function inRange(dateStr, from, to){ if(!dateStr) return false; if(from && dateStr<from) return false; if(to && dateStr>to) return false; return true; }
 let lastReportData = { headers: [], rows: [] };
+function setReportTab(tab){
+  document.querySelectorAll('[data-reporttab]').forEach(t=>t.classList.toggle('active', t.dataset.reporttab===tab));
+  document.getElementById('reportFiltrosView').style.display = tab==='filtros' ? 'block' : 'none';
+  document.getElementById('reportMensalView').style.display = tab==='mensal' ? 'block' : 'none';
+  if(tab==='mensal') renderReportMensal();
+}
+let reportMensalOffset = 0;
+function reportMensalChangeMonth(delta){ reportMensalOffset += delta; renderReportMensal(); }
+function reportMensalRange(){
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+reportMensalOffset);
+  const y=base.getFullYear(), m=base.getMonth();
+  return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
+}
+// Relatório mensal fechado — junta num só lugar tudo que normalmente está espalhado pelo sistema
+// (financeiro, produção, entregas, estoque, clientes), pronto pra revisar em poucos minutos ou
+// imprimir/exportar em PDF pro contador. Não lança nada, só consulta e apresenta.
+function renderReportMensal(){
+  const wrap = document.getElementById('reportMensalWrap');
+  if(!wrap) return;
+  const range = reportMensalRange();
+  document.getElementById('reportMensalMonthLabel').textContent = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+
+  const receitas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const despesas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to);
+  const faturamentoBruto = receitas.reduce((s,t)=>s+t.amount,0);
+  const despesaTotal = despesas.reduce((s,t)=>s+t.amount,0);
+  const resultadoCaixa = faturamentoBruto - despesaTotal;
+
+  const pedidosEntregues = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to);
+  const stockById = {}; state.stockItems.forEach(s=>stockById[s.id]=s);
+  const margemBruta = pedidosEntregues.reduce((sum,o)=>{
+    const itemsMargin = o.items.reduce((s,it)=> s + (it.unitPrice - (stockById[it.productId]?.costPrice||0)) * it.qty, 0);
+    return sum + itemsMargin - (o.discount||0);
+  }, 0);
+  const ticketMedio = pedidosEntregues.length ? faturamentoBruto/pedidosEntregues.length : 0;
+  const vendidoUn = pedidosEntregues.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+
+  const producaoMes = state.production.filter(p=>p.date>=range.from && p.date<=range.to).reduce((s,p)=>s+Number(p.kg),0);
+
+  // Despesas por categoria, maior pra menor
+  const despesasPorCategoria = {};
+  despesas.forEach(t=>{ const cat = t.category||'Sem categoria'; despesasPorCategoria[cat] = (despesasPorCategoria[cat]||0) + t.amount; });
+  const categoriasOrdenadas = Object.entries(despesasPorCategoria).sort((a,b)=>b[1]-a[1]);
+
+  // Entregas e taxa por motorista
+  const entregasNoMes = state.deliveries.filter(d=>d.status==='entregue' && d.date>=range.from && d.date<=range.to);
+  const feesPorMotorista = DELIVERY_DRIVERS.map(dr=>({ label: dr.label, ...driverFeeForPeriod(dr.v, range.from, range.to) }));
+
+  const estoqueFinalizado = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
+  const estoqueMateriaPrima = state.stockItems.filter(p=>p.category==='materia_prima').reduce((s,p)=>s+p.qty*(p.costPrice||0),0);
+
+  const clientesNovos = state.clients.filter(c=>c.createdAt>=range.from && c.createdAt<=range.to).length;
+  const clientesAtivos = state.clients.filter(c=>c.status==='ativo').length;
+
+  wrap.innerHTML = `
+    <div style="text-align:center;margin-bottom:22px;">
+      <div style="font-size:20px;font-weight:700;">${esc(state.company.name||'ViraGelo')}</div>
+      <div style="color:var(--muted);font-size:13px;">Relatório Mensal — ${range.label.charAt(0).toUpperCase()+range.label.slice(1)}</div>
+      <div style="color:var(--muted);font-size:11px;">Gerado em ${fmtDate(todayStr())}</div>
+    </div>
+
+    <div class="subhead" style="margin-top:0;">💰 Financeiro</div>
+    <div class="stat-grid" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Faturamento bruto</div><div class="stat-value">${fmtMoney(faturamentoBruto)}</div></div>
+      <div class="stat-card"><div class="stat-label">Margem bruta de vendas</div><div class="stat-value" style="color:${margemBruta>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBruta)}</div></div>
+      <div class="stat-card"><div class="stat-label">Despesas totais</div><div class="stat-value">${fmtMoney(despesaTotal)}</div></div>
+      <div class="stat-card"><div class="stat-label">Resultado de caixa</div><div class="stat-value" style="color:${resultadoCaixa>=0?'var(--success)':'var(--danger)'}">${fmtMoney(resultadoCaixa)}</div></div>
+    </div>
+
+    <div class="subhead">📋 Despesas por categoria</div>
+    <table style="margin-bottom:18px;"><thead><tr><th>Categoria</th><th>Valor</th><th>% do total</th></tr></thead><tbody>
+      ${categoriasOrdenadas.length===0 ? '<tr><td colspan="3" style="color:var(--muted);">Nenhuma despesa no período.</td></tr>' :
+        categoriasOrdenadas.map(([cat,val])=>`<tr><td>${esc(cat)}</td><td>${fmtMoney(val)}</td><td>${despesaTotal>0?(val/despesaTotal*100).toFixed(1):'0.0'}%</td></tr>`).join('')}
+    </tbody></table>
+
+    <div class="subhead">📦 Produção e Vendas</div>
+    <div class="stat-grid" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value">${producaoMes.toLocaleString('pt-BR',{maximumFractionDigits:1})} kg</div></div>
+      <div class="stat-card"><div class="stat-label">Vendido no mês</div><div class="stat-value">${vendidoUn} un</div></div>
+      <div class="stat-card"><div class="stat-label">Pedidos entregues</div><div class="stat-value">${pedidosEntregues.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value">${fmtMoney(ticketMedio)}</div></div>
+    </div>
+
+    <div class="subhead">🚚 Entregas e Motoristas</div>
+    <table style="margin-bottom:18px;"><thead><tr><th>Motorista</th><th>Entregas</th><th>Km rodados</th><th>Combustível estimado</th><th>Valor a pagar</th></tr></thead><tbody>
+      ${feesPorMotorista.map(f=>`<tr><td>${esc(f.label)}</td><td>${f.count}</td><td>${f.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</td><td>${f.liters.toLocaleString('pt-BR',{maximumFractionDigits:1})} L</td><td>${fmtMoney(f.value)}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="hint" style="margin-top:-10px;margin-bottom:18px;">Total de entregas concluídas no período: ${entregasNoMes.length}</div>
+
+    <div class="subhead">🧊 Estoque (posição no fim do período)</div>
+    <div class="stat-grid" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Valor em produtos acabados</div><div class="stat-value">${fmtMoney(estoqueFinalizado)}</div></div>
+      <div class="stat-card"><div class="stat-label">Valor em matéria-prima</div><div class="stat-value">${fmtMoney(estoqueMateriaPrima)}</div></div>
+    </div>
+
+    <div class="subhead">👥 Clientes</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Clientes novos no mês</div><div class="stat-value">${clientesNovos}</div></div>
+      <div class="stat-card"><div class="stat-label">Total de clientes ativos</div><div class="stat-value">${clientesAtivos}</div></div>
+    </div>
+  `;
+}
 function renderReport(){
   const type = document.getElementById('reportType').value;
   const from = document.getElementById('reportFrom').value;
@@ -7101,6 +7230,7 @@ function renderAll(){
   renderDashboard(); renderEstoque(); renderProducao(); renderPedidos();
   renderFinanceiro(); renderCRM(); renderClientesModule(); renderVisitas();
   if(document.getElementById('reportFrom')) renderReport();
+  if(document.getElementById('reportMensalWrap')) renderReportMensal();
   renderConfig();
   renderNotifications();
   updateNotifBadge();
