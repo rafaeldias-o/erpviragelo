@@ -4108,6 +4108,11 @@ function stripAddressNumber(address){
 // encontrado — o que acontece quando o serviço gratuito de mapas não tem aquele número específico mapeado,
 // mesmo a rua existindo — tenta de novo só com o nome da rua. É uma localização aproximada (fica marcada
 // como tal), mas ainda assim muito mais útil do que excluir a parada da rota por completo.
+// Respeita o limite de 1 requisição por segundo do serviço gratuito de mapas (Nominatim) — sem essa
+// pausa, gerar uma rota com muitos endereços de uma vez (ex: um bairro com 15+ prospects) dispara
+// requisições rápido demais, o serviço passa a rejeitar tudo, e NENHUM endereço é encontrado, mesmo
+// existindo de verdade.
+function sleepMs(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
 async function geocodeEntityWithFallback(entity){
   const fullQuery = buildFullAddress(entity);
   if(!fullQuery) return { coords:null, approximate:false, queryUsed:null };
@@ -4115,6 +4120,7 @@ async function geocodeEntityWithFallback(entity){
   if(coords) return { coords, approximate:false, queryUsed:fullQuery };
   const streetOnly = stripAddressNumber(entity.address);
   if(streetOnly && streetOnly !== entity.address){
+    await sleepMs(1100);
     const fallbackQuery = buildFullAddress({...entity, address:streetOnly});
     coords = await geocodeAddress(fallbackQuery + ', Brasil', entity.city);
     if(coords) return { coords, approximate:true, queryUsed:fallbackQuery };
@@ -5590,22 +5596,27 @@ async function crGenerateRoute(){
   // Geocodifica quem ainda não tem coordenada, usando o endereço completo (rua+número, bairro, cidade,
   // estado, CEP — nunca separa o número da rua) — e já grava no banco, pra não precisar geocodificar de novo.
   // Se o endereço completo não for encontrado, tenta de novo só com a rua (localização aproximada) em vez
-  // de simplesmente excluir a parada da rota.
-  for(const c of selected){
-    if(c.lat==null || c.lng==null){
-      const { coords, approximate, queryUsed } = await geocodeEntityWithFallback(c);
-      const now = new Date().toISOString();
-      if(coords){
-        c.lat = coords.lat; c.lng = coords.lng; c.approximateLocation = approximate;
-        const status = approximate ? 'aproximado' : 'ok';
-        if(c.type==='client') await sb.from('clients').update({ lat:coords.lat, lng:coords.lng, geocoded_address:queryUsed, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
-        else await sb.from('field_prospects').update({ lat:coords.lat, lng:coords.lng, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
-      } else {
-        if(c.type==='client') await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
-        else await sb.from('field_prospects').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
-      }
+  // de simplesmente excluir a parada da rota. Uma pausa entre cada endereço evita sobrecarregar o serviço
+  // de mapas (que aí rejeita tudo de uma vez) quando o bairro tem muitos prospects.
+  const toGeocode = selected.filter(c=>c.lat==null || c.lng==null);
+  let geocodedCount = 0;
+  for(const c of toGeocode){
+    geocodedCount++;
+    if(toGeocode.length>3) document.getElementById('crwLoading').textContent = `Localizando endereços no mapa... (${geocodedCount}/${toGeocode.length})`;
+    const { coords, approximate, queryUsed } = await geocodeEntityWithFallback(c);
+    const now = new Date().toISOString();
+    if(coords){
+      c.lat = coords.lat; c.lng = coords.lng; c.approximateLocation = approximate;
+      const status = approximate ? 'aproximado' : 'ok';
+      if(c.type==='client') await sb.from('clients').update({ lat:coords.lat, lng:coords.lng, geocoded_address:queryUsed, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
+      else await sb.from('field_prospects').update({ lat:coords.lat, lng:coords.lng, geocoding_status:status, last_geocoding:now }).eq('id', c.id);
+    } else {
+      if(c.type==='client') await sb.from('clients').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
+      else await sb.from('field_prospects').update({ geocoding_status:'nao_encontrado', last_geocoding:now }).eq('id', c.id);
     }
+    if(geocodedCount < toGeocode.length) await sleepMs(1100);
   }
+  document.getElementById('crwLoading').textContent = 'Calculando a melhor rota...';
   const withCoords = selected.filter(c=>c.lat!=null && c.lng!=null);
   const withoutCoordsList = selected.filter(c=>c.lat==null || c.lng==null);
   if(withCoords.length===0){
