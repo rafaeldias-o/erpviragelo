@@ -377,6 +377,7 @@ tr:last-child td{border-bottom:none;}
             <div class="tab" data-notifperiod="mes" onclick="setNotifPeriod('mes')">Este mês</div>
             <div class="tab" data-notifperiod="todos" onclick="setNotifPeriod('todos')">Todos</div>
           </div>
+          <div class="hint" style="margin-top:-8px;margin-bottom:12px;">Filtra Alertas, Tarefas e Entregas abaixo. Compromissos tem o próprio filtro de período, no painel dele.</div>
           <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
 
           <div class="panel">
@@ -399,7 +400,18 @@ tr:last-child td{border-bottom:none;}
             </div>
           </div>
           <div class="panel">
-            <div class="panel-head"><div class="section-title">📅 Compromissos</div><button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">+ Novo compromisso</button></div>
+            <div class="panel-head">
+              <div class="section-title">📅 Compromissos</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="notifCommitPeriod" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="setNotifCommitPeriod(this.value)">
+                  <option value="hoje">Hoje</option>
+                  <option value="semana">Próximos 7 dias</option>
+                  <option value="mes" selected>Este mês</option>
+                  <option value="todos">Todos</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">+ Novo compromisso</button>
+              </div>
+            </div>
             <div id="notifCommitmentsWrap"></div>
           </div>
         </div>
@@ -6377,6 +6389,17 @@ function notifPeriodLimit(){
   if(notifPeriod==='mes'){ const now = new Date(); const last = new Date(now.getFullYear(), now.getMonth()+1, 0); return last.toISOString().slice(0,10); }
   return null; // 'todos' — sem limite superior
 }
+// Compromissos tem seu próprio filtro de período, separado do filtro geral (Alertas/Tarefas/Entregas) —
+// evita a confusão de um filtro lá no topo controlando um painel que fica bem mais embaixo na tela.
+let notifCommitPeriod = 'mes';
+function setNotifCommitPeriod(v){ notifCommitPeriod = v; renderNotifCommitments(); }
+function notifCommitPeriodLimit(){
+  const today = todayStr();
+  if(notifCommitPeriod==='hoje') return today;
+  if(notifCommitPeriod==='semana'){ const d = new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); }
+  if(notifCommitPeriod==='mes'){ const now = new Date(); const last = new Date(now.getFullYear(), now.getMonth()+1, 0); return last.toISOString().slice(0,10); }
+  return null; // 'todos' — sem limite superior
+}
 function renderNotifications(){
   renderNotifSummary();
   renderNotifAlerts();
@@ -6773,7 +6796,7 @@ function renderNotifCommitments(){
   if(!wrap) return;
   const q = (document.getElementById('notifSearch')?.value||'').toLowerCase();
   const today = todayStr();
-  const limit = notifPeriodLimit();
+  const limit = notifCommitPeriodLimit();
   let list = state.commitments.filter(c=>c.status==='pendente');
   list = list.filter(c=> c.date<today || limit===null || c.date<=limit);
   if(q) list = list.filter(c=>c.title.toLowerCase().includes(q));
