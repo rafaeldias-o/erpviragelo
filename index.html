@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ViraGelo — ERP</title>
 <link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <meta name="theme-color" content="#1C7FA3">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -13,6 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ViraGelo">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -90,8 +92,9 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
 .two-col-equal{grid-template-columns:1fr 1fr;}
 .two-col-sidebar{grid-template-columns:230px 1fr;}
+.regioes-layout{grid-template-columns:230px 1fr 340px;}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
-@media(max-width:920px){.two-col,.three-col{grid-template-columns:1fr;}}
+@media(max-width:920px){.two-col,.three-col,.regioes-layout{grid-template-columns:1fr;}}
 @media print{
   .sidebar,.topbar,.bottom-nav,.tabs,.btn,.row-actions,.icon-btn,.more-sheet-overlay,.modal-overlay,.toast{display:none !important;}
   .content{padding:0;margin:0;max-width:100%;}
@@ -236,7 +239,7 @@ tr:last-child td{border-bottom:none;}
   .sidebar{display:none;}
   .content{padding:14px 14px 84px 14px;overflow-x:hidden;max-width:100vw;}
   .field-row,.field-row3{grid-template-columns:1fr;}
-  .two-col,.three-col{grid-template-columns:1fr;}
+  .two-col,.three-col,.regioes-layout{grid-template-columns:1fr;}
   .topbar{flex-wrap:wrap;gap:8px;}
   .topbar-right{gap:8px;}
   /* Abas com muitos itens (ex: Financeiro tem 9) não cabem numa linha só em telas pequenas — em vez de
@@ -838,16 +841,29 @@ tr:last-child td{border-bottom:none;}
         </div>
 
         <div id="visitasRegioesView">
-          <div class="two-col">
+          <div class="stat-grid" id="regioesStatsGrid" style="margin-bottom:18px;"></div>
+          <div class="two-col regioes-layout">
             <div class="panel">
               <div class="panel-head"><div class="section-title">Cidades</div><button class="btn btn-primary btn-sm" onclick="openCityModal()">+ Nova cidade</button></div>
               <div id="citiesTableWrap" class="table-scroll"></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><div class="section-title" id="neighborhoodsPanelTitle">Bairros</div><button class="btn btn-primary btn-sm" id="btnNewNeighborhood" onclick="openNeighborhoodModal()" disabled>+ Novo bairro</button></div>
-              <div id="neighborhoodsTableWrap" class="table-scroll"></div>
+              <div class="panel-head">
+                <div class="section-title" id="neighborhoodsPanelTitle">Bairros</div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input type="text" id="bairroSearchInput" placeholder="Buscar bairro..." oninput="renderNeighborhoodsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:150px;">
+                  <button class="btn btn-primary btn-sm" id="btnNewNeighborhood" onclick="openNeighborhoodModal()" disabled>+ Novo bairro</button>
+                </div>
+              </div>
+              <div id="neighborhoodsTableWrap"></div>
+              <div class="hint" style="margin-top:12px;margin-bottom:0;">📅 Agendadas · ✅ Realizadas · % Taxa de conversão (semana atual). Clique em um bairro pra ver detalhes e prospects.</div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">Mapa — <span id="mapaCityLabel">—</span></div></div>
+              <div id="visitasMap" style="height:440px;border-radius:10px;background:var(--surface-2);"></div>
             </div>
           </div>
+          <div class="panel" id="regioesSummaryBar"></div>
         </div>
 
         <div id="visitasProspectsView" style="display:none;">
@@ -5559,12 +5575,121 @@ function setVisitasTab(tab){
   document.getElementById('visitasProspectsView').style.display = tab==='prospects' ? 'block' : 'none';
   document.getElementById('visitasRotasView').style.display = tab==='rotas' ? 'block' : 'none';
   renderVisitas();
+  if(tab==='regioes') setTimeout(()=>{ if(visitasLeafletMap) visitasLeafletMap.invalidateSize(); }, 100);
 }
 function renderVisitas(){
+  if(!selectedVisitCityId && state.visitCities.length>0) selectedVisitCityId = state.visitCities[0].id;
+  renderRegioesStats();
   renderCitiesTable();
   renderNeighborhoodsTable();
+  renderVisitasMap();
+  renderRegioesSummaryBar();
   renderProspectsTable();
   renderCommercialRoutes();
+}
+// Semana atual (segunda a domingo) — usada tanto nos cards do topo quanto nos indicadores de cada bairro.
+function currentWeekStartStr(){
+  const now = new Date();
+  const day = now.getDay(); // 0=domingo
+  const diffToMonday = day===0 ? 6 : day-1;
+  const monday = new Date(now); monday.setDate(now.getDate()-diffToMonday); monday.setHours(0,0,0,0);
+  return monday.toISOString().slice(0,10);
+}
+function bairroStats(neighborhoodId){
+  const prospects = state.fieldProspects.filter(p=>p.neighborhoodId===neighborhoodId).length;
+  const weekStart = currentWeekStartStr();
+  const routesThisWeek = state.commercialRoutes.filter(r=>r.neighborhoodId===neighborhoodId && r.plannedDate>=weekStart);
+  const stops = routesThisWeek.flatMap(r=>r.stops);
+  const agendadas = stops.length;
+  const realizadas = stops.filter(s=>s.visitStatus!=='pendente').length;
+  const convertidas = stops.filter(s=>s.visitStatus==='virou_lead'||s.visitStatus==='virou_cliente').length;
+  const conversao = realizadas>0 ? (convertidas/realizadas*100) : 0;
+  return { prospects, agendadas, realizadas, conversao };
+}
+function renderRegioesStats(){
+  const box = document.getElementById('regioesStatsGrid');
+  if(!box) return;
+  const weekStart = currentWeekStartStr();
+  const stopsThisWeek = state.commercialRoutes.filter(r=>r.plannedDate>=weekStart).flatMap(r=>r.stops);
+  const agendadas = stopsThisWeek.length;
+  const realizadas = stopsThisWeek.filter(s=>s.visitStatus!=='pendente').length;
+  const allStops = state.commercialRoutes.flatMap(r=>r.stops);
+  const realizadasTotal = allStops.filter(s=>s.visitStatus!=='pendente').length;
+  const convertidasTotal = allStops.filter(s=>s.visitStatus==='virou_lead'||s.visitStatus==='virou_cliente').length;
+  const taxaConversao = realizadasTotal>0 ? (convertidasTotal/realizadasTotal*100) : 0;
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">🏢 Cidades</div><div class="stat-value">${state.visitCities.length}</div><div class="stat-note">cadastrada${state.visitCities.length!==1?'s':''}</div></div>
+    <div class="stat-card"><div class="stat-label">📍 Bairros</div><div class="stat-value">${state.visitNeighborhoods.length}</div><div class="stat-note">cadastrados</div></div>
+    <div class="stat-card"><div class="stat-label">👥 Prospects</div><div class="stat-value">${state.fieldProspects.length}</div><div class="stat-note">total</div></div>
+    <div class="stat-card"><div class="stat-label">📅 Visitas agendadas</div><div class="stat-value">${agendadas}</div><div class="stat-note">esta semana</div></div>
+    <div class="stat-card"><div class="stat-label">✅ Visitas realizadas</div><div class="stat-value">${realizadas}</div><div class="stat-note">esta semana</div></div>
+    <div class="stat-card"><div class="stat-label">📈 Taxa de conversão</div><div class="stat-value">${taxaConversao.toFixed(0)}%</div><div class="stat-note">média</div></div>
+  `;
+}
+function renderRegioesSummaryBar(){
+  const box = document.getElementById('regioesSummaryBar');
+  if(!box) return;
+  const city = state.visitCities.find(c=>c.id===selectedVisitCityId);
+  if(!city){ box.innerHTML = ''; return; }
+  const bairrosDaCidade = state.visitNeighborhoods.filter(n=>n.cityId===city.id);
+  const prospectsIds = new Set(state.fieldProspects.filter(p=>p.cityId===city.id).map(p=>p.id));
+  const weekStart = currentWeekStartStr();
+  const routesCity = state.commercialRoutes.filter(r=>r.cityId===city.id && r.plannedDate>=weekStart);
+  const stops = routesCity.flatMap(r=>r.stops);
+  const agendadas = stops.length;
+  const realizadas = stops.filter(s=>s.visitStatus!=='pendente').length;
+  const convertidas = stops.filter(s=>s.visitStatus==='virou_lead'||s.visitStatus==='virou_cliente').length;
+  const conversao = realizadas>0 ? (convertidas/realizadas*100) : 0;
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:20px;">
+      <div><div style="font-weight:700;font-size:14px;">📍 ${esc(city.name)}${city.state?' · '+esc(city.state):''}</div><div class="hint" style="margin-top:2px;">${bairrosDaCidade.length} bairro(s) cadastrado(s)</div></div>
+      <div><div style="font-weight:700;font-size:18px;">${prospectsIds.size}</div><div class="hint">prospects totais</div></div>
+      <div><div style="font-weight:700;font-size:18px;">${agendadas}</div><div class="hint">visitas agendadas (semana)</div></div>
+      <div><div style="font-weight:700;font-size:18px;">${realizadas}</div><div class="hint">visitas realizadas (semana)</div></div>
+      <div><div style="font-weight:700;font-size:18px;">${conversao.toFixed(0)}%</div><div class="hint">taxa de conversão média</div></div>
+    </div>
+  `;
+}
+let visitasLeafletMap = null;
+let visitasLeafletMarkers = [];
+function renderVisitasMap(){
+  const el = document.getElementById('visitasMap');
+  if(!el || typeof L==='undefined') return;
+  const city = state.visitCities.find(c=>c.id===selectedVisitCityId);
+  document.getElementById('mapaCityLabel').textContent = city ? city.name : '—';
+
+  if(!visitasLeafletMap){
+    visitasLeafletMap = L.map(el).setView([-28.47, -48.98], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(visitasLeafletMap);
+  }
+  visitasLeafletMarkers.forEach(m=>visitasLeafletMap.removeLayer(m));
+  visitasLeafletMarkers = [];
+  if(!city) return;
+
+  // Fábrica, se tiver coordenada
+  if(state.company.lat!=null && state.company.lng!=null){
+    const factoryIcon = L.divIcon({ className:'', html:'<div style="background:#1C7FA3;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏭</div>', iconSize:[30,30] });
+    const m = L.marker([state.company.lat, state.company.lng], {icon:factoryIcon}).addTo(visitasLeafletMap).bindPopup('Fábrica');
+    visitasLeafletMarkers.push(m);
+  }
+
+  // Um marcador por bairro, na posição média dos prospects geocodificados daquele bairro, com o total de prospects
+  const bairros = state.visitNeighborhoods.filter(n=>n.cityId===city.id);
+  const bounds = [];
+  bairros.forEach(n=>{
+    const prospects = state.fieldProspects.filter(p=>p.neighborhoodId===n.id && p.lat!=null && p.lng!=null);
+    const totalNoBairro = state.fieldProspects.filter(p=>p.neighborhoodId===n.id).length;
+    if(prospects.length===0 || totalNoBairro===0) return;
+    const avgLat = prospects.reduce((s,p)=>s+p.lat,0)/prospects.length;
+    const avgLng = prospects.reduce((s,p)=>s+p.lng,0)/prospects.length;
+    const icon = L.divIcon({ className:'', html:`<div style="background:#4FC3E0;color:#0E2438;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${totalNoBairro}</div>`, iconSize:[30,30] });
+    const marker = L.marker([avgLat, avgLng], {icon}).addTo(visitasLeafletMap).bindPopup(`<strong>${esc(n.name)}</strong><br>${totalNoBairro} prospect(s)`);
+    visitasLeafletMarkers.push(marker);
+    bounds.push([avgLat, avgLng]);
+  });
+  if(state.company.lat!=null && state.company.lng!=null) bounds.push([state.company.lat, state.company.lng]);
+  if(bounds.length>0) visitasLeafletMap.fitBounds(bounds, {padding:[30,30]});
+  setTimeout(()=>{ if(visitasLeafletMap) visitasLeafletMap.invalidateSize(); }, 200);
 }
 
 // ---- Cidades ----
@@ -5603,6 +5728,8 @@ function selectCity(id){
   selectedVisitCityId = id;
   renderCitiesTable();
   renderNeighborhoodsTable();
+  renderVisitasMap();
+  renderRegioesSummaryBar();
 }
 function renderCitiesTable(){
   const wrap = document.getElementById('citiesTableWrap');
@@ -5662,15 +5789,28 @@ function renderNeighborhoodsTable(){
     return;
   }
   const city = state.visitCities.find(c=>c.id===selectedVisitCityId);
-  title.textContent = 'Bairros — ' + (city?city.name:'');
-  const list = state.visitNeighborhoods.filter(n=>n.cityId===selectedVisitCityId);
-  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum bairro cadastrado para essa cidade ainda.','Novo bairro','openNeighborhoodModal()'); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Bairro</th><th>Prospects</th><th></th></tr></thead><tbody>
+  let list = state.visitNeighborhoods.filter(n=>n.cityId===selectedVisitCityId);
+  title.textContent = `Bairros — ${city?city.name:''} (${list.length} bairro${list.length!==1?'s':''})`;
+  const q = (document.getElementById('bairroSearchInput')?.value||'').toLowerCase();
+  if(q) list = list.filter(n=>n.name.toLowerCase().includes(q));
+  if(list.length===0){ wrap.innerHTML = emptyState(q?'Nenhum bairro encontrado.':'Nenhum bairro cadastrado para essa cidade ainda.','Novo bairro','openNeighborhoodModal()'); return; }
+  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">
     ${list.map(n=>{
-      const count = state.fieldProspects.filter(p=>p.neighborhoodId===n.id).length;
-      return `<tr><td>${esc(n.name)}</td><td>${count}</td><td class="row-actions"><button class="icon-btn" onclick="openNeighborhoodModal('${n.id}')">${iconEdit}</button></td></tr>`;
+      const st = bairroStats(n.id);
+      const barPct = st.agendadas>0 ? Math.round(st.realizadas/st.agendadas*100) : 0;
+      return `<div class="panel" style="margin-bottom:0;padding:12px;cursor:pointer;" onclick="openNeighborhoodModal('${n.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div style="font-weight:700;font-size:13.5px;">${esc(n.name)}</div>
+          <button class="icon-btn" onclick="event.stopPropagation(); openNeighborhoodModal('${n.id}')" style="margin:-4px -4px 0 0;">${iconEdit}</button>
+        </div>
+        <div class="hint" style="margin:2px 0 8px 0;">${st.prospects} prospect${st.prospects!==1?'s':''}</div>
+        <div style="font-size:11px;color:var(--muted);display:flex;gap:8px;margin-bottom:6px;">
+          <span>📅 ${st.agendadas}</span><span>✅ ${st.realizadas}</span><span>% ${st.conversao.toFixed(0)}%</span>
+        </div>
+        <div style="height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${barPct}%;background:var(--accent);"></div></div>
+      </div>`;
     }).join('')}
-  </tbody></table>`;
+  </div>`;
 }
 
 // ---- Prospects de Campo ----
