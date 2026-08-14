@@ -541,6 +541,16 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head">
             <div>
+              <div class="section-title">📊 Resumo do mês</div>
+              <div class="hint" id="pedidosResumoLabel" style="margin:2px 0 0 0;"></div>
+            </div>
+            <button class="btn btn-primary" id="btnNovoPedido" onclick="openOrderModal()" style="font-size:14px;padding:11px 20px;box-shadow:0 4px 14px rgba(28,127,163,.25);">➕ Novo pedido</button>
+          </div>
+          <div class="stat-grid" id="pedidosDashStats"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
               <div class="section-title">Pedidos</div>
               <div class="hint" id="pedidosTotalLabel" style="margin:2px 0 0 0;"></div>
             </div>
@@ -552,7 +562,6 @@ tr:last-child td{border-bottom:none;}
               <select id="orderFilter" class="btn-ghost" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;" onchange="renderPedidos()">
                 <option value="todos">Todos os status</option>
               </select>
-              <button class="btn btn-primary" id="btnNovoPedido" onclick="openOrderModal()">+ Novo pedido</button>
             </div>
           </div>
           <div id="ordersTableWrap" class="table-scroll"></div>
@@ -1498,6 +1507,7 @@ function setStockTab(cat){
   document.getElementById('stockAddBtn').setAttribute('onclick', `openStockModal('${cat}')`);
   document.getElementById('stockAddBtn').style.display = cat==='produto_acabado' ? 'none' : 'inline-flex';
   document.getElementById('stockHint').style.display = cat==='produto_acabado' ? 'block' : 'none';
+  movementsShowCount = 6;
   renderEstoque();
 }
 
@@ -1651,25 +1661,36 @@ function renderEstoque(){
   document.getElementById('stockTotalLine').textContent = `Valor total em ${isFinished?'produtos acabados':'matéria-prima'}: ${fmtMoney(catTotal)}`;
 
   const mwrap = document.getElementById('movementsTableWrap');
-  const movFiltered = movementTab==='todos' ? state.movements : state.movements.filter(m=>m.type===movementTab);
-  if(movFiltered.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação ${movementTab==='todos'?'registrada ainda':movementTab==='entrada'?'de entrada':'de saída'}.</p></div>`; }
+  const itemIdsInTab = new Set(items.map(i=>i.id));
+  // Antes mostrava movimentações de TODAS as categorias juntas, mesmo com uma aba específica selecionada
+  // (inconsistente com os gráficos logo abaixo, que já filtram certinho pela aba atual). Agora também
+  // filtra pela categoria da aba selecionada.
+  let movFiltered = state.movements.filter(m => itemIdsInTab.has(m.stockItemId));
+  if(movementTab!=='todos') movFiltered = movFiltered.filter(m=>m.type===movementTab);
+  if(movFiltered.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação ${movementTab==='todos'?'registrada ainda':movementTab==='entrada'?'de entrada':'de saída'} nessa categoria.</p></div>`; }
   else {
+    const visible = movFiltered.slice(0, movementsShowCount);
+    const temMais = movFiltered.length > movementsShowCount;
     mwrap.innerHTML = `<table><thead><tr><th>Data</th><th>Item</th><th>Tipo</th><th>Qtd.</th><th>Origem</th><th>Observação</th></tr></thead><tbody>
-    ${movFiltered.slice(0,60).map(m=>`<tr>
+    ${visible.map(m=>`<tr>
       <td>${fmtDate(m.date)}</td><td>${esc(m.itemName)}</td>
       <td>${m.type==='entrada'?'<span class="badge badge-success">Entrada</span>':'<span class="badge badge-danger">Saída</span>'}</td>
       <td>${m.qty}</td><td style="color:var(--muted)">${({manual:'Manual',producao:'Produção',pedido:'Pedido'})[m.source]||'—'}</td>
       <td style="color:var(--muted)">${esc(m.note||'—')}</td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`).join('')}</tbody></table>
+    ${temMais?`<div style="text-align:center;margin-top:12px;"><button class="btn btn-ghost btn-sm" onclick="movementsShowMore()">Ver mais</button></div>`:''}`;
   }
   renderStockCharts(items, isFinished);
 }
 let movementTab = 'todos';
+let movementsShowCount = 6;
 function setMovementTab(tab){
   movementTab = tab;
   document.querySelectorAll('[data-movtab]').forEach(t=>t.classList.toggle('active', t.dataset.movtab===tab));
+  movementsShowCount = 6;
   renderEstoque();
 }
+function movementsShowMore(){ movementsShowCount += 6; renderEstoque(); }
 
 // ---- Gráficos de evolução do estoque (mês atual) — reconstrói o total de cada dia "desfazendo" as
 // movimentações a partir do saldo de hoje, em vez de precisar de uma tabela de histórico diário à parte. ----
@@ -2084,7 +2105,39 @@ function pedidosMonthRange(){
   const y=base.getFullYear(), m=base.getMonth();
   return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
 }
+// Resumo do mês em Pedidos — sempre o mês corrente, independente do mês que a lista abaixo está navegando
+// (a lista pode olhar pra trás, mas o resumo é sempre "como estamos indo agora").
+function renderPedidosDashboard(){
+  const box = document.getElementById('pedidosDashStats');
+  if(!box) return;
+  const monthKey = todayStr().slice(0,7);
+  const pedidosMes = state.orders.filter(o=>o.createdAt && o.createdAt.slice(0,7)===monthKey);
+  const entreguesMes = pedidosMes.filter(o=>o.status==='entregue');
+  const faturamento = entreguesMes.reduce((s,o)=>s+o.total,0);
+  const ticketMedio = entreguesMes.length ? faturamento/entreguesMes.length : 0;
+  const pacotes = entreguesMes.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+
+  const clientesRecorrentesSet = new Set();
+  const clientesPontuaisSet = new Set();
+  pedidosMes.forEach(o=>{
+    const c = state.clients.find(x=>x.id===o.clientId);
+    if(!c) return;
+    if((c.clientType||'recorrente')==='recorrente') clientesRecorrentesSet.add(c.id);
+    else clientesPontuaisSet.add(c.id);
+  });
+
+  document.getElementById('pedidosResumoLabel').textContent = new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'}).replace(/^\w/,c=>c.toUpperCase());
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Pedidos realizados</div><div class="stat-value">${pedidosMes.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Faturamento no mês</div><div class="stat-value">${fmtMoney(faturamento)}</div></div>
+    <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value">${fmtMoney(ticketMedio)}</div></div>
+    <div class="stat-card"><div class="stat-label">Pacotes vendidos</div><div class="stat-value">${pacotes}</div></div>
+    <div class="stat-card"><div class="stat-label">🔁 Clientes recorrentes que pediram</div><div class="stat-value">${clientesRecorrentesSet.size}</div></div>
+    <div class="stat-card"><div class="stat-label">🎉 Clientes pontuais que pediram</div><div class="stat-value">${clientesPontuaisSet.size}</div></div>
+  `;
+}
 function renderPedidos(){
+  renderPedidosDashboard();
   const filterSel = document.getElementById('orderFilter');
   if(filterSel.options.length<=1){ filterSel.innerHTML = '<option value="todos">Todos os status</option>' + ORDER_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join(''); }
   const filter = filterSel.value;
@@ -2601,13 +2654,17 @@ function renderCashEvolution(){
 
 let lancamentosMonthOffset = 0;
 let lancamentosShowAll = false;
+let lancamentosShowCount = 6;
+function lancamentosShowMore(){ lancamentosShowCount += 6; renderFinanceiro(); }
 function lancamentosChangeMonth(delta){
   lancamentosMonthOffset += delta;
   lancamentosShowAll = false;
+  lancamentosShowCount = 6;
   renderFinanceiro();
 }
 function lancamentosToggleShowAll(){
   lancamentosShowAll = !lancamentosShowAll;
+  lancamentosShowCount = 6;
   renderFinanceiro();
 }
 function lancamentosMonthRange(){
@@ -2656,8 +2713,10 @@ function renderFinanceiro(){
     if(t.status==='parcial') return {label:'Parcial', cls:'badge-warn'};
     return {label:'Aberto', cls:'badge-warn'};
   };
+  const visible = list.slice(0, lancamentosShowCount);
+  const temMaisLanc = list.length > lancamentosShowCount;
   wrap.innerHTML = `<table><thead><tr><th style="width:28px;"><input type="checkbox" onchange="toggleSelectAllTx(this.checked)"></th><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map(t=>{
+    ${visible.map(t=>{
       const overdue = t.status==='pendente' && t.dueDate < today;
       const si = statusInfo(t, overdue);
       return `<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')">
@@ -2669,7 +2728,8 @@ function renderFinanceiro(){
       <td><span class="badge ${si.cls}" style="cursor:${t.type==='receita'||t.status==='cancelado'?'default':'pointer'}" onclick="event.stopPropagation(); ${t.type!=='receita'&&t.status!=='cancelado'?`toggleTxStatus('${t.id}')`:''}">${si.label}</span></td>
       <td class="row-actions" onclick="event.stopPropagation();">${t.type==='receita'?`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>`:`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteTransaction('${t.id}')" title="Excluir">${iconTrash}</button>`}</td>
     </tr>`;
-    }).join('')}</tbody></table>`;
+    }).join('')}</tbody></table>
+  ${temMaisLanc?`<div style="text-align:center;margin-top:12px;"><button class="btn btn-ghost btn-sm" onclick="lancamentosShowMore()">Ver mais</button></div>`:''}`;
   updateBulkBar();
 }
 
