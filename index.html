@@ -848,13 +848,87 @@ tr:last-child td{border-bottom:none;}
 
       <!-- RELATORIOS -->
       <section class="view" id="view-relatorios">
-        <div class="tabs">
-          <div class="tab active" data-reporttab="filtros" onclick="setReportTab('filtros')">Relatório Personalizado</div>
-          <div class="tab" data-reporttab="mensal" onclick="setReportTab('mensal')">📊 Relatório Mensal</div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">📈 Relatórios</div></div>
+          <div class="field-row3">
+            <div class="field"><label>De</label><input type="date" id="relFrom" onchange="relApplyCustomDates()"></div>
+            <div class="field"><label>Até</label><input type="date" id="relTo" onchange="relApplyCustomDates()"></div>
+            <div></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+            <button class="btn btn-ghost btn-sm" onclick="relSetPreset('7dias')">7 dias</button>
+            <button class="btn btn-ghost btn-sm" onclick="relSetPreset('30dias')">30 dias</button>
+            <button class="btn btn-ghost btn-sm" onclick="relSetPreset('mes_atual')">Mês atual</button>
+            <button class="btn btn-ghost btn-sm" onclick="relSetPreset('mes_anterior')">Mês anterior</button>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-label">Pacotes vendidos</div><div class="stat-value" id="rel-pacotes"></div></div>
+            <div class="stat-card"><div class="stat-label">Faturamento no período</div><div class="stat-value" id="rel-faturamento"></div></div>
+            <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value" id="rel-ticket"></div><div class="stat-note" id="rel-ticket-note"></div></div>
+            <div class="stat-card"><div class="stat-label">Total arrecadado</div><div class="stat-value" id="rel-arrecadado"></div><div class="stat-note">Dinheiro + Pix</div></div>
+            <div class="stat-card"><div class="stat-label">💵 Dinheiro</div><div class="stat-value" id="rel-dinheiro"></div></div>
+            <div class="stat-card"><div class="stat-label">📲 Pix</div><div class="stat-value" id="rel-pix"></div></div>
+          </div>
         </div>
-        <div id="reportFiltrosView">
+
+        <div class="tabs">
+          <div class="tab active" data-reltab="diario" onclick="setRelTab('diario')">📅 Diário</div>
+          <div class="tab" data-reltab="mensal2" onclick="setRelTab('mensal2')">📆 Mensal</div>
+          <div class="tab" data-reltab="clientes" onclick="setRelTab('clientes')">🏆 Maiores clientes</div>
+          <div class="tab" data-reltab="despesas" onclick="setRelTab('despesas')">📋 Despesas</div>
+          <div class="tab" data-reltab="dre" onclick="setRelTab('dre')">📈 DRE</div>
+          <div class="tab" data-reltab="fechado" onclick="setRelTab('fechado')">🗓️ Relatório Fechado</div>
+          <div class="tab" data-reltab="mais" onclick="setRelTab('mais')">Mais Relatórios</div>
+        </div>
+
+        <div id="relDiarioView">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Relatórios</div></div>
+            <div class="panel-head"><div class="section-title">Vendas por dia</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="relExportCsv('diario')">⬇️ CSV</button><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ PDF</button></div></div>
+            <div class="bars" id="relDiarioChart" style="height:130px;margin-bottom:14px;"></div>
+            <div id="relDiarioWrap" class="table-scroll"></div>
+          </div>
+        </div>
+        <div id="relMensal2View" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Vendas por mês</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="relExportCsv('mensal2')">⬇️ CSV</button><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ PDF</button></div></div>
+            <div id="relMensalWrap" class="table-scroll"></div>
+          </div>
+        </div>
+        <div id="relClientesView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Maiores clientes no período</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="relExportCsv('clientes')">⬇️ CSV</button><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ PDF</button></div></div>
+            <div id="relClientesWrap" class="table-scroll"></div>
+          </div>
+        </div>
+        <div id="relDespesasView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Despesas por categoria</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="relExportCsv('despesas')">⬇️ CSV</button><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ PDF</button></div></div>
+            <div id="relDespesasWrap"></div>
+          </div>
+        </div>
+        <div id="relDreView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">DRE — Demonstração de Resultado</div><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ PDF</button></div>
+            <div id="relDreWrap"></div>
+          </div>
+        </div>
+        <div id="relFechadoView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="section-title">Relatório Mensal Fechado</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(-1)">←</button>
+                <span id="reportMensalMonthLabel" style="font-weight:600;min-width:130px;text-align:center;"></span>
+                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(1)">→</button>
+                <button class="btn btn-primary btn-sm" onclick="window.print()">🖨️ Imprimir / Exportar PDF</button>
+              </div>
+            </div>
+            <div id="reportMensalWrap"></div>
+          </div>
+        </div>
+        <div id="relMaisView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">Mais Relatórios</div></div>
             <div class="field-row3">
               <div class="field"><label>Tipo de relatório</label>
                 <select id="reportType" onchange="renderReport()">
@@ -873,20 +947,6 @@ tr:last-child td{border-bottom:none;}
             </div>
             <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-ghost btn-sm" onclick="exportReportCSV()">Exportar CSV</button></div>
             <div id="reportTableWrap" class="table-scroll"></div>
-          </div>
-        </div>
-        <div id="reportMensalView" style="display:none;">
-          <div class="panel">
-            <div class="panel-head">
-              <div class="section-title">Relatório Mensal Fechado</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(-1)">←</button>
-                <span id="reportMensalMonthLabel" style="font-weight:600;min-width:130px;text-align:center;"></span>
-                <button class="btn btn-ghost btn-sm" onclick="reportMensalChangeMonth(1)">→</button>
-                <button class="btn btn-primary btn-sm" onclick="window.print()">🖨️ Imprimir / Exportar PDF</button>
-              </div>
-            </div>
-            <div id="reportMensalWrap"></div>
           </div>
         </div>
       </section>
@@ -5948,11 +6008,187 @@ async function convertProspectDirectlyToClient(prospectId){
 // =========================================================
 function inRange(dateStr, from, to){ if(!dateStr) return false; if(from && dateStr<from) return false; if(to && dateStr>to) return false; return true; }
 let lastReportData = { headers: [], rows: [] };
-function setReportTab(tab){
-  document.querySelectorAll('[data-reporttab]').forEach(t=>t.classList.toggle('active', t.dataset.reporttab===tab));
-  document.getElementById('reportFiltrosView').style.display = tab==='filtros' ? 'block' : 'none';
-  document.getElementById('reportMensalView').style.display = tab==='mensal' ? 'block' : 'none';
-  if(tab==='mensal') renderReportMensal();
+// ---- Relatórios: filtro de período compartilhado (Diário/Mensal/Clientes/Despesas/DRE) ----
+let relFrom, relTo;
+function relInitDates(){
+  if(relFrom && relTo) return;
+  const now = new Date();
+  relFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  relTo = todayStr();
+}
+function relSetPreset(preset){
+  const now = new Date();
+  if(preset==='7dias'){ const d = new Date(); d.setDate(d.getDate()-6); relFrom = d.toISOString().slice(0,10); relTo = todayStr(); }
+  else if(preset==='30dias'){ const d = new Date(); d.setDate(d.getDate()-29); relFrom = d.toISOString().slice(0,10); relTo = todayStr(); }
+  else if(preset==='mes_atual'){ relFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`; relTo = todayStr(); }
+  else if(preset==='mes_anterior'){ const d = new Date(now.getFullYear(), now.getMonth()-1, 1); relFrom = d.toISOString().slice(0,10); relTo = new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
+  renderRelatorios();
+}
+function relApplyCustomDates(){
+  relFrom = document.getElementById('relFrom').value || relFrom;
+  relTo = document.getElementById('relTo').value || relTo;
+  renderRelatorios();
+}
+function relDailyRange(){
+  const days = []; let cursor = relFrom; let guard = 0;
+  while(cursor <= relTo && guard < 366){ days.push(cursor); cursor = addDays(cursor,1); guard++; }
+  return days;
+}
+// Guarda os dados calculados da última renderização, pra reaproveitar na exportação CSV sem recalcular
+let relLastRows = {};
+function relExportCsv(which){
+  const headersMap = {
+    diario: ['Data','Pacotes','Vendas','Dinheiro','Pix','Arrecadado'],
+    mensal2: ['Mês','Pacotes','Vendas','Dinheiro','Pix','Arrecadado'],
+    clientes: ['#','Cliente','Qtd vendas','Pacotes','Total'],
+    despesas: ['Categoria','Valor','% do total'],
+  };
+  const rows = relLastRows[which] || [];
+  if(rows.length===0){ toast('Nada pra exportar nesse período', true); return; }
+  const csv = [headersMap[which], ...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `relatorio-${which}-${todayStr()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+function renderRelatorios(){
+  if(!document.getElementById('relFrom')) return;
+  relInitDates();
+  document.getElementById('relFrom').value = relFrom;
+  document.getElementById('relTo').value = relTo;
+
+  const pedidosEntregues = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=relFrom && o.deliveredAt<=relTo);
+  const pacotesVendidos = pedidosEntregues.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+  const faturamento = pedidosEntregues.reduce((s,o)=>s+o.total,0);
+  const ticketMedio = pedidosEntregues.length ? faturamento/pedidosEntregues.length : 0;
+
+  const receitasPeriodo = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=relFrom && t.paymentDate<=relTo);
+  const dinheiro = receitasPeriodo.filter(t=>t.paymentMethod==='Dinheiro').reduce((s,t)=>s+t.amount,0);
+  const pix = receitasPeriodo.filter(t=>t.paymentMethod==='Pix').reduce((s,t)=>s+t.amount,0);
+
+  document.getElementById('rel-pacotes').textContent = pacotesVendidos;
+  document.getElementById('rel-faturamento').textContent = fmtMoney(faturamento);
+  document.getElementById('rel-ticket').textContent = fmtMoney(ticketMedio);
+  document.getElementById('rel-ticket-note').textContent = `${pedidosEntregues.length} venda(s)`;
+  document.getElementById('rel-arrecadado').textContent = fmtMoney(dinheiro+pix);
+  document.getElementById('rel-dinheiro').textContent = fmtMoney(dinheiro);
+  document.getElementById('rel-pix').textContent = fmtMoney(pix);
+
+  renderRelDiario(pedidosEntregues, receitasPeriodo);
+  renderRelMensal2();
+  renderRelClientes(pedidosEntregues);
+  renderRelDespesas();
+  renderRelDre(pedidosEntregues);
+}
+function renderRelDiario(pedidosEntregues, receitasPeriodo){
+  const wrap = document.getElementById('relDiarioWrap');
+  if(!wrap) return;
+  const rows = relDailyRange().map(day=>{
+    const dayOrders = pedidosEntregues.filter(o=>o.deliveredAt===day);
+    const pacotes = dayOrders.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+    const vendas = dayOrders.reduce((s,o)=>s+o.total,0);
+    const dayReceitas = receitasPeriodo.filter(t=>t.paymentDate===day);
+    const dh = dayReceitas.filter(t=>t.paymentMethod==='Dinheiro').reduce((s,t)=>s+t.amount,0);
+    const px = dayReceitas.filter(t=>t.paymentMethod==='Pix').reduce((s,t)=>s+t.amount,0);
+    return { day, pacotes, vendas, dinheiro:dh, pix:px, arrecadado:dh+px };
+  }).filter(r=>r.pacotes>0 || r.vendas>0 || r.arrecadado>0);
+
+  const max = Math.max(1, ...rows.map(r=>r.vendas));
+  document.getElementById('relDiarioChart').innerHTML = rows.map(r=>`
+    <div class="bar-group"><div class="bar-pair"><div class="bar rev" style="width:16px;height:${Math.round(r.vendas/max*100)}%" title="${fmtDate(r.day)}: ${fmtMoney(r.vendas)}"></div></div><div class="bar-label" style="font-size:9px;">${fmtDate(r.day).slice(0,5)}</div></div>
+  `).join('');
+
+  wrap.innerHTML = rows.length===0 ? '<div class="empty-state"><p>Nenhuma venda no período.</p></div>' : `<table><thead><tr><th>Data</th><th>Pacotes</th><th>Vendas</th><th>Dinheiro</th><th>Pix</th><th>Arrecadado</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${fmtDate(r.day)}</td><td>${r.pacotes}</td><td>${fmtMoney(r.vendas)}</td><td>${fmtMoney(r.dinheiro)}</td><td>${fmtMoney(r.pix)}</td><td>${fmtMoney(r.arrecadado)}</td></tr>`).join('')}
+  </tbody></table>`;
+  relLastRows.diario = rows.map(r=>[fmtDate(r.day), r.pacotes, r.vendas, r.dinheiro, r.pix, r.arrecadado]);
+}
+function renderRelMensal2(){
+  const wrap = document.getElementById('relMensalWrap');
+  if(!wrap) return;
+  const startD = new Date(relFrom+'T00:00:00'), endD = new Date(relTo+'T00:00:00');
+  const months = []; let cursor = new Date(startD.getFullYear(), startD.getMonth(), 1);
+  while(cursor <= endD){
+    const y=cursor.getFullYear(), m=cursor.getMonth();
+    months.push({ from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: cursor.toLocaleDateString('pt-BR',{month:'short',year:'numeric'}) });
+    cursor = new Date(y, m+1, 1);
+  }
+  const rows = months.map(mo=>{
+    const orders = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=mo.from && o.deliveredAt<=mo.to);
+    const pacotes = orders.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+    const vendas = orders.reduce((s,o)=>s+o.total,0);
+    const receitas = state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=mo.from&&t.paymentDate<=mo.to);
+    const dh = receitas.filter(t=>t.paymentMethod==='Dinheiro').reduce((s,t)=>s+t.amount,0);
+    const px = receitas.filter(t=>t.paymentMethod==='Pix').reduce((s,t)=>s+t.amount,0);
+    return {...mo, pacotes, vendas, dinheiro:dh, pix:px, arrecadado:dh+px};
+  });
+  wrap.innerHTML = `<table><thead><tr><th>Mês</th><th>Pacotes</th><th>Vendas</th><th>Dinheiro</th><th>Pix</th><th>Arrecadado</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${r.label.charAt(0).toUpperCase()+r.label.slice(1)}</td><td>${r.pacotes}</td><td>${fmtMoney(r.vendas)}</td><td>${fmtMoney(r.dinheiro)}</td><td>${fmtMoney(r.pix)}</td><td>${fmtMoney(r.arrecadado)}</td></tr>`).join('')}
+  </tbody></table>`;
+  relLastRows.mensal2 = rows.map(r=>[r.label, r.pacotes, r.vendas, r.dinheiro, r.pix, r.arrecadado]);
+}
+function renderRelClientes(pedidosEntregues){
+  const wrap = document.getElementById('relClientesWrap');
+  if(!wrap) return;
+  const byClient = {};
+  pedidosEntregues.forEach(o=>{
+    if(!byClient[o.clientId]) byClient[o.clientId] = { vendas:0, pacotes:0, total:0 };
+    byClient[o.clientId].vendas++;
+    byClient[o.clientId].pacotes += o.items.reduce((a,i)=>a+i.qty,0);
+    byClient[o.clientId].total += o.total;
+  });
+  const rows = Object.entries(byClient).map(([clientId,v])=>({ clientId, name: clientNameOf(clientId), ...v })).sort((a,b)=>b.total-a.total);
+  wrap.innerHTML = rows.length===0 ? '<div class="empty-state"><p>Nenhuma venda no período.</p></div>' : `<table><thead><tr><th>#</th><th>Cliente</th><th>Qtd vendas</th><th>Pacotes</th><th>Total</th></tr></thead><tbody>
+    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)}</td><td>${r.vendas}</td><td>${r.pacotes}</td><td>${fmtMoney(r.total)}</td></tr>`).join('')}
+  </tbody></table>`;
+  relLastRows.clientes = rows.map((r,i)=>[i+1, r.name, r.vendas, r.pacotes, r.total]);
+}
+function renderRelDespesas(){
+  const wrap = document.getElementById('relDespesasWrap');
+  if(!wrap) return;
+  const despesas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=relFrom && t.paymentDate<=relTo);
+  const total = despesas.reduce((s,t)=>s+t.amount,0);
+  const porCategoria = {};
+  despesas.forEach(t=>{ const cat = t.category||'Sem categoria'; porCategoria[cat] = (porCategoria[cat]||0)+t.amount; });
+  const rows = Object.entries(porCategoria).sort((a,b)=>b[1]-a[1]);
+  wrap.innerHTML = `
+    <div class="stat-card" style="margin-bottom:14px;max-width:220px;"><div class="stat-label">Total de despesas</div><div class="stat-value">${fmtMoney(total)}</div></div>
+    <table><thead><tr><th>Categoria</th><th>Valor</th><th>% do total</th></tr></thead><tbody>
+    ${rows.length===0?'<tr><td colspan="3" style="color:var(--muted);">Nenhuma despesa no período.</td></tr>':
+      rows.map(([cat,val])=>`<tr><td>${esc(cat)}</td><td>${fmtMoney(val)}</td><td>${total>0?(val/total*100).toFixed(1):'0.0'}%</td></tr>`).join('')}
+    </tbody></table>`;
+  relLastRows.despesas = rows.map(([cat,val])=>[cat, val, total>0?(val/total*100).toFixed(1)+'%':'0.0%']);
+}
+// DRE — Demonstração de Resultado do Exercício, no formato contábil tradicional
+function renderRelDre(pedidosEntregues){
+  const wrap = document.getElementById('relDreWrap');
+  if(!wrap) return;
+  const deducoes = pedidosEntregues.reduce((s,o)=>s+(o.discount||0),0);
+  const receitaLiquida = pedidosEntregues.reduce((s,o)=>s+o.total,0);
+  const receitaBruta = receitaLiquida + deducoes;
+  const stockById = {}; state.stockItems.forEach(s=>stockById[s.id]=s);
+  const cmv = pedidosEntregues.reduce((sum,o)=> sum + o.items.reduce((s,it)=> s + (stockById[it.productId]?.costPrice||0)*it.qty, 0), 0);
+  const lucroBruto = receitaLiquida - cmv;
+  const despesasOperacionais = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=relFrom&&t.paymentDate<=relTo).reduce((s,t)=>s+t.amount,0);
+  const resultadoLiquido = lucroBruto - despesasOperacionais;
+  const row = (label, value, opts={}) => `<tr style="${opts.bold?'font-weight:700;':''}${opts.border?'border-top:2px solid var(--border);':''}"><td style="padding:9px 4px;">${label}</td><td style="padding:9px 4px;text-align:right;color:${opts.neg?'var(--danger)':(value<0?'var(--danger)':'inherit')}">${opts.neg?'(-) ':''}${fmtMoney(Math.abs(value))}</td></tr>`;
+  wrap.innerHTML = `<table style="max-width:520px;">
+    ${row('Receita Bruta de Vendas', receitaBruta)}
+    ${row('Deduções (descontos concedidos)', deducoes, {neg:true})}
+    ${row('= Receita Líquida', receitaLiquida, {bold:true, border:true})}
+    ${row('Custo dos Produtos Vendidos (CMV)', cmv, {neg:true})}
+    ${row('= Lucro Bruto', lucroBruto, {bold:true, border:true})}
+    ${row('Despesas Operacionais', despesasOperacionais, {neg:true})}
+    ${row('= Resultado Líquido do Período', resultadoLiquido, {bold:true, border:true})}
+  </table>
+  <div class="hint" style="margin-top:14px;">CMV calculado pelo custo cadastrado de cada produto no momento da consulta. Despesas operacionais somam tudo que foi pago no período, sem separar fixas/variáveis.</div>`;
+}
+
+function setRelTab(tab){
+  document.querySelectorAll('[data-reltab]').forEach(t=>t.classList.toggle('active', t.dataset.reltab===tab));
+  const views = {diario:'relDiarioView', mensal2:'relMensal2View', clientes:'relClientesView', despesas:'relDespesasView', dre:'relDreView', fechado:'relFechadoView', mais:'relMaisView'};
+  Object.entries(views).forEach(([t,id])=>{ document.getElementById(id).style.display = t===tab ? 'block' : 'none'; });
+  if(tab==='fechado') renderReportMensal();
 }
 let reportMensalOffset = 0;
 function reportMensalChangeMonth(delta){ reportMensalOffset += delta; renderReportMensal(); }
@@ -7272,6 +7508,7 @@ function renderAll(){
   renderFinanceiro(); renderCRM(); renderClientesModule(); renderVisitas();
   if(document.getElementById('reportFrom')) renderReport();
   if(document.getElementById('reportMensalWrap')) renderReportMensal();
+  if(document.getElementById('relFrom')) renderRelatorios();
   renderConfig();
   renderNotifications();
   updateNotifBadge();
