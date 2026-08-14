@@ -89,6 +89,7 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .section-title{font-size:15px;font-weight:700;}
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
 .two-col-equal{grid-template-columns:1fr 1fr;}
+.two-col-sidebar{grid-template-columns:230px 1fr;}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 @media(max-width:920px){.two-col,.three-col{grid-template-columns:1fr;}}
 @media print{
@@ -299,6 +300,7 @@ tr:last-child td{border-bottom:none;}
       <div class="nav-item" data-view="financeiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
       <div class="nav-item" data-view="crm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
       <div class="nav-item" data-view="clientes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Clientes</span></div>
+      <div class="nav-item" data-view="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10 H21 M8 3 V7 M16 3 V7"/></svg><span>Agenda de Entregas</span></div>
       <div class="nav-item" data-view="visitas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas Comerciais</span></div>
       <div class="nav-item" data-view="freezers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
       <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
@@ -333,6 +335,7 @@ tr:last-child td{border-bottom:none;}
           <div class="nav-item" data-view="producao" onclick="switchView('producao'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
           <div class="nav-item" data-view="crm" onclick="switchView('crm'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
           <div class="nav-item" data-view="clientes" onclick="switchView('clientes'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Clientes</span></div>
+          <div class="nav-item" data-view="agenda" onclick="switchView('agenda'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10 H21 M8 3 V7 M16 3 V7"/></svg><span>Agenda</span></div>
           <div class="nav-item" data-view="visitas" onclick="switchView('visitas'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas</span></div>
           <div class="nav-item" data-view="freezers" onclick="switchView('freezers'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
           <div class="nav-item" data-view="relatorios" onclick="switchView('relatorios'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
@@ -770,10 +773,11 @@ tr:last-child td{border-bottom:none;}
       </section>
 
       <!-- CLIENTES -->
-      <section class="view" id="view-clientes">
+      <!-- AGENDA DE ENTREGAS -->
+      <section class="view" id="view-agenda">
         <div class="panel">
           <div class="panel-head">
-            <div class="section-title">Agenda de entregas</div>
+            <div class="section-title">📅 Agenda de entregas</div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="btn btn-ghost btn-sm" onclick="agendaPrevWeek()">← Semana anterior</button>
               <span id="agendaWeekLabel" style="font-size:12.5px;color:var(--muted);font-weight:600;min-width:120px;text-align:center;"></span>
@@ -784,21 +788,35 @@ tr:last-child td{border-bottom:none;}
           <div class="hint" style="margin-bottom:10px;">Arraste um cartão para outro dia para reagendar.</div>
           <div class="kanban-board" id="weekAgendaBox"></div>
         </div>
+      </section>
+
+      <!-- CLIENTES -->
+      <section class="view" id="view-clientes">
         <div class="panel">
           <div class="panel-head">
-            <div class="section-title" id="clientesTabTitle">Clientes Recorrentes</div>
-            <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="clientSearch" placeholder="Buscar cliente..." oninput="renderClientsTable()"></div>
+            <div>
+              <div class="section-title" id="clientesTabTitle">Clientes Recorrentes</div>
+              <div class="hint" id="clientesTabHint" style="margin:2px 0 0 0;">Clientes que recebem gelo com regularidade — abastecimento contínuo.</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="clientSearch" placeholder="Buscar cliente..." oninput="renderClientsTable()"></div>
+              <button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button>
+            </div>
           </div>
           <div class="tabs">
             <div class="tab active" data-clienttab="recorrente" onclick="setClientTypeTab('recorrente')">🔁 Recorrentes</div>
             <div class="tab" data-clienttab="pontual" onclick="setClientTypeTab('pontual')">🎉 Pontuais</div>
+            <div class="tab" data-clienttab="freezer" onclick="setClientTypeTab('freezer')">🧊 Com Freezer</div>
           </div>
-          <div class="hint" id="clientesTabHint" style="margin-bottom:10px;">Clientes que recebem gelo com regularidade — abastecimento contínuo. Entram aqui automaticamente quando um lead do Funil é fechado, ou podem ser adicionados manualmente.</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-            <button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button>
-            <select id="clientBairroFilter" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;" onchange="renderClientsTable()"><option value="">Todos os bairros</option></select>
+          <div class="stat-grid" id="clientesSummaryStats" style="margin-top:14px;"></div>
+        </div>
+
+        <div class="two-col two-col-sidebar" style="align-items:start;">
+          <div class="panel" style="position:sticky;top:16px;">
+            <div class="field" style="margin-bottom:10px;"><select id="clientBairroFilter" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12.5px;font-family:inherit;" onchange="renderClientsTable()"><option value="">Todos os bairros</option></select></div>
+            <div id="clientBairroSidebar"></div>
           </div>
-          <div id="clientsTableWrap" class="table-scroll"></div>
+          <div id="clientsTableWrap"></div>
         </div>
       </section>
 
@@ -1445,7 +1463,8 @@ const titles = {
   estoque:['Estoque','Matéria-prima e produtos acabados'],
   producao:['Produção','Registros diários de produção'], pedidos:['Pedidos','Vendas e acompanhamento de entrega'],
   financeiro:['Financeiro','Despesas, contas e fluxo de caixa'], crm:['CRM','Funil de vendas e negociações'],
-  clientes:['Clientes','Clientes ativos e agenda de entregas'],
+  clientes:['Clientes','Cadastro completo de clientes, por bairro'],
+  agenda:['Agenda de Entregas','Entregas agendadas por semana'],
   visitas:['Visitas Comerciais','Prospecção e rotas de visita em campo'],
   freezers:['Freezers','Catálogo de freezers em comodato e desempenho por modelo'],
   relatorios:['Relatórios','Filtros e exportação de dados'], config:['Configurações','Dados da empresa'],
@@ -4117,25 +4136,109 @@ let clientTypeTab = 'recorrente';
 function setClientTypeTab(tab){
   clientTypeTab = tab;
   document.querySelectorAll('[data-clienttab]').forEach(t=>t.classList.toggle('active', t.dataset.clienttab===tab));
-  document.getElementById('clientesTabTitle').textContent = tab==='recorrente' ? 'Clientes Recorrentes' : 'Clientes Pontuais';
-  document.getElementById('clientesTabHint').textContent = tab==='recorrente'
-    ? 'Clientes que recebem gelo com regularidade — abastecimento contínuo. Entram aqui automaticamente quando um lead do Funil é fechado, ou podem ser adicionados manualmente.'
-    : 'Compras avulsas — evento, festa, ocasião única. Ficam separados dos recorrentes pra não misturar quem você visita regularmente com quem comprou uma vez só.';
+  const titles = { recorrente:'Clientes Recorrentes', pontual:'Clientes Pontuais', freezer:'Clientes com Freezer' };
+  const hints = {
+    recorrente: 'Clientes que recebem gelo com regularidade — abastecimento contínuo. Entram aqui automaticamente quando um lead do Funil é fechado, ou podem ser adicionados manualmente.',
+    pontual: 'Compras avulsas — evento, festa, ocasião única. Ficam separados dos recorrentes pra não misturar quem você visita regularmente com quem comprou uma vez só.',
+    freezer: 'Todos os clientes (recorrentes ou pontuais) que têm um freezer em comodato vinculado no cadastro.',
+  };
+  document.getElementById('clientesTabTitle').textContent = titles[tab];
+  document.getElementById('clientesTabHint').textContent = hints[tab];
   const bairroFilter = document.getElementById('clientBairroFilter');
   if(bairroFilter) bairroFilter.value = '';
+  clientBairroShowCounts = {};
   renderClientsTable();
+}
+function clientMonthlyPackageAvg(clientId){
+  const orders = state.orders.filter(o=>o.clientId===clientId && o.status==='entregue' && o.deliveredAt);
+  if(orders.length===0) return { avg:0, totalPacotes:0, months:0 };
+  const totalPacotes = orders.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+  const firstDate = orders.reduce((min,o)=>o.deliveredAt<min?o.deliveredAt:min, orders[0].deliveredAt);
+  const months = Math.max(1, Math.round((new Date()-new Date(firstDate+'T00:00:00'))/(1000*60*60*24*30)));
+  return { avg: totalPacotes/months, totalPacotes, months };
+}
+function renderClientesSummaryStats(byType){
+  const box = document.getElementById('clientesSummaryStats');
+  if(!box) return;
+  const total = byType.length;
+  const ativos = byType.filter(c=>c.status==='ativo').length;
+  const prospects = byType.filter(c=>c.status==='prospect').length;
+  const inativos = byType.filter(c=>c.status==='inativo').length;
+  const monthKey = todayStr().slice(0,7);
+  const idsSet = new Set(byType.map(c=>c.id));
+  const pedidosMes = state.orders.filter(o=>idsSet.has(o.clientId) && o.status==='entregue' && o.deliveredAt && o.deliveredAt.slice(0,7)===monthKey).length;
+  box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total de clientes</div><div class="stat-value">${total}</div></div>
+    <div class="stat-card"><div class="stat-label">Em atendimento</div><div class="stat-value" style="color:var(--success);">${ativos}</div></div>
+    <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" style="color:var(--info);">${prospects}</div></div>
+    <div class="stat-card"><div class="stat-label">Inativos</div><div class="stat-value" style="color:var(--danger);">${inativos}</div></div>
+    <div class="stat-card"><div class="stat-label">Pedidos este mês</div><div class="stat-value">${pedidosMes}</div></div>
+  `;
+}
+function selectClientBairro(bairro){
+  document.getElementById('clientBairroFilter').value = bairro;
+  renderClientsTable();
+}
+let clientBairroShowCounts = {};
+function clientBairroShowMore(bairro){
+  clientBairroShowCounts[bairro] = (clientBairroShowCounts[bairro]||6) + 6;
+  renderClientsTable();
+}
+function clientCardHtml(c){
+  const st = clientStats(c.id);
+  const monthly = clientMonthlyPackageAvg(c.id);
+  const freezer = c.freezerId ? state.freezers.find(f=>f.id===c.freezerId) : null;
+  const nextContactCell = c.nextExpectedContact
+    ? `<button class="next-visit-pill" onclick="openNextVisitModal('${c.id}')">📅 ${fmtDate(c.nextExpectedContact)}</button>`
+    : '<span style="color:var(--muted);font-size:11.5px;">—</span>';
+  const statusBadge = c.status==='ativo' ? '<span class="badge badge-success">Ativo</span>' : c.status==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
+  const enderecoLinha = [c.address, c.neighborhood].filter(Boolean).join(' — ');
+  return `<div class="panel" style="margin-bottom:0;">
+    <div class="panel-head" style="margin-bottom:6px;align-items:flex-start;">
+      <div>
+        <div style="font-weight:700;font-size:14px;">${esc(c.name)}${c.company?` <span style="font-weight:400;color:var(--muted);font-size:12px;">(${esc(c.company)})</span>`:''}</div>
+        <div style="color:var(--muted);font-size:12px;">${esc(c.phone||c.whatsapp||'—')}</div>
+      </div>
+      <div class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></div>
+    </div>
+    ${enderecoLinha?`<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">📍 ${esc(enderecoLinha)}</div>`:''}
+    ${!(c.cnpj||c.cpf)?`<div style="font-size:11.5px;color:var(--danger);margin-bottom:6px;">⚠️ Sem CNPJ/CPF cadastrado</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      ${freezer?`<span class="badge badge-info">🧊 ${esc(freezer.name)}</span>`:''}
+      ${monthly.totalPacotes>0?`<span class="badge badge-warn">📦 ${monthly.avg.toFixed(1)} pacotes/mês <span style="font-weight:400;">(${monthly.totalPacotes} em ${monthly.months} mês${monthly.months>1?'es':''})</span></span>`:''}
+      ${statusBadge}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;">
+      <div>Próxima visita<br>${nextContactCell}</div>
+      <div style="text-align:right;">Última compra<br><strong style="color:var(--ink);font-size:12px;">${fmtDate(st.last)}</strong></div>
+    </div>
+  </div>`;
 }
 function renderClientsTable(){
   const q = (document.getElementById('clientSearch').value||'').toLowerCase();
   const bairroSel = document.getElementById('clientBairroFilter');
   const bairroFilter = bairroSel ? bairroSel.value : '';
-  const byType = state.clients.filter(c => (c.clientType||'recorrente')===clientTypeTab);
+  const byType = clientTypeTab==='freezer'
+    ? state.clients.filter(c=>c.hasFreezer)
+    : state.clients.filter(c => (c.clientType||'recorrente')===clientTypeTab);
+
+  renderClientesSummaryStats(byType);
 
   // Atualiza as opções do filtro de bairro com o que existe dentro do tipo de cliente atual
+  const bairroCounts = {};
+  byType.forEach(c=>{ const k = c.neighborhood || 'Sem bairro cadastrado'; bairroCounts[k] = (bairroCounts[k]||0)+1; });
+  const bairroKeys = Object.keys(bairroCounts).sort((a,b)=> a==='Sem bairro cadastrado'?1:b==='Sem bairro cadastrado'?-1:a.localeCompare(b));
   if(bairroSel){
-    const bairros = [...new Set(byType.map(c=>c.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
     const current = bairroSel.value;
-    bairroSel.innerHTML = '<option value="">Todos os bairros</option>' + bairros.map(b=>`<option value="${esc(b)}" ${current===b?'selected':''}>${esc(b)}</option>`).join('');
+    bairroSel.innerHTML = '<option value="">Todos os bairros</option>' + bairroKeys.map(b=>`<option value="${esc(b)}" ${current===b?'selected':''}>${esc(b)} (${bairroCounts[b]})</option>`).join('');
+  }
+  const sidebar = document.getElementById('clientBairroSidebar');
+  if(sidebar){
+    sidebar.innerHTML = bairroKeys.map(k=>`
+      <div onclick="selectClientBairro('${k==='Sem bairro cadastrado'?'':esc(k).replace(/'/g,"\\'")}')" style="padding:8px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;gap:6px;margin-bottom:2px;${bairroFilter===k?'background:var(--info-bg);font-weight:700;':''}">
+        <span>📍 ${esc(k)}</span><span style="color:var(--muted);">${bairroCounts[k]}</span>
+      </div>
+    `).join('');
   }
 
   let list = byType.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q));
@@ -4143,47 +4246,34 @@ function renderClientsTable(){
 
   const wrap = document.getElementById('clientsTableWrap');
   if(byType.length===0){
-    wrap.innerHTML = emptyState(clientTypeTab==='recorrente'
-      ? 'Nenhum cliente recorrente ainda. Clientes são criados manualmente ou automaticamente quando um lead do funil é fechado.'
-      : 'Nenhum cliente pontual ainda.', 'Novo cliente', 'openClientDetailModal()');
+    const emptyMsgs = { recorrente:'Nenhum cliente recorrente ainda. Clientes são criados manualmente ou automaticamente quando um lead do funil é fechado.', pontual:'Nenhum cliente pontual ainda.', freezer:'Nenhum cliente com freezer vinculado ainda.' };
+    wrap.innerHTML = emptyState(emptyMsgs[clientTypeTab], 'Novo cliente', 'openClientDetailModal()');
     return;
   }
   if(list.length===0){ wrap.innerHTML = `<div class="empty-state"><p>Nenhum cliente encontrado.</p></div>`; return; }
 
-  const statusBadge = s => s==='ativo' ? '<span class="badge badge-success">Ativo</span>' : s==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
-  const rowHtml = c => {
-    const st = clientStats(c.id);
-    const nextContactCell = c.nextExpectedContact
-      ? `<button class="next-visit-pill" onclick="openNextVisitModal('${c.id}')">📅 ${fmtDate(c.nextExpectedContact)}</button>`
-      : '<span style="color:var(--muted);">—</span>';
-    return `<tr>
-      <td><strong>${esc(c.name)}</strong>${clientBadge(c)}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
-      <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
-      <td>${st.count}</td>
-      <td>${fmtMoney(st.total)}</td>
-      <td>${fmtMoney(st.ticket)}</td>
-      <td>${fmtDate(st.last)}</td>
-      <td>${nextContactCell}</td>
-      <td>${c.fromLeadId?'<span class="badge badge-info">Funil CRM</span>':'<span class="badge badge-muted">Manual</span>'}</td>
-      <td>${statusBadge(c.status)}</td>
-      <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Ver / editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></td>
-    </tr>`;
-  };
-  const tableHead = `<tr><th>Cliente</th><th>Contato</th><th>Pedidos</th><th>Total comprado</th><th>Ticket médio</th><th>Última compra</th><th>Próxima visita esperada</th><th>Origem</th><th>Status</th><th></th></tr>`;
+  // Agrupa por bairro (mesmo com um bairro específico selecionado, sobra só 1 grupo — mantém o mesmo
+  // template visual sempre). Cada grupo mostra até 6 cards, com "Mostrar mais" pra ver o resto.
+  const groups = {};
+  list.forEach(c => { const key = c.neighborhood || 'Sem bairro cadastrado'; (groups[key]=groups[key]||[]).push(c); });
+  const sortedKeys = Object.keys(groups).sort((a,b)=> a==='Sem bairro cadastrado'?1:b==='Sem bairro cadastrado'?-1:a.localeCompare(b));
 
-  // Recorrentes, sem um bairro específico selecionado, mostra agrupado por bairro — ajuda a organizar
-  // visitas de abastecimento por região. Com busca, bairro específico, ou na aba Pontuais, mostra lista simples.
-  if(clientTypeTab==='recorrente' && !bairroFilter && !q){
-    const groups = {};
-    list.forEach(c => { const key = c.neighborhood || 'Sem bairro cadastrado'; (groups[key]=groups[key]||[]).push(c); });
-    const sortedKeys = Object.keys(groups).sort((a,b)=> a==='Sem bairro cadastrado' ? 1 : b==='Sem bairro cadastrado' ? -1 : a.localeCompare(b));
-    wrap.innerHTML = sortedKeys.map(bairro => `
-      <div class="subhead" style="margin-top:16px;">📍 ${esc(bairro)} <span style="color:var(--muted);font-weight:400;">(${groups[bairro].length})</span></div>
-      <table><thead>${tableHead}</thead><tbody>${groups[bairro].map(rowHtml).join('')}</tbody></table>
-    `).join('');
-  } else {
-    wrap.innerHTML = `<table><thead>${tableHead}</thead><tbody>${list.map(rowHtml).join('')}</tbody></table>`;
-  }
+  wrap.innerHTML = sortedKeys.map(bairro=>{
+    const clientsInBairro = groups[bairro];
+    const showCount = clientBairroShowCounts[bairro] || 6;
+    const visible = clientsInBairro.slice(0, showCount);
+    const temMais = clientsInBairro.length > showCount;
+    return `
+      <div class="panel">
+        <div class="panel-head"><div class="section-title" style="font-size:14px;">📍 ${esc(bairro)} <span style="color:var(--muted);font-weight:400;">(${clientsInBairro.length} cliente${clientsInBairro.length>1?'s':''})</span></div></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
+          ${visible.map(clientCardHtml).join('')}
+        </div>
+        ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientBairroShowMore('${bairro==='Sem bairro cadastrado'?'':esc(bairro).replace(/'/g,"\\'")}')">Mostrar mais</button></div>`:''}
+        <div class="hint" style="margin-top:10px;margin-bottom:0;">Mostrando ${visible.length} de ${clientsInBairro.length} cliente(s) do bairro ${esc(bairro)}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ---- Client detail modal: cadastro + freezer + entregas + pedidos vinculados ----
