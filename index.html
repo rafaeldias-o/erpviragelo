@@ -6656,14 +6656,20 @@ function openAlertDetail(index, list){
   if(!alert) return;
   const isCustom = alert.type==='alerta_personalizado'; // esse tipo já tem seu próprio ciclo de vida (status/snooze), não usa o mecanismo genérico de ignorar
   const isMaintenance = ['manutencao_vencida','manutencao_proxima'].includes(alert.type);
+  const isRecorrente = alert.type==='contato_recorrente_pendente';
   openModal(`
     <div class="modal-head"><h3>${alert.icon} Detalhe do alerta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <p style="font-size:14px;margin-bottom:16px;">${esc(alert.text)}</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${isMaintenance?'10px':'18px'};">${alertActionsHtml(alert)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${(isMaintenance||isRecorrente)?'10px':'18px'};">${alertActionsHtml(alert)}</div>
     ${isMaintenance ? `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;">
       <input type="date" id="alert-reschedule-date" value="${alert.date}" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
       <button class="btn btn-ghost btn-sm" onclick="rescheduleMaintenanceFromAlert('${alert.assetId}','${alert.entityId}')">📅 Reagendar</button>
+    </div>` : ''}
+    ${isRecorrente ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;">
+      <input type="date" id="nv-date" value="${alert.date}" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
+      <button class="btn btn-ghost btn-sm" onclick="saveNextVisitDate('${alert.entityId}')">📅 Reagendar</button>
     </div>` : ''}
     ${!isCustom ? `
     <div class="subhead">Gestão do alerta</div>
