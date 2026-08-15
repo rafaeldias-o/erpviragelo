@@ -577,7 +577,6 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
           <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
-          <div class="tab" data-fintab="categorias" onclick="setFinTab('categorias')">🏷️ Categorias</div>
           <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
           <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
           <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
@@ -638,6 +637,7 @@ tr:last-child td{border-bottom:none;}
                 </select>
                 <button class="btn btn-ghost btn-sm" onclick="exportTransactionsCsv()">⬇️ CSV</button>
                 <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+                <button class="btn btn-ghost btn-sm" onclick="setFinTab('categorias')">🏷️ Categorias</button>
                 <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
               </div>
             </div>
@@ -661,6 +661,7 @@ tr:last-child td{border-bottom:none;}
         </div>
 
         <div id="finCategoriasView" style="display:none;">
+          <button class="btn btn-ghost btn-sm" onclick="setFinTab('lancamentos')" style="margin-bottom:14px;">← Voltar para Lançamentos</button>
           <div class="panel">
             <div class="panel-head"><div class="section-title">Categorias Financeiras</div><button class="btn btn-primary btn-sm" onclick="openFinCategoryModal()">+ Nova categoria</button></div>
             <div class="hint" style="margin-bottom:10px;">Organize receitas e despesas por categoria — pode criar subcategorias dentro de uma categoria pai.</div>
@@ -828,7 +829,16 @@ tr:last-child td{border-bottom:none;}
             <div class="field" style="margin-bottom:10px;"><select id="clientBairroFilter" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12.5px;font-family:inherit;" onchange="renderClientsTable()"><option value="">Todos os bairros</option></select></div>
             <div id="clientBairroSidebar"></div>
           </div>
-          <div id="clientsTableWrap"></div>
+          <div>
+            <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+              <div class="tabs" style="margin-bottom:0;">
+                <div class="tab active" data-clientview="grade" onclick="setClientViewMode('grade')">▦ Grade</div>
+                <div class="tab" data-clientview="bairro" onclick="setClientViewMode('bairro')">📍 Por bairro</div>
+                <div class="tab" data-clientview="lista" onclick="setClientViewMode('lista')">☰ Lista</div>
+              </div>
+            </div>
+            <div id="clientsTableWrap"></div>
+          </div>
         </div>
       </section>
 
@@ -841,29 +851,49 @@ tr:last-child td{border-bottom:none;}
         </div>
 
         <div id="visitasRegioesView">
-          <div class="stat-grid" id="regioesStatsGrid" style="margin-bottom:18px;"></div>
-          <div class="two-col regioes-layout">
-            <div class="panel">
-              <div class="panel-head"><div class="section-title">Cidades</div><button class="btn btn-primary btn-sm" onclick="openCityModal()">+ Nova cidade</button></div>
-              <div id="citiesTableWrap" class="table-scroll"></div>
-            </div>
-            <div class="panel">
-              <div class="panel-head">
-                <div class="section-title" id="neighborhoodsPanelTitle">Bairros</div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                  <input type="text" id="bairroSearchInput" placeholder="Buscar bairro..." oninput="renderNeighborhoodsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:150px;">
-                  <button class="btn btn-primary btn-sm" id="btnNewNeighborhood" onclick="openNeighborhoodModal()" disabled>+ Novo bairro</button>
-                </div>
+          <div id="regioesMainView">
+            <div class="stat-grid" id="regioesStatsGrid" style="margin-bottom:18px;"></div>
+            <div class="two-col regioes-layout">
+              <div class="panel">
+                <div class="panel-head"><div class="section-title">Cidades</div><button class="btn btn-primary btn-sm" onclick="openCityModal()">+ Nova cidade</button></div>
+                <div id="citiesTableWrap" class="table-scroll"></div>
               </div>
-              <div id="neighborhoodsTableWrap"></div>
-              <div class="hint" style="margin-top:12px;margin-bottom:0;">📅 Agendadas · ✅ Realizadas · % Taxa de conversão (semana atual). Clique em um bairro pra ver detalhes e prospects.</div>
+              <div class="panel">
+                <div class="panel-head">
+                  <div class="section-title" id="neighborhoodsPanelTitle">Bairros</div>
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" id="bairroSearchInput" placeholder="Buscar bairro..." oninput="renderNeighborhoodsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:150px;">
+                    <button class="btn btn-primary btn-sm" id="btnNewNeighborhood" onclick="openNeighborhoodModal()" disabled>+ Novo bairro</button>
+                  </div>
+                </div>
+                <div id="neighborhoodsTableWrap"></div>
+                <div class="hint" style="margin-top:12px;margin-bottom:0;">📅 Agendadas · ✅ Realizadas · % Taxa de conversão (semana atual). Clique em um bairro pra ver todos os prospects e o mapa daquela região.</div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><div class="section-title">Mapa — <span id="mapaCityLabel">—</span></div></div>
+                <div id="visitasMap" style="height:440px;border-radius:10px;background:var(--surface-2);"></div>
+              </div>
             </div>
-            <div class="panel">
-              <div class="panel-head"><div class="section-title">Mapa — <span id="mapaCityLabel">—</span></div></div>
-              <div id="visitasMap" style="height:440px;border-radius:10px;background:var(--surface-2);"></div>
+            <div class="panel" id="regioesSummaryBar"></div>
+          </div>
+
+          <div id="regioesBairroDetailView" style="display:none;">
+            <button class="btn btn-ghost btn-sm" onclick="closeBairroDetail()" style="margin-bottom:14px;">← Voltar para Regiões</button>
+            <div class="two-col two-col-sidebar" style="align-items:start;">
+              <div>
+                <div class="panel">
+                  <div class="panel-head"><div class="section-title" id="bairroDetailTitle">📍 Bairro</div></div>
+                  <div class="stat-grid" id="bairroDetailStats"></div>
+                </div>
+                <div id="bairroDetailCardsWrap"></div>
+              </div>
+              <div class="panel" style="position:sticky;top:16px;">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">Mapa</div></div>
+                <div id="bairroDetailMap" style="height:460px;border-radius:10px;background:var(--surface-2);"></div>
+              </div>
             </div>
           </div>
-          <div class="panel" id="regioesSummaryBar"></div>
+
         </div>
 
         <div id="visitasProspectsView" style="display:none;">
@@ -3089,30 +3119,41 @@ function renderFinAccountsTable(){
   if(state.financialAccounts.length===0){ wrap.innerHTML = emptyState('Nenhuma conta financeira cadastrada ainda.','Nova conta','openFinAccountModal()'); return; }
   const total = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
   wrap.innerHTML = `
-    <div class="stat-card" style="margin-bottom:14px;max-width:260px;"><div class="stat-label">Saldo total (contas ativas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
-    <table><thead><tr><th>Conta</th><th>Tipo</th><th>Saldo inicial</th><th>Saldo atual</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="stat-card" style="margin-bottom:16px;max-width:260px;"><div class="stat-label">Saldo total (contas ativas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:16px;">
     ${state.financialAccounts.map(a=>{
       const t = accountTypeInfo(a.type);
       const balance = accountBalance(a.id);
-      return `<tr>
-        <td><strong>${esc(a.name)}</strong></td>
-        <td>${t.icon} ${t.label}</td>
-        <td style="color:var(--muted);">${fmtMoney(a.initialBalance)}</td>
-        <td style="font-weight:600;color:${balance<0?'var(--danger)':'inherit'}">${fmtMoney(balance)}</td>
-        <td><span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span></td>
-        <td class="row-actions"><button class="icon-btn" onclick="openFinAccountModal('${a.id}')">${iconEdit}</button></td>
-      </tr>`;
+      return `<div class="panel" style="margin-bottom:0;padding:14px;cursor:pointer;" onclick="openFinAccountModal('${a.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div style="font-size:22px;">${t.icon}</div>
+          <span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span>
+        </div>
+        <div style="font-weight:700;font-size:14px;">${esc(a.name)}</div>
+        <div class="hint" style="margin:1px 0 10px 0;">${t.label}</div>
+        <div style="font-size:18px;font-weight:700;color:${balance<0?'var(--danger)':'inherit'}">${fmtMoney(balance)}</div>
+        <div class="hint" style="margin-top:0;">saldo atual</div>
+      </div>`;
     }).join('')}
-  </tbody></table>
-  ${state.accountTransfers.length>0?`
-  <div class="subhead">Últimas transferências</div>
-  <table><thead><tr><th>Data</th><th>De</th><th>Para</th><th>Valor</th><th>Observação</th></tr></thead><tbody>
-    ${state.accountTransfers.slice(0,15).map(tr=>{
-      const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
-      const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
-      return `<tr><td>${fmtDate(tr.date)}</td><td>${esc(from?from.name:'—')}</td><td>${esc(to?to.name:'—')}</td><td>${fmtMoney(tr.amount)}</td><td style="color:var(--muted);">${esc(tr.notes||'—')}</td></tr>`;
-    }).join('')}
-  </tbody></table>` : ''}`;
+    </div>
+    ${state.accountTransfers.length>0?`
+    <button class="btn btn-ghost btn-sm" onclick="toggleTransfersHistory()" id="btnToggleTransfers">📜 Ver últimas transferências (${state.accountTransfers.length})</button>
+    <div id="transfersHistoryWrap" style="display:none;margin-top:12px;">
+      <table><thead><tr><th>Data</th><th>De</th><th>Para</th><th>Valor</th><th>Observação</th></tr></thead><tbody>
+        ${state.accountTransfers.slice(0,15).map(tr=>{
+          const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
+          const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
+          return `<tr><td>${fmtDate(tr.date)}</td><td>${esc(from?from.name:'—')}</td><td>${esc(to?to.name:'—')}</td><td>${fmtMoney(tr.amount)}</td><td style="color:var(--muted);">${esc(tr.notes||'—')}</td></tr>`;
+        }).join('')}
+      </tbody></table>
+    </div>` : ''}`;
+}
+function toggleTransfersHistory(){
+  const box = document.getElementById('transfersHistoryWrap');
+  const btn = document.getElementById('btnToggleTransfers');
+  const showing = box.style.display !== 'none';
+  box.style.display = showing ? 'none' : 'block';
+  btn.textContent = showing ? `📜 Ver últimas transferências (${state.accountTransfers.length})` : '📜 Esconder transferências';
 }
 function openTransferModal(){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para transferir entre contas', true); return; }
@@ -4223,6 +4264,7 @@ function setClientTypeTab(tab){
   const bairroFilter = document.getElementById('clientBairroFilter');
   if(bairroFilter) bairroFilter.value = '';
   clientBairroShowCounts = {};
+  clientListShowCount = 8;
   renderClientsTable();
 }
 function clientMonthlyPackageAvg(clientId){
@@ -4278,7 +4320,6 @@ function clientCardHtml(c){
       <div class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')" title="Excluir">${iconTrash}</button></div>
     </div>
     ${enderecoLinha?`<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">📍 ${esc(enderecoLinha)}</div>`:''}
-    ${!(c.cnpj||c.cpf)?`<div style="font-size:11.5px;color:var(--danger);margin-bottom:6px;">⚠️ Sem CNPJ/CPF cadastrado</div>`:''}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
       ${freezer?`<span class="badge badge-info">🧊 ${esc(freezer.name)}</span>`:''}
       ${monthly.totalPacotes>0?`<span class="badge badge-warn">📦 ${monthly.avg.toFixed(1)} pacotes/mês <span style="font-weight:400;">(${monthly.totalPacotes} em ${monthly.months} mês${monthly.months>1?'es':''})</span></span>`:''}
@@ -4290,6 +4331,16 @@ function clientCardHtml(c){
     </div>
   </div>`;
 }
+let clientViewMode = 'grade';
+function setClientViewMode(mode){
+  clientViewMode = mode;
+  document.querySelectorAll('[data-clientview]').forEach(t=>t.classList.toggle('active', t.dataset.clientview===mode));
+  clientBairroShowCounts = {};
+  clientListShowCount = 8;
+  renderClientsTable();
+}
+let clientListShowCount = 8;
+function clientListShowMore(){ clientListShowCount += 8; renderClientsTable(); }
 function renderClientsTable(){
   const q = (document.getElementById('clientSearch').value||'').toLowerCase();
   const bairroSel = document.getElementById('clientBairroFilter');
@@ -4328,8 +4379,46 @@ function renderClientsTable(){
   }
   if(list.length===0){ wrap.innerHTML = `<div class="empty-state"><p>Nenhum cliente encontrado.</p></div>`; return; }
 
-  // Agrupa por bairro (mesmo com um bairro específico selecionado, sobra só 1 grupo — mantém o mesmo
-  // template visual sempre). Cada grupo mostra até 6 cards, com "Mostrar mais" pra ver o resto.
+  if(clientViewMode==='lista'){
+    const visible = list.slice(0, clientListShowCount);
+    const temMais = list.length > clientListShowCount;
+    const statusBadge = c => c.status==='ativo' ? '<span class="badge badge-success">Ativo</span>' : c.status==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
+    wrap.innerHTML = `<div class="panel"><table><thead><tr><th>Cliente</th><th>Contato</th><th>Bairro</th><th>Próxima visita</th><th>Última compra</th><th>Status</th><th></th></tr></thead><tbody>
+      ${visible.map(c=>{
+        const st = clientStats(c.id);
+        const nextContactCell = c.nextExpectedContact ? `<button class="next-visit-pill" onclick="openNextVisitModal('${c.id}')">📅 ${fmtDate(c.nextExpectedContact)}</button>` : '<span style="color:var(--muted);">—</span>';
+        return `<tr>
+          <td><strong>${esc(c.name)}</strong>${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
+          <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
+          <td style="color:var(--muted);font-size:12px">${esc(c.neighborhood||'—')}</td>
+          <td>${nextContactCell}</td>
+          <td>${fmtDate(st.last)}</td>
+          <td>${statusBadge(c)}</td>
+          <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')">${iconTrash}</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>
+      ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientListShowMore()">Ver mais</button></div>`:''}
+    </div>`;
+    return;
+  }
+
+  if(clientViewMode==='grade'){
+    // Todos os clientes filtrados juntos, lado a lado, sem separar por bairro — mais compacto pra visão geral.
+    const showCount = clientBairroShowCounts['__grade__'] || 12;
+    const visible = list.slice(0, showCount);
+    const temMais = list.length > showCount;
+    wrap.innerHTML = `<div class="panel">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
+        ${visible.map(clientCardHtml).join('')}
+      </div>
+      ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientBairroShowMore('__grade__')">Mostrar mais</button></div>`:''}
+      <div class="hint" style="margin-top:10px;margin-bottom:0;">Mostrando ${visible.length} de ${list.length} cliente(s)</div>
+    </div>`;
+    return;
+  }
+
+  // 'bairro' — agrupado por bairro, cada um em seu próprio painel. Cada grupo mostra até 6 cards,
+  // com "Mostrar mais" pra ver o resto.
   const groups = {};
   list.forEach(c => { const key = c.neighborhood || 'Sem bairro cadastrado'; (groups[key]=groups[key]||[]).push(c); });
   const sortedKeys = Object.keys(groups).sort((a,b)=> a==='Sem bairro cadastrado'?1:b==='Sem bairro cadastrado'?-1:a.localeCompare(b));
@@ -5595,6 +5684,83 @@ function currentWeekStartStr(){
   const monday = new Date(now); monday.setDate(now.getDate()-diffToMonday); monday.setHours(0,0,0,0);
   return monday.toISOString().slice(0,10);
 }
+// ---- Detalhe do bairro (drill-down) — clicando num card de bairro em Regiões, mostra todos os
+// prospects daquele bairro em cards (mesmo estilo usado em Clientes) e um mapa individual de cada um.
+function openBairroDetail(neighborhoodId){
+  bairroDetailNeighborhoodId = neighborhoodId;
+  document.getElementById('regioesMainView').style.display = 'none';
+  document.getElementById('regioesBairroDetailView').style.display = 'block';
+  renderBairroDetail();
+}
+function closeBairroDetail(){
+  bairroDetailNeighborhoodId = null;
+  document.getElementById('regioesMainView').style.display = 'block';
+  document.getElementById('regioesBairroDetailView').style.display = 'none';
+}
+function prospectCardHtml(p){
+  const statusBadge = p.convertedClientId ? '<span class="badge badge-success">Virou cliente</span>' : p.convertedLeadId ? '<span class="badge badge-info">Virou lead</span>' : '<span class="badge badge-muted">Prospect</span>';
+  return `<div class="panel" style="margin-bottom:0;">
+    <div class="panel-head" style="margin-bottom:6px;align-items:flex-start;">
+      <div>
+        <div style="font-weight:700;font-size:14px;">${esc(p.name)}${p.company?` <span style="font-weight:400;color:var(--muted);font-size:12px;">(${esc(p.company)})</span>`:''}</div>
+        <div style="color:var(--muted);font-size:12px;">${esc(p.phone||'—')}</div>
+      </div>
+      <div class="row-actions"><button class="icon-btn" onclick="openProspectModal('${p.id}')" title="Editar">${iconEdit}</button></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">📍 ${esc(p.address||'Endereço não cadastrado')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      ${p.segment?`<span class="badge badge-info">${esc(p.segment)}</span>`:''}
+      ${p.lat==null?'<span class="badge badge-muted">📍 sem localização</span>':''}
+      ${statusBadge}
+    </div>
+  </div>`;
+}
+function renderBairroDetail(){
+  const n = state.visitNeighborhoods.find(x=>x.id===bairroDetailNeighborhoodId);
+  if(!n) return;
+  const city = state.visitCities.find(c=>c.id===n.cityId);
+  document.getElementById('bairroDetailTitle').textContent = `📍 ${n.name} — ${city?city.name:''}`;
+  const prospects = state.fieldProspects.filter(p=>p.neighborhoodId===n.id);
+  const st = bairroStats(n.id);
+  document.getElementById('bairroDetailStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value">${st.prospects}</div></div>
+    <div class="stat-card"><div class="stat-label">📅 Agendadas</div><div class="stat-value">${st.agendadas}</div><div class="stat-note">esta semana</div></div>
+    <div class="stat-card"><div class="stat-label">✅ Realizadas</div><div class="stat-value">${st.realizadas}</div><div class="stat-note">esta semana</div></div>
+    <div class="stat-card"><div class="stat-label">📈 Conversão</div><div class="stat-value">${st.conversao.toFixed(0)}%</div></div>
+  `;
+  const wrap = document.getElementById('bairroDetailCardsWrap');
+  wrap.innerHTML = prospects.length===0 ? `<div class="panel">${emptyState('Nenhum prospect cadastrado nesse bairro ainda.', '+ Novo prospect', 'openProspectModal()')}</div>` :
+    `<div class="panel"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">${prospects.map(prospectCardHtml).join('')}</div></div>`;
+  renderBairroDetailMap(prospects);
+}
+let bairroDetailMap = null;
+let bairroDetailMarkers = [];
+function renderBairroDetailMap(prospects){
+  const el = document.getElementById('bairroDetailMap');
+  if(!el || typeof L==='undefined') return;
+  if(!bairroDetailMap){
+    bairroDetailMap = L.map(el).setView([-28.47,-48.98], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(bairroDetailMap);
+  }
+  bairroDetailMarkers.forEach(m=>bairroDetailMap.removeLayer(m));
+  bairroDetailMarkers = [];
+  const bounds = [];
+  prospects.filter(p=>p.lat!=null && p.lng!=null).forEach(p=>{
+    const marker = L.marker([p.lat,p.lng]).addTo(bairroDetailMap).bindPopup(`<strong>${esc(p.name)}</strong>${p.company?'<br>'+esc(p.company):''}${p.address?'<br>'+esc(p.address):''}`);
+    bairroDetailMarkers.push(marker);
+    bounds.push([p.lat,p.lng]);
+  });
+  if(state.company.lat!=null && state.company.lng!=null){
+    const factoryIcon = L.divIcon({ className:'', html:'<div style="background:#1C7FA3;color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏭</div>', iconSize:[26,26] });
+    const fm = L.marker([state.company.lat,state.company.lng], {icon:factoryIcon}).addTo(bairroDetailMap).bindPopup('Fábrica');
+    bairroDetailMarkers.push(fm);
+    bounds.push([state.company.lat, state.company.lng]);
+  }
+  if(bounds.length>0) bairroDetailMap.fitBounds(bounds, {padding:[30,30]});
+  else bairroDetailMap.setView([-28.47,-48.98], 13);
+  setTimeout(()=>{ if(bairroDetailMap) bairroDetailMap.invalidateSize(); }, 200);
+}
+let bairroDetailNeighborhoodId = null;
 function bairroStats(neighborhoodId){
   const prospects = state.fieldProspects.filter(p=>p.neighborhoodId===neighborhoodId).length;
   const weekStart = currentWeekStartStr();
@@ -5798,7 +5964,7 @@ function renderNeighborhoodsTable(){
     ${list.map(n=>{
       const st = bairroStats(n.id);
       const barPct = st.agendadas>0 ? Math.round(st.realizadas/st.agendadas*100) : 0;
-      return `<div class="panel" style="margin-bottom:0;padding:12px;cursor:pointer;" onclick="openNeighborhoodModal('${n.id}')">
+      return `<div class="panel" style="margin-bottom:0;padding:12px;cursor:pointer;" onclick="openBairroDetail('${n.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div style="font-weight:700;font-size:13.5px;">${esc(n.name)}</div>
           <button class="icon-btn" onclick="event.stopPropagation(); openNeighborhoodModal('${n.id}')" style="margin:-4px -4px 0 0;">${iconEdit}</button>
