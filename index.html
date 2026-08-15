@@ -1132,6 +1132,14 @@ tr:last-child td{border-bottom:none;}
           </div>
         </div>
         <div class="panel" style="max-width:640px;">
+          <div class="panel-head"><div class="section-title">🔔 Notificações do navegador</div></div>
+          <div class="hint" style="margin-bottom:10px;">Manda um aviso na hora pra alertas urgentes (contas vencidas, visitas atrasadas) direto na tela do computador ou celular — funciona enquanto essa aba do ViraGelo estiver aberta, mesmo em segundo plano. <strong>Não funciona com o navegador totalmente fechado</strong> — isso exigiria um servidor próprio de notificação push, que esse sistema (por ser um site simples, sem servidor) não tem.</div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span id="notifSettingsStatus" style="font-size:13px;font-weight:600;"></span>
+            <button class="btn btn-primary btn-sm" id="notifSettingsBtn" onclick="toggleBrowserNotifications()">Ativar notificações</button>
+          </div>
+        </div>
+        <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">Política de Frete</div></div>
           <div class="hint" style="margin-bottom:12px;">Faixas de distância (km) e o valor de frete correspondente. Ordenadas automaticamente pela distância mínima. Sempre que você salvar ou excluir uma faixa, o frete de todos os clientes já calculados é atualizado sozinho.</div>
           <div id="freightTiersWrap" class="table-scroll"></div>
@@ -1291,6 +1299,13 @@ async function afterLogin(session){
   document.getElementById('coberturaBox').innerHTML = '<div class="hint" style="padding:14px 4px;">Carregando dados...</div>';
   await loadAll();
   renderAll();
+  checkAndSendNotifications();
+  if(!window._virageloNotifInterval){
+    window._virageloNotifInterval = setInterval(async ()=>{
+      await loadAll(); // busca dados frescos, já que o usuário pode deixar a aba aberta por horas
+      checkAndSendNotifications();
+    }, 5*60*1000); // a cada 5 minutos
+  }
 }
 
 // ================= DATA LAYER (Supabase) =================
@@ -7271,7 +7286,60 @@ function renderConfig(){
   document.getElementById('cfg-address').value = state.company.address || '';
   document.getElementById('cfg-fuel-price').value = state.company.fuelPricePerLiter ?? 6.20;
   document.getElementById('cfg-fuel-efficiency').value = state.company.fuelEfficiencyKmL ?? 10;
+  renderNotificationSettingsUI();
   renderFreightTiers();
+}
+// ---- Notificações do navegador (Web Notifications API) ----
+// Funciona enquanto essa aba estiver aberta (mesmo em segundo plano), incluindo notificação na bandeja
+// do sistema operacional. NÃO funciona com o navegador totalmente fechado — isso exigiria um servidor
+// próprio de push notification (protocolo VAPID/Web Push), que esse sistema não tem por ser hospedado
+// como site estático, sem servidor.
+function browserNotificationsEnabled(){
+  return typeof localStorage !== 'undefined' && localStorage.getItem('viragelo_notif_enabled') === 'true';
+}
+async function toggleBrowserNotifications(){
+  if(!('Notification' in window)){ toast('Seu navegador não suporta notificações', true); return; }
+  if(browserNotificationsEnabled()){
+    localStorage.setItem('viragelo_notif_enabled', 'false');
+    toast('Notificações desativadas');
+  } else {
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){ toast('Permissão de notificação negada pelo navegador', true); return; }
+    localStorage.setItem('viragelo_notif_enabled', 'true');
+    toast('Notificações ativadas — você vai receber avisos de alertas urgentes enquanto essa aba estiver aberta');
+    checkAndSendNotifications();
+  }
+  renderNotificationSettingsUI();
+}
+function renderNotificationSettingsUI(){
+  const statusEl = document.getElementById('notifSettingsStatus');
+  const btnEl = document.getElementById('notifSettingsBtn');
+  if(!statusEl) return;
+  const enabled = browserNotificationsEnabled();
+  statusEl.textContent = enabled ? '🔔 Ativadas' : '🔕 Desativadas';
+  statusEl.style.color = enabled ? 'var(--success)' : 'var(--muted)';
+  btnEl.textContent = enabled ? 'Desativar' : 'Ativar notificações';
+}
+// Evita notificar o MESMO alerta várias vezes no mesmo dia — guarda no localStorage as chaves já
+// notificadas hoje, reiniciando naturalmente no dia seguinte (a chave inclui a data).
+function notifiedTodayKeySet(){
+  const stored = localStorage.getItem('viragelo_notified_'+todayStr());
+  return stored ? new Set(JSON.parse(stored)) : new Set();
+}
+function markNotifiedToday(keys){
+  localStorage.setItem('viragelo_notified_'+todayStr(), JSON.stringify(keys));
+}
+function checkAndSendNotifications(){
+  if(!('Notification' in window) || !browserNotificationsEnabled() || Notification.permission!=='granted') return;
+  const alerts = computeSystemAlerts().filter(a=>a.priority==='alta');
+  const already = notifiedTodayKeySet();
+  const newOnes = alerts.filter(a=>!already.has(a.key));
+  if(newOnes.length===0) return;
+  newOnes.slice(0,5).forEach(a=>{ // limita a 5 de uma vez, pra não bombardear
+    try{ new Notification('ViraGelo ERP', { body: a.text, icon: 'icons/icon-192.png', tag: a.key }); }catch(e){}
+    already.add(a.key);
+  });
+  markNotifiedToday([...already]);
 }
 function toggleFuelSettings(){
   const wrap = document.getElementById('fuelSettingsWrap');
