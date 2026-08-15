@@ -93,6 +93,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .two-col-equal{grid-template-columns:1fr 1fr;}
 .two-col-sidebar{grid-template-columns:230px 1fr;}
 .regioes-layout{grid-template-columns:230px 1fr 340px;}
+.quick-action-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px 8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);cursor:pointer;font-size:12px;font-family:inherit;color:var(--ink);transition:background .15s;}
+.quick-action-btn:hover{background:var(--info-bg);}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 @media(max-width:920px){.two-col,.three-col,.regioes-layout{grid-template-columns:1fr;}}
 @media print{
@@ -574,8 +576,8 @@ tr:last-child td{border-bottom:none;}
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
         <div class="tabs">
-          <div class="tab" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
-          <div class="tab active" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
+          <div class="tab active" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
+          <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
           <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
           <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
@@ -612,7 +614,7 @@ tr:last-child td{border-bottom:none;}
           <div class="stat-grid" id="finCompactStats"></div>
         </div>
 
-        <div id="finLancamentosView">
+        <div id="finLancamentosView" style="display:none;">
           <div class="panel" style="background:var(--info-bg);border-color:transparent;">
             <div style="font-size:12.5px;color:var(--ink);">
               <strong>Faturamento não é lançado manualmente aqui.</strong> Toda receita é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Este módulo serve para controlar despesas, contas a pagar e o fluxo de caixa.
@@ -743,36 +745,64 @@ tr:last-child td{border-bottom:none;}
           </div>
         </div>
 
-        <div id="finDashboardView" style="display:none;">
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Indicadores Gerais</div></div>
-            <div class="stat-grid" id="finDashCardsGrid"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Indicadores Financeiros</div></div>
-            <div class="stat-grid" id="indicadoresGrid"></div>
+        <div id="finDashboardView">
+          <div class="stat-grid" id="finTopCards" style="margin-bottom:18px;"></div>
+          <div class="three-col">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="section-title" style="font-size:14px;">Fluxo de Caixa</div>
+                <select id="fluxoCaixaMeses" onchange="renderFinDashboard()" style="border:1px solid var(--border);border-radius:8px;padding:5px 7px;font-size:12px;font-family:inherit;">
+                  <option value="6">Últimos 6 meses</option>
+                  <option value="12">Últimos 12 meses</option>
+                </select>
+              </div>
+              <div class="legend"><span><i style="background:#4FC3E0"></i>Entradas</span><span><i style="background:#F3897A"></i>Saídas</span><span><i style="background:var(--accent)"></i>Saldo</span></div>
+              <div id="fluxoCaixaComboChart"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">Despesas por categoria</div><span class="hint">Este mês</span></div>
+              <div id="despesasDonutChart"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">⚡ Ações rápidas</div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <button class="quick-action-btn" onclick="switchView('pedidos')"><span style="font-size:20px;">🧊</span>Novo Pedido</button>
+                <button class="quick-action-btn" onclick="openTransactionModal()"><span style="font-size:20px;">📤</span>Nova Despesa</button>
+                <button class="quick-action-btn" onclick="openTransferModal()"><span style="font-size:20px;">↔️</span>Transferência</button>
+                <button class="quick-action-btn" onclick="setFinTab('conciliacao')"><span style="font-size:20px;">🔍</span>Conciliar</button>
+                <button class="quick-action-btn" onclick="setFinTab('receber')"><span style="font-size:20px;">📥</span>Contas a Receber</button>
+                <button class="quick-action-btn" onclick="setFinTab('recorrentes')"><span style="font-size:20px;">🔁</span>Recorrentes</button>
+              </div>
+            </div>
           </div>
           <div class="two-col">
             <div class="panel">
-              <div class="panel-head"><div class="section-title">Fluxo de caixa diário (período selecionado)</div></div>
-              <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
-              <div class="bars" id="cashFlowDailyChart" style="height:130px;"></div>
+              <div class="panel-head"><div class="section-title">Contas a Pagar e Receber</div></div>
+              <div class="tabs">
+                <div class="tab active" data-dashcontas="pagar" onclick="setDashContasTab('pagar')">A Pagar</div>
+                <div class="tab" data-dashcontas="receber" onclick="setDashContasTab('receber')">A Receber</div>
+              </div>
+              <div id="dashContasWrap"></div>
+              <button class="btn btn-ghost btn-sm" id="dashContasVerTodasBtn" onclick="setFinTab('pagar')" style="margin-top:10px;">Ver todas as contas a pagar →</button>
             </div>
-            <div class="panel">
-              <div class="panel-head"><div class="section-title">Fluxo de caixa — últimos 12 meses</div></div>
-              <div class="legend"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#D85A30"></i>Saídas</span></div>
-              <div class="bars" id="cashFlowMonthlyChart" style="height:130px;"></div>
+            <div>
+              <div class="panel">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">🔔 Alertas</div><a href="#" onclick="switchView('notificacoes');return false;" style="font-size:12px;color:var(--accent);">Ver todos</a></div>
+                <div id="dashAlertsMini"></div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">🏦 Contas bancárias</div><a href="#" onclick="setFinTab('contas');return false;" style="font-size:12px;color:var(--accent);">Ver todas</a></div>
+                <div id="dashContasBancariasMini"></div>
+              </div>
             </div>
           </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Despesas por categoria</div></div>
-            <div id="pieDespesasChart"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Evolução do caixa — últimos 12 meses</div></div>
-            <div id="cashEvolutionChart"></div>
+          <div class="three-col">
+            <div class="panel" id="dashMetaCard"></div>
+            <div class="panel" id="dashPrevisaoCard"></div>
+            <div class="panel" id="dashSaudeCard"></div>
           </div>
         </div>
+
       </section>
 
       <!-- CRM -->
@@ -1490,6 +1520,7 @@ async function loadAll(){
     fuelPricePerLiter: co.fuel_price_per_liter!=null ? Number(co.fuel_price_per_liter) : 6.20,
     fuelEfficiencyKmL: co.fuel_efficiency_km_l!=null ? Number(co.fuel_efficiency_km_l) : 10,
     freezerMetaPacotesMes: co.freezer_meta_pacotes_mes!=null ? Number(co.freezer_meta_pacotes_mes) : 20,
+    revenueGoalMonthly: co.revenue_goal_monthly!=null ? Number(co.revenue_goal_monthly) : 50000,
   } : {};
 
   state.freezers = (freezerRes.data||[]).map(f => ({
@@ -2515,79 +2546,267 @@ function finDashChangeMonth(delta){
   finDashMonthOffset += delta;
   renderFinDashboard();
 }
+function buildSparklineSvg(values, color){
+  if(!values || values.length<2) return '';
+  const max = Math.max(...values), min = Math.min(...values, 0);
+  const range = (max-min) || 1;
+  const w=100, h=32;
+  const pts = values.map((v,i)=> `${(i/(values.length-1)*w).toFixed(1)},${(h-(v-min)/range*h).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:32px;display:block;" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+function buildComboChartSvg(entradas, saidas, saldo, labels){
+  const w=700, h=190, padL=42, padR=10, padT=14, padB=24;
+  const maxBar = Math.max(1, ...entradas, ...saidas);
+  const minSaldo = Math.min(0, ...saldo), maxSaldo = Math.max(1, ...saldo);
+  const rangeSaldo = (maxSaldo-minSaldo)||1;
+  const n = labels.length;
+  const groupW = (w-padL-padR)/n;
+  const barW = Math.max(4, groupW*0.28);
+  const xOfGroup = i => padL + i*groupW + groupW/2;
+  const yOfBar = v => padT + (h-padT-padB) * (1 - v/maxBar);
+  const yOfLine = v => padT + (h-padT-padB) * (1 - (v-minSaldo)/rangeSaldo);
+  const barsHtml = labels.map((l,i)=>{
+    const xE = xOfGroup(i) - barW - 2, xS = xOfGroup(i) + 2;
+    const hE = (h-padB) - yOfBar(entradas[i]), hS = (h-padB) - yOfBar(saidas[i]);
+    return `<rect x="${xE.toFixed(1)}" y="${yOfBar(entradas[i]).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hE).toFixed(1)}" rx="2" style="fill:#4FC3E0;"><title>${esc(l)} — Entradas: ${fmtMoney(entradas[i])}</title></rect>
+      <rect x="${xS.toFixed(1)}" y="${yOfBar(saidas[i]).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hS).toFixed(1)}" rx="2" style="fill:#F3897A;"><title>${esc(l)} — Saídas: ${fmtMoney(saidas[i])}</title></rect>`;
+  }).join('');
+  const linePoints = labels.map((l,i)=> `${xOfGroup(i).toFixed(1)},${yOfLine(saldo[i]).toFixed(1)}`).join(' ');
+  const dots = labels.map((l,i)=> `<circle cx="${xOfGroup(i).toFixed(1)}" cy="${yOfLine(saldo[i]).toFixed(1)}" r="3" style="fill:var(--accent);"><title>${esc(l)} — Saldo: ${fmtMoney(saldo[i])}</title></circle>`).join('');
+  const axisLabels = labels.map((l,i)=> `<text x="${xOfGroup(i)}" y="${h-6}" style="fill:var(--muted);font-size:9.5px;" text-anchor="middle">${esc(l)}</text>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:190px;">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
+    <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
+    ${barsHtml}
+    <polyline points="${linePoints}" style="fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;"/>
+    ${dots}
+    ${axisLabels}
+  </svg>`;
+}
+function buildDonutChartSvg(data, formatValue, centerLabel){
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if(total<=0) return '<div class="hint" style="padding:20px 0;text-align:center;">Sem dados no período.</div>';
+  const cx=90, cy=90, r=80, rInner=48;
+  let angle = -Math.PI/2;
+  const colors = ['var(--accent)','var(--accent-2)','#D85A30','#7F77DD','#1D9E75','#D4537E','#BA7517','#888780'];
+  const slices = data.map((d,i)=>{
+    const fraction = d.value/total;
+    const startAngle = angle, endAngle = angle + fraction*Math.PI*2;
+    angle = endAngle;
+    const x1 = cx+r*Math.cos(startAngle), y1 = cy+r*Math.sin(startAngle);
+    const x2 = cx+r*Math.cos(endAngle), y2 = cy+r*Math.sin(endAngle);
+    const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0;
+    const path = fraction>=0.9999 ? `M ${cx-r},${cy} A ${r},${r} 0 1 1 ${cx+r},${cy} A ${r},${r} 0 1 1 ${cx-r},${cy} Z` : `M ${cx},${cy} L ${x1.toFixed(2)},${y1.toFixed(2)} A ${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    return { label:d.label, value:d.value, pct:(fraction*100).toFixed(1), color:colors[i%colors.length], path };
+  });
+  const svg = `<svg viewBox="0 0 180 180" style="width:150px;height:150px;flex-shrink:0;">
+    ${slices.map(s=>`<path d="${s.path}" style="fill:${s.color};"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
+    <circle cx="${cx}" cy="${cy}" r="${rInner}" style="fill:var(--surface);"/>
+    <text x="${cx}" y="${cy-6}" text-anchor="middle" style="font-size:10px;fill:var(--muted);">Total</text>
+    <text x="${cx}" y="${cy+10}" text-anchor="middle" style="font-size:10.5px;font-weight:700;fill:var(--ink);">${esc(centerLabel)}</text>
+  </svg>`;
+  const legend = `<div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
+    ${slices.map(s=>`<div style="display:flex;align-items:center;gap:6px;font-size:12px;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
+  </div>`;
+  return `<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">${svg}${legend}</div>`;
+}
+function lastNMonths(n){
+  const months = [];
+  const now = new Date();
+  for(let i=n-1;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push({ from:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`, to:new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().slice(0,10), label: d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','') + '/' + String(d.getFullYear()).slice(2) });
+  }
+  return months;
+}
+function renderFinTopCards(){
+  const box = document.getElementById('finTopCards');
+  if(!box) return;
+  const months = lastNMonths(6);
+  const receitasPorMes = months.map(m=> state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
+  const despesasPorMes = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
+  const saldoPorMes = receitasPorMes.map((r,i)=>r-despesasPorMes[i]);
+  let acumulado = 0; const saldoAcumuladoPorMes = saldoPorMes.map(s=>acumulado+=s);
+
+  const receitaMes = receitasPorMes[5], receitaMesAnterior = receitasPorMes[4];
+  const despesaMes = despesasPorMes[5], despesaMesAnterior = despesasPorMes[4];
+  const saldoMes = saldoPorMes[5], saldoMesAnterior = saldoPorMes[4];
+  const saldoBancos = state.financialAccounts.filter(a=>a.status==='ativa'&&a.type==='banco').reduce((s,a)=>s+accountBalance(a.id),0);
+  const pctChange = (curr, prev) => prev!==0 ? ((curr-prev)/Math.abs(prev)*100) : (curr>0?100:0);
+
+  const cardHtml = (icon, bg, label, value, pct, spark) => `
+    <div class="panel" style="margin-bottom:0;padding:16px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">${icon}</div>
+        <div style="font-size:12.5px;color:var(--muted);">${label}</div>
+      </div>
+      <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(value)}</div>
+      ${pct!=null ? `<div style="font-size:12px;color:${pct>=0?'var(--success)':'var(--danger)'};margin-bottom:6px;">${pct>=0?'+':''}${pct.toFixed(1)}% <span style="color:var(--muted);">vs mês anterior</span></div>` : '<div class="hint" style="margin-bottom:6px;">Atualizado agora</div>'}
+      ${spark}
+    </div>`;
+
+  box.innerHTML = [
+    cardHtml('💰', '#DCFCE7', 'Receitas no mês', receitaMes, pctChange(receitaMes, receitaMesAnterior), buildSparklineSvg(receitasPorMes, '#16A34A')),
+    cardHtml('🛡️', '#FEE2E2', 'Despesas no mês', despesaMes, pctChange(despesaMes, despesaMesAnterior), buildSparklineSvg(despesasPorMes, '#DC2626')),
+    cardHtml('💼', '#DBEAFE', 'Saldo do mês', saldoMes, pctChange(saldoMes, saldoMesAnterior), buildSparklineSvg(saldoPorMes, '#2563EB')),
+    cardHtml('🏦', '#EDE9FE', 'Saldo em bancos', saldoBancos, null, buildSparklineSvg(saldoAcumuladoPorMes, '#7C3AED')),
+  ].join('');
+}
+function renderFluxoCaixaCombo(){
+  const box = document.getElementById('fluxoCaixaComboChart');
+  if(!box) return;
+  const n = parseInt(document.getElementById('fluxoCaixaMeses')?.value || '6');
+  const months = lastNMonths(n);
+  const entradas = months.map(m=> state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
+  const saidas = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
+  const saldo = entradas.map((e,i)=>e-saidas[i]);
+  box.innerHTML = buildComboChartSvg(entradas, saidas, saldo, months.map(m=>m.label));
+}
+function renderDespesasDonut(){
+  const box = document.getElementById('despesasDonutChart');
+  if(!box) return;
+  const now = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const to = todayStr();
+  const despesas = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=from&&t.paymentDate<=to);
+  const total = despesas.reduce((s,t)=>s+t.amount,0);
+  const porCategoria = {};
+  despesas.forEach(t=>{ const cat = t.category||'Sem categoria'; porCategoria[cat] = (porCategoria[cat]||0)+t.amount; });
+  const data = Object.entries(porCategoria).sort((a,b)=>b[1]-a[1]).map(([label,value])=>({label,value}));
+  box.innerHTML = buildDonutChartSvg(data, fmtMoney, fmtMoney(total).replace('R$','').trim());
+}
+let dashContasTab = 'pagar';
+function setDashContasTab(tab){
+  dashContasTab = tab;
+  document.querySelectorAll('[data-dashcontas]').forEach(t=>t.classList.toggle('active', t.dataset.dashcontas===tab));
+  document.getElementById('dashContasVerTodasBtn').textContent = tab==='pagar' ? 'Ver todas as contas a pagar →' : 'Ver todas as contas a receber →';
+  document.getElementById('dashContasVerTodasBtn').setAttribute('onclick', `setFinTab('${tab==='pagar'?'pagar':'receber'}')`);
+  renderDashContasWrap();
+}
+function renderDashContasWrap(){
+  const wrap = document.getElementById('dashContasWrap');
+  if(!wrap) return;
+  const today = todayStr();
+  const type = dashContasTab==='pagar' ? 'despesa' : 'receita';
+  const list = state.transactions.filter(t=>t.type===type && t.status!=='pago' && t.status!=='cancelado').sort((a,b)=>a.dueDate.localeCompare(b.dueDate)).slice(0,5);
+  if(list.length===0){ wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;"><p>Nenhuma conta em aberto.</p></div>`; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+    ${list.map(t=>{
+      const overdue = t.dueDate < today;
+      return `<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')">
+        <td>${fmtDate(t.dueDate)}</td><td><strong>${esc(t.description)}</strong></td><td style="color:var(--muted);">${esc(t.category)}</td>
+        <td>${fmtMoney(t.amount)}</td><td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+function renderDashAlertsMini(){
+  const box = document.getElementById('dashAlertsMini');
+  if(!box) return;
+  const today = todayStr();
+  const vencidas = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pendente'&&t.dueDate<today);
+  const receberHoje = state.transactions.filter(t=>t.type==='receita'&&t.status==='pendente'&&t.dueDate===today);
+  const naoConciliadas = state.transactions.filter(t=>t.status==='pago' && !t.accountId).length;
+  const items = [];
+  if(vencidas.length>0) items.push({ icon:'💰', bg:'#FEE2E2', title:`${vencidas.length} conta(s) a pagar vencida(s)`, sub:`Total: ${fmtMoney(vencidas.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('pagar')" });
+  if(receberHoje.length>0) items.push({ icon:'💵', bg:'#FEF3C7', title:`${receberHoje.length} conta(s) a receber vencem hoje`, sub:`Total: ${fmtMoney(receberHoje.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('receber')" });
+  if(naoConciliadas>0) items.push({ icon:'🏦', bg:'#DBEAFE', title:'Conciliação bancária pendente', sub:`${naoConciliadas} conta(s) para conciliar`, onclick:"setFinTab('conciliacao')" });
+  box.innerHTML = items.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhum alerta no momento.</div>' : items.map(a=>`
+    <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="${a.onclick}">
+      <div style="width:32px;height:32px;border-radius:50%;background:${a.bg};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">${a.icon}</div>
+      <div><div style="font-size:12.5px;font-weight:600;">${a.title}</div><div class="hint" style="margin-top:1px;">${a.sub}</div></div>
+    </div>
+  `).join('');
+}
+function renderDashContasBancariasMini(){
+  const box = document.getElementById('dashContasBancariasMini');
+  if(!box) return;
+  const accounts = state.financialAccounts.filter(a=>a.status==='ativa');
+  if(accounts.length===0){ box.innerHTML = '<div class="hint" style="padding:10px 0;">Nenhuma conta cadastrada.</div>'; return; }
+  const total = accounts.reduce((s,a)=>s+accountBalance(a.id),0);
+  box.innerHTML = accounts.map(a=>{
+    const t = accountTypeInfo(a.type);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;"><span>${t.icon}</span><span style="font-size:12.5px;font-weight:600;">${esc(a.name)}</span></div>
+      <span style="font-size:12.5px;font-weight:700;">${fmtMoney(accountBalance(a.id))}</span>
+    </div>`;
+  }).join('') + `<div style="display:flex;justify-content:space-between;padding-top:10px;"><span style="font-size:12.5px;font-weight:700;">Saldo total</span><span style="font-size:13px;font-weight:700;color:var(--accent);">${fmtMoney(total)}</span></div>`;
+}
+function renderDashBottomCards(){
+  const metaBox = document.getElementById('dashMetaCard');
+  const prevBox = document.getElementById('dashPrevisaoCard');
+  const saudeBox = document.getElementById('dashSaudeCard');
+  if(!metaBox) return;
+
+  const now = new Date();
+  const monthFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const faturamentoMes = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=monthFrom).reduce((s,o)=>s+o.total,0);
+  const meta = state.company.revenueGoalMonthly || 50000;
+  const pctMeta = meta>0 ? Math.min(100, faturamentoMes/meta*100) : 0;
+  metaBox.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span style="font-size:20px;">🎯</span><span style="font-size:12.5px;color:var(--muted);">Meta mensal</span>
+      <button class="icon-btn" style="margin-left:auto;" onclick="promptEditRevenueGoal()" title="Editar meta">${iconEdit}</button>
+    </div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px;">${fmtMoney(faturamentoMes)} / ${fmtMoney(meta)}</div>
+    <div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;margin-bottom:6px;"><div style="height:100%;width:${pctMeta}%;background:var(--accent);"></div></div>
+    <div class="hint">${pctMeta.toFixed(0)}%</div>
+  `;
+
+  const in30 = addDays(todayStr(), 30);
+  const previsao = state.transactions.filter(t=>t.type==='receita'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=in30).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  prevBox.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de recebimentos</span></div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(previsao)}</div>
+    <div class="hint" style="color:var(--success);">Próximos 30 dias</div>
+  `;
+
+  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  const contasPagarAbertas = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
+  const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅'} : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️'} : {label:'Crítica', color:'var(--danger)', icon:'🔴'};
+  saudeBox.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">${saude.icon}</span><span style="font-size:12.5px;color:var(--muted);">Saúde financeira</span></div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px;color:${saude.color};">${saude.label}</div>
+    <div class="hint">Índice de liquidez: ${indiceLiquidez.toFixed(2)}</div>
+  `;
+}
+async function promptEditRevenueGoal(){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar a meta', true); return; }
+  const val = prompt('Nova meta mensal de faturamento (R$):', state.company.revenueGoalMonthly || 50000);
+  if(val==null) return;
+  const num = parseFloat(val);
+  if(isNaN(num)||num<0){ toast('Valor inválido', true); return; }
+  const { error } = await sb.from('company_settings').upsert({ id:true, revenue_goal_monthly: num });
+  if(error){ dbErr(error, 'Erro ao salvar meta'); return; }
+  toast('Meta atualizada'); await loadAll(); renderFinDashboard();
+}
 function renderFinDashboard(){
   const compactBox = document.getElementById('finCompactStats');
   if(!compactBox) return;
   const range = finDashPeriodRange();
-  const today = todayStr();
-  const in7 = addDays(today, 7);
   document.getElementById('finPeriodLabel').textContent = range.label ? ('Resumo — '+range.label.charAt(0).toUpperCase()+range.label.slice(1)) : 'Resumo do período';
 
   const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
-  const saldoPorTipo = tipo => state.financialAccounts.filter(a=>a.status==='ativa' && a.type===tipo).reduce((s,a)=>s+accountBalance(a.id),0);
-
   const receitasPeriodo = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
   const despesasPeriodo = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate && t.paymentDate>=range.from && t.paymentDate<=range.to);
   const receitaTotal = receitasPeriodo.reduce((s,t)=>s+t.amount,0);
   const despesaTotal = despesasPeriodo.reduce((s,t)=>s+t.amount,0);
-  const lucro = receitaTotal - despesaTotal;
-
-  const pedidosFaturados = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to);
-  const faturamentoBruto = pedidosFaturados.reduce((s,o)=>s+o.total,0);
-  const ticketMedio = pedidosFaturados.length ? faturamentoBruto/pedidosFaturados.length : 0;
-  const despesasQtd = despesasPeriodo.length;
-  // Margem bruta de vendas: preço de venda menos custo do produto — diferente do "resultado de caixa",
-  // que soma TODAS as despesas do período (inclusive as que não têm relação direta com a venda em si).
-  const stockByIdFin = {}; state.stockItems.forEach(s=>stockByIdFin[s.id]=s);
-  const margemBruta = pedidosFaturados.reduce((sum,o)=>{
-    const itemsMargin = o.items.reduce((s,it)=> s + (it.unitPrice - (stockByIdFin[it.productId]?.costPrice||0)) * it.qty, 0);
-    return sum + itemsMargin - (o.discount||0);
-  }, 0);
-
-  const contasReceber = state.transactions.filter(t=>t.type==='receita' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const contasPagar = state.transactions.filter(t=>t.type==='despesa' && t.status!=='pago' && t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const contasVencidas = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate<today).length;
-  const contasHoje = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate===today).length;
-  const contas7dias = state.transactions.filter(t=>t.status!=='pago' && t.status!=='cancelado' && t.dueDate>today && t.dueDate<=in7).length;
 
   const card = (label, value, onclick, color) => `<div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
-
-  // Resumo enxuto — sempre visível, o que mais importa no dia a dia
   compactBox.innerHTML = [
     card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
     card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
     card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
   ].join('');
 
-  // Versão completa (16 indicadores) — só existe na aba Dashboard
-  const fullBox = document.getElementById('finDashCardsGrid');
-  if(fullBox){
-    fullBox.innerHTML = [
-      card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
-      card('💵 Saldo em Caixa', fmtMoney(saldoPorTipo('caixa')), "setFinTab('contas')"),
-      card('🏦 Saldo em Conta Bancária', fmtMoney(saldoPorTipo('banco')), "setFinTab('contas')"),
-      card('💳 Saldo Maquininha', fmtMoney(saldoPorTipo('maquininha')), "setFinTab('contas')"),
-      card('📥 Contas a Receber', fmtMoney(contasReceber), "setFinTab('receber')"),
-      card('📤 Contas a Pagar', fmtMoney(contasPagar), "setFinTab('pagar')"),
-      card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
-      card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
-      card('Margem bruta de vendas', fmtMoney(margemBruta), "switchView('pedidos')", margemBruta<0?'var(--danger)':'var(--success)'),
-      card('Resultado de caixa', fmtMoney(lucro), null, lucro<0?'var(--danger)':'var(--success)'),
-      card('Faturamento bruto', fmtMoney(faturamentoBruto), "switchView('pedidos')"),
-      card('Ticket médio', fmtMoney(ticketMedio)),
-      card('Pedidos faturados', pedidosFaturados.length, "switchView('pedidos')"),
-      card('Qtd. de despesas', despesasQtd, "setFinTab('pagar')"),
-      card('🔴 Contas vencidas', contasVencidas, "setFinTab('pagar')", contasVencidas?'var(--danger)':null),
-      card('🟡 Vencem hoje', contasHoje, "setFinTab('pagar')"),
-      card('Vencem em 7 dias', contas7dias, "setFinTab('pagar')"),
-    ].join('');
-  }
-
-  renderCashFlowDaily(range);
-  renderCashFlowMonthly();
-  renderCategoryPies(range);
-  renderCashEvolution();
-  renderIndicadoresFinanceiros();
+  renderFinTopCards();
+  renderFluxoCaixaCombo();
+  renderDespesasDonut();
+  renderDashContasWrap();
+  renderDashAlertsMini();
+  renderDashContasBancariasMini();
+  renderDashBottomCards();
 }
 
 // ---- Gráficos do Dashboard Financeiro (Fase 5) ----
