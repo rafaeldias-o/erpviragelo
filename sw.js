@@ -6,7 +6,7 @@
 // - Versão do cache abaixo: mude o número sempre que publicar uma atualização. Isso invalida o cache antigo
 //   automaticamente e dispara o aviso de "nova versão disponível" no app, sem quebrar a sessão de quem já está usando.
 
-const CACHE_VERSION = 'viragelo-v8';
+const CACHE_VERSION = 'viragelo-v9';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -36,6 +36,33 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'skipWaiting') self.skipWaiting();
+});
+
+// ---- Push de verdade (funciona com o app/navegador fechado) ----
+// A mensagem chega da Edge Function do Supabase (send-push-alerts), disparada por um agendamento no banco.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; }
+  catch (e) { data = { title: 'ViraGelo ERP', body: event.data ? event.data.text() : '' }; }
+  const title = data.title || 'ViraGelo ERP';
+  const options = {
+    body: data.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    tag: data.tag || 'viragelo-alert',
+    data: { url: data.url || './index.html' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const c of clientList) { if ('focus' in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow(event.notification.data?.url || './index.html');
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {

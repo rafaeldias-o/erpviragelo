@@ -1133,7 +1133,8 @@ tr:last-child td{border-bottom:none;}
         </div>
         <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">🔔 Notificações do navegador</div></div>
-          <div class="hint" style="margin-bottom:10px;">Manda um aviso na hora pra alertas urgentes (contas vencidas, visitas atrasadas) direto na tela do computador ou celular — funciona enquanto essa aba do ViraGelo estiver aberta, mesmo em segundo plano. <strong>Não funciona com o navegador totalmente fechado</strong> — isso exigiria um servidor próprio de notificação push, que esse sistema (por ser um site simples, sem servidor) não tem.</div>
+          <div class="hint" style="margin-bottom:10px;">Manda um aviso na hora pra alertas urgentes (contas vencidas, visitas atrasadas) direto na tela do computador ou celular — funciona mesmo com o app fechado (o navegador entrega a notificação em segundo plano). No iPhone, precisa instalar o app na tela inicial primeiro (Safari não entrega push pra sites comuns).</div>
+          <div class="hint" id="pushDebugStatus" style="margin-bottom:10px;font-size:11px;"></div>
           <div style="display:flex;align-items:center;gap:12px;">
             <span id="notifSettingsStatus" style="font-size:13px;font-weight:600;"></span>
             <button class="btn btn-primary btn-sm" id="notifSettingsBtn" onclick="toggleBrowserNotifications()">Ativar notificações</button>
@@ -7323,24 +7324,57 @@ function renderConfig(){
   renderNotificationSettingsUI();
   renderFreightTiers();
 }
-// ---- Notificações do navegador (Web Notifications API) ----
-// Funciona enquanto essa aba estiver aberta (mesmo em segundo plano), incluindo notificação na bandeja
-// do sistema operacional. NÃO funciona com o navegador totalmente fechado — isso exigiria um servidor
-// próprio de push notification (protocolo VAPID/Web Push), que esse sistema não tem por ser hospedado
-// como site estático, sem servidor.
+// ---- Notificações do navegador ----
+// Duas camadas: 1) Notification API local (dispara enquanto essa aba estiver aberta, mesmo em segundo
+// plano — não depende de servidor); 2) Web Push de verdade (funciona com o app/navegador fechado — a
+// Edge Function 'send-push-alerts' do Supabase, disparada por um agendamento no banco, é quem envia).
+// A chave pública abaixo é segura de ficar no código — é só a chave PÚBLICA do par VAPID, a privada
+// fica só no servidor (Supabase Edge Function), nunca aqui.
+const VAPID_PUBLIC_KEY = 'BEtTI_cs0aS4BKPfpiaHcrMDvXnAHS-aBfANWFUNuMeYFnYisBTBnWHaLsp2S6XfykuY-5grDMGuwqDc3Z8sOCM';
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
 function browserNotificationsEnabled(){
   return typeof localStorage !== 'undefined' && localStorage.getItem('viragelo_notif_enabled') === 'true';
+}
+async function subscribeToPush(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return; // navegador sem suporte a push de verdade — a notificação local ainda funciona
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    const json = sub.toJSON();
+    await sb.from('push_subscriptions').upsert({
+      user_id: myUser?.id || null, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  }catch(e){ console.warn('Não foi possível inscrever no push de verdade — a notificação local (aba aberta) continua funcionando.', e); }
+}
+async function unsubscribeFromPush(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+  }catch(e){ /* silencioso — não é crítico */ }
 }
 async function toggleBrowserNotifications(){
   if(!('Notification' in window)){ toast('Seu navegador não suporta notificações', true); return; }
   if(browserNotificationsEnabled()){
     localStorage.setItem('viragelo_notif_enabled', 'false');
+    await unsubscribeFromPush();
     toast('Notificações desativadas');
   } else {
     const perm = await Notification.requestPermission();
     if(perm !== 'granted'){ toast('Permissão de notificação negada pelo navegador', true); return; }
     localStorage.setItem('viragelo_notif_enabled', 'true');
-    toast('Notificações ativadas — você vai receber avisos de alertas urgentes enquanto essa aba estiver aberta');
+    await subscribeToPush();
+    toast('Notificações ativadas — você vai receber avisos de alertas urgentes, inclusive com o app fechado');
     checkAndSendNotifications();
   }
   renderNotificationSettingsUI();
@@ -7353,6 +7387,14 @@ function renderNotificationSettingsUI(){
   statusEl.textContent = enabled ? '🔔 Ativadas' : '🔕 Desativadas';
   statusEl.style.color = enabled ? 'var(--success)' : 'var(--muted)';
   btnEl.textContent = enabled ? 'Desativar' : 'Ativar notificações';
+  const debugEl = document.getElementById('pushDebugStatus');
+  if(debugEl && enabled && 'serviceWorker' in navigator && 'PushManager' in window){
+    navigator.serviceWorker.ready.then(reg=>reg.pushManager.getSubscription()).then(sub=>{
+      debugEl.textContent = sub ? '✓ Inscrito pra receber push mesmo com o app fechado' : '⚠️ Notificação local ativa, mas a inscrição de push de verdade não foi confirmada — tenta desativar e ativar de novo';
+    }).catch(()=>{ debugEl.textContent = ''; });
+  } else if(debugEl){
+    debugEl.textContent = '';
+  }
 }
 // Evita notificar o MESMO alerta várias vezes no mesmo dia — guarda no localStorage as chaves já
 // notificadas hoje, reiniciando naturalmente no dia seguinte (a chave inclui a data).
