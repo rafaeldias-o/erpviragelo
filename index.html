@@ -6722,9 +6722,37 @@ function renderCRWizardResult(ordered, expectedTimes, legInfo, totalDistance, to
         </li>`;
       }).join('')}
     </ol>
-    <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
-    <div style="margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="closeModal(); setVisitasTab('rotas');">Concluir</button></div>
+    <div id="crwRouteMap" style="height:320px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <a href="${mapsUrl}" target="_blank" class="btn btn-primary" style="text-decoration:none;">Abrir rota no Google Maps</a>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal(); setVisitasTab('rotas');">Concluir</button>
+    </div>
   `;
+  renderCRWizardRouteMap(origin, ordered);
+}
+let crwRouteLeafletMap = null;
+function renderCRWizardRouteMap(origin, ordered){
+  const el = document.getElementById('crwRouteMap');
+  if(!el || typeof L==='undefined') return;
+  if(crwRouteLeafletMap){ crwRouteLeafletMap.remove(); crwRouteLeafletMap = null; }
+  crwRouteLeafletMap = L.map(el).setView([origin.lat, origin.lng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(crwRouteLeafletMap);
+
+  const factoryIcon = L.divIcon({ className:'', html:'<div style="background:#1C7FA3;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏭</div>', iconSize:[30,30] });
+  L.marker([origin.lat, origin.lng], {icon:factoryIcon}).addTo(crwRouteLeafletMap).bindPopup('Fábrica (início)');
+
+  const bounds = [[origin.lat, origin.lng]];
+  const routePoints = [[origin.lat, origin.lng]];
+  ordered.forEach((s,i)=>{
+    if(s.lat==null || s.lng==null) return;
+    const stopIcon = L.divIcon({ className:'', html:`<div style="background:#4FC3E0;color:#0E2438;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${i+1}</div>`, iconSize:[26,26] });
+    L.marker([s.lat, s.lng], {icon:stopIcon}).addTo(crwRouteLeafletMap).bindPopup(`<strong>${i+1}. ${esc(s.name)}</strong>${s.address?'<br>'+esc(s.address):''}`);
+    bounds.push([s.lat, s.lng]);
+    routePoints.push([s.lat, s.lng]);
+  });
+  L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(crwRouteLeafletMap);
+  if(bounds.length>1) crwRouteLeafletMap.fitBounds(bounds, {padding:[30,30]});
+  setTimeout(()=>{ if(crwRouteLeafletMap) crwRouteLeafletMap.invalidateSize(); }, 200);
 }
 
 // ---- Histórico de rotas comerciais ----
@@ -6850,6 +6878,7 @@ function openRouteDetailModal(routeId){
   openModal(`
     <div class="modal-head"><h3>Rota Comercial — ${esc(city?city.name:'')}${neighborhood?' · '+esc(neighborhood.name):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="margin-bottom:14px;">${fmtDate(route.plannedDate)}${route.plannedStartTime?' · início '+route.plannedStartTime.slice(0,5):''}${route.distanceKm!=null?' · '+route.distanceKm.toFixed(1)+' km':''} · <span class="badge badge-info">${route.status}</span></div>
+    <div id="crwRouteMap" style="height:280px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
     <div id="routeStopsWrap" class="modal-inner-scroll"></div>
     <div class="modal-foot">
       <button class="btn btn-danger-ghost" onclick="deleteCommercialRoute('${routeId}')">Excluir rota</button>
@@ -6857,6 +6886,11 @@ function openRouteDetailModal(routeId){
     </div>
   `, 'xwide');
   renderRouteStops(routeId);
+  const originForMap = companyOrigin();
+  if(originForMap){
+    const orderedStops = route.stops.map(s=>{ const e = stopTargetEntity(s); return e ? {...e, name: stopTargetName(s), address: stopTargetAddress(s)} : null; }).filter(Boolean);
+    renderCRWizardRouteMap(originForMap, orderedStops);
+  }
 }
 async function deleteCommercialRoute(routeId){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir rotas comerciais', true); return; }
