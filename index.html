@@ -841,10 +841,6 @@ tr:last-child td{border-bottom:none;}
               <div class="section-title" id="clientesTabTitle">Clientes Recorrentes</div>
               <div class="hint" id="clientesTabHint" style="margin:2px 0 0 0;">Clientes que recebem gelo com regularidade — abastecimento contínuo.</div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="clientSearch" placeholder="Buscar cliente..." oninput="renderClientsTable()"></div>
-              <button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button>
-            </div>
           </div>
           <div class="tabs">
             <div class="tab active" data-clienttab="recorrente" onclick="setClientTypeTab('recorrente')">🔁 Recorrentes</div>
@@ -860,7 +856,11 @@ tr:last-child td{border-bottom:none;}
             <div id="clientBairroSidebar"></div>
           </div>
           <div>
-            <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:10px;">
+              <div style="display:flex;gap:8px;align-items:center;">
+                <div class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="clientSearch" placeholder="Buscar cliente..." oninput="renderClientsTable()"></div>
+                <button class="btn btn-primary btn-sm" onclick="openClientDetailModal()">+ Novo cliente</button>
+              </div>
               <div class="tabs" style="margin-bottom:0;">
                 <div class="tab active" data-clientview="grade" onclick="setClientViewMode('grade')">▦ Grade</div>
                 <div class="tab" data-clientview="bairro" onclick="setClientViewMode('bairro')">📍 Por bairro</div>
