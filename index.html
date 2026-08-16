@@ -495,8 +495,8 @@ tr:last-child td{border-bottom:none;}
       <section class="view" id="view-estoque">
         <div class="panel" id="storageCapacityPanel"></div>
         <div class="tabs">
-          <div class="tab active" data-stocktab="materia_prima" onclick="setStockTab('materia_prima')">Matéria-prima</div>
-          <div class="tab" data-stocktab="produto_acabado" onclick="setStockTab('produto_acabado')">Produtos acabados</div>
+          <div class="tab" data-stocktab="materia_prima" onclick="setStockTab('materia_prima')">Matéria-prima</div>
+          <div class="tab active" data-stocktab="produto_acabado" onclick="setStockTab('produto_acabado')">Produtos acabados</div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -1229,7 +1229,7 @@ let crWizardMaxVisits = 10;
 let crWizardStartTime = null; // 'HH:MM' — definido no Passo 3, padrão é o horário atual
 let currentVisitasTab = 'regioes';
 let selectedVisitCityId = null;
-let currentStockTab = 'materia_prima';
+let currentStockTab = 'produto_acabado';
 let orderDraftItems = [];
 let productionDraftPacks = [];
 let deliveryDraftItems = [];
@@ -2072,17 +2072,24 @@ async function saveMachineCapacity(){
 }
 function renderEstoque(){
   renderStorageCapacityPanel();
-  const items = state.stockItems.filter(p=>p.category===currentStockTab);
+  document.getElementById('stockPanelTitle').textContent = currentStockTab==='materia_prima' ? 'Matéria-prima' : 'Produtos acabados';
+  document.getElementById('stockAddBtn').setAttribute('onclick', `openStockModal('${currentStockTab}')`);
+  document.getElementById('stockAddBtn').style.display = currentStockTab==='produto_acabado' ? 'none' : 'inline-flex';
+  document.getElementById('stockHint').style.display = currentStockTab==='produto_acabado' ? 'block' : 'none';
+  const items = state.stockItems.filter(p=>p.category===currentStockTab)
+    .sort((a,b)=> (a.weightKg??999) - (b.weightKg??999) || a.name.localeCompare(b.name));
   const wrap = document.getElementById('stockTableWrap');
   const isFinished = currentStockTab==='produto_acabado';
   if(items.length===0){ wrap.innerHTML = emptyState('Nenhum item cadastrado nesta categoria.','Novo item', `openStockModal('${currentStockTab}')`); }
   else {
-    wrap.innerHTML = `<table><thead><tr><th>Código</th><th>Nome</th><th>Qtd.</th>${isFinished?'<th>Custo unit.</th><th>Venda</th><th>Margem</th>':'<th>Custo unit.</th><th>Fornecedor</th>'}<th>Valor total</th><th>Status</th><th></th></tr></thead><tbody>
+    wrap.innerHTML = `<table><thead><tr>${isFinished?'<th></th>':''}<th>Código</th><th>Nome</th><th>Qtd.</th>${isFinished?'<th>Custo unit.</th><th>Venda</th><th>Margem</th>':'<th>Custo unit.</th><th>Fornecedor</th>'}<th>Valor total</th><th>Status</th><th></th></tr></thead><tbody>
     ${items.map(p=>{
       const low = p.qty <= p.minQty;
       const margin = isFinished && p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
       const totalValue = p.qty * (isFinished ? (p.salePrice||0) : (p.costPrice||0));
+      const thumbCell = isFinished ? `<td>${p.imageUrl?`<img src="${esc(p.imageUrl)}" alt="${esc(p.name)}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;">`:`<div style="width:36px;height:36px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:16px;">🧊</div>`}</td>` : '';
       return `<tr>
+        ${thumbCell}
         <td style="color:var(--muted)">${esc(p.code||'—')}</td>
         <td><strong>${esc(p.name)}</strong></td>
         <td>${p.qty} ${p.unit}${p.minQty?` <span style="color:var(--muted)">(mín. ${p.minQty})</span>`:''}</td>
