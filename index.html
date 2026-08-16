@@ -6218,8 +6218,10 @@ function renderBairroDetailMap(prospects){
   const el = document.getElementById('bairroDetailMap');
   if(!el || typeof L==='undefined') return;
   if(!bairroDetailMap){
-    bairroDetailMap = L.map(el).setView([-28.47,-48.98], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(bairroDetailMap);
+    try{
+      bairroDetailMap = L.map(el).setView([-28.47,-48.98], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(bairroDetailMap);
+    }catch(e){ console.error('Erro ao iniciar o mapa do bairro:', e); return; }
   }
   bairroDetailMarkers.forEach(m=>bairroDetailMap.removeLayer(m));
   bairroDetailMarkers = [];
@@ -6304,8 +6306,10 @@ function renderVisitasMap(){
   document.getElementById('mapaCityLabel').textContent = city ? city.name : '—';
 
   if(!visitasLeafletMap){
-    visitasLeafletMap = L.map(el).setView([-28.47, -48.98], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(visitasLeafletMap);
+    try{
+      visitasLeafletMap = L.map(el).setView([-28.47, -48.98], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(visitasLeafletMap);
+    }catch(e){ console.error('Erro ao iniciar o mapa de Regiões:', e); return; }
   }
   visitasLeafletMarkers.forEach(m=>visitasLeafletMap.removeLayer(m));
   visitasLeafletMarkers = [];
@@ -8825,18 +8829,25 @@ function openMoreSheet(){ document.getElementById('moreSheetOverlay').classList.
 function closeMoreSheet(){ document.getElementById('moreSheetOverlay').classList.remove('active'); }
 
 function renderAll(){
-  renderDashboard(); renderEstoque(); renderProducao(); renderPedidos();
-  renderFinanceiro(); renderCRM(); renderClientesModule(); renderVisitas();
-  if(document.getElementById('reportFrom')) renderReport();
-  if(document.getElementById('reportMensalWrap')) renderReportMensal();
-  if(document.getElementById('relFrom')) renderRelatorios();
-  if(document.getElementById('freezerCadastroWrap')) renderFreezerCadastro();
-  if(document.getElementById('produtosTableWrap')) renderProdutos();
-  renderConfig();
-  renderNotifications();
-  updateNotifBadge();
-  if(notifMasterTab==='inventario') renderAssetsView();
-  if(notifMasterTab==='gestao') renderGestaoAlertas();
+  const safe = (name, fn) => { try{ fn(); }catch(e){ console.error(`Erro ao renderizar ${name}:`, e); } };
+  safe('Início', renderDashboard);
+  safe('Estoque', renderEstoque);
+  safe('Produção', renderProducao);
+  safe('Pedidos', renderPedidos);
+  safe('Financeiro', renderFinanceiro);
+  safe('CRM', renderCRM);
+  safe('Clientes', renderClientesModule);
+  safe('Visitas Comerciais', renderVisitas);
+  if(document.getElementById('reportFrom')) safe('Relatórios (filtros)', renderReport);
+  if(document.getElementById('reportMensalWrap')) safe('Relatório Mensal', renderReportMensal);
+  if(document.getElementById('relFrom')) safe('Relatórios', renderRelatorios);
+  if(document.getElementById('freezerCadastroWrap')) safe('Freezers', renderFreezerCadastro);
+  if(document.getElementById('produtosTableWrap')) safe('Produtos', renderProdutos);
+  safe('Configurações', renderConfig);
+  safe('Notificações', renderNotifications);
+  safe('Badge de notificação', updateNotifBadge);
+  if(notifMasterTab==='inventario') safe('Inventário', renderAssetsView);
+  if(notifMasterTab==='gestao') safe('Gestão de Alertas', renderGestaoAlertas);
 }
 
 // ================= INIT =================
