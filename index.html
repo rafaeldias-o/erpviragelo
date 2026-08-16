@@ -2878,10 +2878,12 @@ function renderFinTopCards(){
   const despesasPorMes = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const saldoPorMes = receitasPorMes.map((r,i)=>r-despesasPorMes[i]);
   let acumulado = 0; const saldoAcumuladoPorMes = saldoPorMes.map(s=>acumulado+=s);
-  // Saldo em contas: soma de TODAS as contas ativas (banco + maquininha + caixa), não só banco —
-  // os cards de Receitas/Despesas/Saldo do mês foram removidos daqui porque os gráficos de Fluxo de
-  // Caixa e Despesas por categoria logo abaixo já mostram a mesma informação de um jeito melhor.
-  const saldoContas = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+
+  const receitaMes = receitasPorMes[5], receitaMesAnterior = receitasPorMes[4];
+  const despesaMes = despesasPorMes[5], despesaMesAnterior = despesasPorMes[4];
+  const saldoMes = saldoPorMes[5], saldoMesAnterior = saldoPorMes[4];
+  const saldoBancos = state.financialAccounts.filter(a=>a.status==='ativa'&&a.type==='banco').reduce((s,a)=>s+accountBalance(a.id),0);
+  const pctChange = (curr, prev) => prev!==0 ? ((curr-prev)/Math.abs(prev)*100) : (curr>0?100:0);
 
   const cardHtml = (icon, bg, label, value, pct, spark) => `
     <div class="panel" style="margin-bottom:0;padding:16px;">
@@ -2895,7 +2897,10 @@ function renderFinTopCards(){
     </div>`;
 
   box.innerHTML = [
-    cardHtml('🏦', '#EDE9FE', 'Saldo em contas', saldoContas, null, buildSparklineSvg(saldoAcumuladoPorMes, '#7C3AED')),
+    cardHtml('💰', '#DCFCE7', 'Receitas no mês', receitaMes, pctChange(receitaMes, receitaMesAnterior), buildSparklineSvg(receitasPorMes, '#16A34A')),
+    cardHtml('🛡️', '#FEE2E2', 'Despesas no mês', despesaMes, pctChange(despesaMes, despesaMesAnterior), buildSparklineSvg(despesasPorMes, '#DC2626')),
+    cardHtml('💼', '#DBEAFE', 'Saldo do mês', saldoMes, pctChange(saldoMes, saldoMesAnterior), buildSparklineSvg(saldoPorMes, '#2563EB')),
+    cardHtml('🏦', '#EDE9FE', 'Saldo em bancos', saldoBancos, null, buildSparklineSvg(saldoAcumuladoPorMes, '#7C3AED')),
   ].join('');
 }
 function renderFluxoCaixaCombo(){
