@@ -889,6 +889,26 @@ tr:last-child td{border-bottom:none;}
           </div>
           <button class="btn btn-primary btn-sm" onclick="saveFuelSettings()">Salvar</button>
         </div>
+        <div class="panel" style="max-width:640px;">
+          <div class="panel-head"><div class="section-title">🗺️ Como calcular a distância da entrega</div></div>
+          <div class="hint" style="margin-bottom:10px;">Define como a quilometragem de cada entrega é calculada pra taxa de entrega dos motoristas.</div>
+          <div class="field">
+            <label>Modo de cálculo</label>
+            <select id="cfg-route-mode" onchange="onRouteModeChange()">
+              <option value="ida">Só ida (fábrica → cliente)</option>
+              <option value="ida_volta">Ida e volta (fábrica → cliente → fábrica)</option>
+              <option value="casa_motorista">Fábrica → cliente → casa do motorista</option>
+            </select>
+          </div>
+          <div id="driverHomesWrap" style="display:none;">
+            <div class="field-row">
+              <div class="field"><label>Endereço da casa do Beto</label><input id="cfg-beto-home" placeholder="Ex: Rua Exemplo, 123, Bairro, Tubarão"></div>
+              <div class="field"><label>Endereço da casa do Gui</label><input id="cfg-gui-home" placeholder="Ex: Rua Exemplo, 456, Bairro, Tubarão"></div>
+            </div>
+            <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Geocodificado automaticamente ao salvar — a entrega vai contar fábrica → cliente → essa casa, dependendo de quem entregou.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveRouteModeSettings()">Salvar</button>
+        </div>
       </section>
 
       <!-- CLIENTES -->
@@ -1588,6 +1608,9 @@ async function loadAll(){
     freezerMetaPacotesMes: co.freezer_meta_pacotes_mes!=null ? Number(co.freezer_meta_pacotes_mes) : 20,
     revenueGoalMonthly: co.revenue_goal_monthly!=null ? Number(co.revenue_goal_monthly) : 50000,
     machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
+    routeCalcMode: co.route_calc_mode || 'ida',
+    betoHomeAddress: co.beto_home_address || null, betoHomeLat: co.beto_home_lat!=null?Number(co.beto_home_lat):null, betoHomeLng: co.beto_home_lng!=null?Number(co.beto_home_lng):null,
+    guiHomeAddress: co.gui_home_address || null, guiHomeLat: co.gui_home_lat!=null?Number(co.gui_home_lat):null, guiHomeLng: co.gui_home_lng!=null?Number(co.gui_home_lng):null,
   } : {};
 
   state.freezers = (freezerRes.data||[]).map(f => ({
@@ -2407,7 +2430,7 @@ function promptOrderDriver(orderId){
       <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(order?.paymentMethod||'—')}</span></div>
     </div>
     <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
-    <div class="field"><label>Será entregue por:</label><select id="odp-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
+    <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
     <div class="field"><label>Creditar pagamento na conta</label><select id="odp-account">
       <option value="">— Não creditar em nenhuma conta —</option>
       ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
@@ -2420,16 +2443,60 @@ function promptOrderDriver(orderId){
   `);
   loadDeliveryDistanceIntoModal(client);
 }
+let odpBaseDistanceKm = null;
+let odpCurrentClientId = null;
 async function loadDeliveryDistanceIntoModal(client){
   const wrap = document.getElementById('odp-distance-wrap');
+  odpBaseDistanceKm = null;
+  odpCurrentClientId = client ? client.id : null;
   if(!wrap || !client){ if(wrap) wrap.innerHTML = `<div class="field"><label>Distância até o cliente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`; return; }
   const result = await ensureClientDistance(client.id);
   if(!document.body.contains(wrap)) return; // modal já foi fechado antes de terminar de calcular
   if(result && result.distanceKm!=null){
-    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${result.distanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${result.distanceKm}">`;
+    odpBaseDistanceKm = result.distanceKm; // fábrica -> cliente, é a base de qualquer um dos 3 modos
+    renderOdpDistanceDisplay();
   } else {
     wrap.innerHTML = `<div class="field"><label>Não localizei o endereço no mapa — digite a distância manualmente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`;
   }
+}
+// Recalcula o texto/valor mostrado no modal de acordo com o modo de rota configurado (ida / ida e volta /
+// fábrica -> cliente -> casa do motorista). No modo "casa do motorista", precisa saber QUAL motorista foi
+// selecionado antes de saber a distância final — por isso essa função roda de novo no onchange do select.
+function renderOdpDistanceDisplay(){
+  const wrap = document.getElementById('odp-distance-wrap');
+  if(!wrap || odpBaseDistanceKm==null) return;
+  const mode = state.company.routeCalcMode || 'ida';
+  const baseTxt = odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1});
+
+  if(mode==='ida_volta'){
+    const total = odpBaseDistanceKm * 2;
+    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Ida e volta (fábrica → cliente → fábrica): <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+    return;
+  }
+  if(mode==='casa_motorista'){
+    const driver = document.getElementById('odp-driver')?.value;
+    if(!driver){
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br>Selecione o motorista pra somar o trecho até a casa dele.</div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
+      return;
+    }
+    const home = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
+    if(home.lat==null){
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br><span style="color:var(--warn);">⚠️ Endereço da casa desse motorista não cadastrado — contando só até o cliente. Cadastre em Agenda de Entregas.</span></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
+      return;
+    }
+    wrap.innerHTML = `<div class="hint">📍 Calculando trecho cliente → casa do motorista...</div>`;
+    const client = state.clients.find(c=>c.id===odpCurrentClientId);
+    const clientForCalc = odpCurrentClientId; // pra conferir se o modal ainda é o mesmo quando a resposta chegar
+    routeDistanceKm({lat:client.lat,lng:client.lng}, home).then(extra=>{
+      if(!document.body.contains(wrap) || odpCurrentClientId!==clientForCalc) return; // modal mudou nesse meio tempo
+      const finalExtra = extra!=null ? extra : 0;
+      const total = odpBaseDistanceKm + finalExtra;
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${baseTxt} km + cliente → casa: ${finalExtra.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+    });
+    return;
+  }
+  // modo 'ida' (padrão)
+  wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${baseTxt} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
 }
 // Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco, Cartão -> Maquininha.
 function suggestedAccountForPaymentMethod(paymentMethod){
@@ -5611,6 +5678,15 @@ function renderWeekAgenda(){
   if(fuelPriceEl && document.activeElement !== fuelPriceEl) fuelPriceEl.value = state.company.fuelPricePerLiter ?? 6.20;
   const fuelEffEl = document.getElementById('cfg-fuel-efficiency');
   if(fuelEffEl && document.activeElement !== fuelEffEl) fuelEffEl.value = state.company.fuelEfficiencyKmL ?? 10;
+  const routeModeEl = document.getElementById('cfg-route-mode');
+  if(routeModeEl && document.activeElement !== routeModeEl){
+    routeModeEl.value = state.company.routeCalcMode || 'ida';
+    document.getElementById('driverHomesWrap').style.display = routeModeEl.value==='casa_motorista' ? 'block' : 'none';
+  }
+  const betoHomeEl = document.getElementById('cfg-beto-home');
+  if(betoHomeEl && document.activeElement !== betoHomeEl) betoHomeEl.value = state.company.betoHomeAddress || '';
+  const guiHomeEl = document.getElementById('cfg-gui-home');
+  if(guiHomeEl && document.activeElement !== guiHomeEl) guiHomeEl.value = state.company.guiHomeAddress || '';
 }
 
 // ---- Rota otimizada do dia (OSRM — dados e roteamento OpenStreetMap) ----
@@ -7799,6 +7875,37 @@ async function saveFuelSettings(){
   const { error } = await sb.from('company_settings').upsert({ id:true, fuel_price_per_liter: price, fuel_efficiency_km_l: efficiency });
   if(error){ dbErr(error, 'Erro ao salvar configuração de combustível'); return; }
   toast('Configuração de combustível salva'); await loadAll(); renderAll();
+}
+function onRouteModeChange(){
+  const mode = document.getElementById('cfg-route-mode').value;
+  document.getElementById('driverHomesWrap').style.display = mode==='casa_motorista' ? 'block' : 'none';
+}
+async function saveRouteModeSettings(){
+  const mode = document.getElementById('cfg-route-mode').value;
+  const betoAddress = document.getElementById('cfg-beto-home').value.trim();
+  const guiAddress = document.getElementById('cfg-gui-home').value.trim();
+  const patch = { id:true, route_calc_mode: mode };
+
+  if(mode==='casa_motorista'){
+    if(betoAddress && betoAddress !== state.company.betoHomeAddress){
+      const coords = await geocodeAddress(betoAddress + ', Brasil', null);
+      if(!coords){ toast('Não localizei o endereço da casa do Beto no mapa — confira e tenta de novo', true); return; }
+      patch.beto_home_address = betoAddress; patch.beto_home_lat = coords.lat; patch.beto_home_lng = coords.lng;
+    } else if(betoAddress){
+      patch.beto_home_address = betoAddress;
+    }
+    if(guiAddress && guiAddress !== state.company.guiHomeAddress){
+      const coords = await geocodeAddress(guiAddress + ', Brasil', null);
+      if(!coords){ toast('Não localizei o endereço da casa do Gui no mapa — confira e tenta de novo', true); return; }
+      patch.gui_home_address = guiAddress; patch.gui_home_lat = coords.lat; patch.gui_home_lng = coords.lng;
+    } else if(guiAddress){
+      patch.gui_home_address = guiAddress;
+    }
+  }
+
+  const { error } = await sb.from('company_settings').upsert(patch);
+  if(error){ dbErr(error, 'Erro ao salvar configuração de rota'); return; }
+  toast('Configuração de rota salva'); await loadAll(); renderAll();
 }
 async function saveCompany(){
   const data = {
