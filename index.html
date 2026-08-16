@@ -1701,18 +1701,18 @@ function produtoCardHtml(p){
   const barLabel = margem>=50?'Margem saudável':margem>=25?'Margem OK':'Margem baixa';
   const imgHtml = p.imageUrl
     ? `<img src="${esc(p.imageUrl)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;">`
-    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:40px;background:var(--surface-2);">🧊</div>`;
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:30px;background:var(--surface-2);">🧊</div>`;
   return `<div class="panel" style="margin-bottom:0;padding:0;overflow:hidden;display:flex;flex-wrap:wrap;">
-    <div style="width:140px;flex-shrink:0;position:relative;background:var(--surface-2);min-height:140px;">
+    <div style="width:105px;flex-shrink:0;position:relative;background:var(--surface-2);min-height:105px;">
       ${imgHtml}
-      <span class="badge ${isActive?'badge-success':'badge-muted'}" style="position:absolute;top:8px;left:8px;">${isActive?'Ativo':'Inativo'}</span>
-      ${p.weightKg!=null?`<span class="badge" style="position:absolute;bottom:8px;right:8px;background:rgba(14,36,56,.75);color:#fff;">❄️ ${p.weightKg}kg</span>`:''}
+      <span class="badge ${isActive?'badge-success':'badge-muted'}" style="position:absolute;top:6px;left:6px;font-size:10px;">${isActive?'Ativo':'Inativo'}</span>
+      ${p.weightKg!=null?`<span class="badge" style="position:absolute;bottom:6px;right:6px;background:rgba(14,36,56,.75);color:#fff;font-size:10px;">❄️ ${p.weightKg}kg</span>`:''}
     </div>
-    <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:220px;">
-      <div style="display:flex;justify-content:space-between;gap:10px;">
+    <div style="flex:1;padding:12px;display:flex;flex-direction:column;gap:7px;min-width:200px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
         <div>
-          <div style="font-weight:700;font-size:14.5px;">${esc(p.name)}</div>
-          ${p.categoryLabel?`<span class="badge badge-info" style="margin-top:4px;">${esc(p.categoryLabel)}</span>`:''}
+          <div style="font-weight:700;font-size:13px;">${esc(p.name)}</div>
+          ${p.categoryLabel?`<span class="badge badge-info" style="margin-top:3px;font-size:10px;">${esc(p.categoryLabel)}</span>`:''}
         </div>
         <div class="row-actions" style="flex-shrink:0;">
           <button class="icon-btn" onclick="openStockModal('produto_acabado','${p.id}')" title="Editar">${iconEdit}</button>
@@ -1720,21 +1720,21 @@ function produtoCardHtml(p){
           <button class="icon-btn" onclick="deleteStockItem('${p.id}')" title="Excluir">${iconTrash}</button>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:10.5px;">
         <div><div style="color:var(--muted);">Peso</div><div style="font-weight:600;">${p.weightKg!=null?p.weightKg+' kg':'—'}</div></div>
         <div><div style="color:var(--muted);">Estoque atual</div><div style="font-weight:600;color:${p.qty<=0?'var(--danger)':'inherit'}">${p.qty} un</div></div>
         <div><div style="color:var(--muted);">Última atualização</div><div style="font-weight:600;">${p.createdAt?fmtDate(p.createdAt):'—'}</div></div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:8px;border-top:1px solid var(--border);">
-        <div><div style="color:var(--muted);font-size:11px;">Custo unitário</div><div style="font-weight:700;font-size:14px;">${fmtMoney(p.costPrice)}</div><div class="hint" style="margin:0;">Custo total: ${fmtMoney(custoTotal)}</div></div>
-        <div><div style="color:var(--muted);font-size:11px;">Preço de venda</div><div style="font-weight:700;font-size:14px;">${fmtMoney(p.salePrice)}</div><div class="hint" style="margin:0;">Total potencial: ${fmtMoney(potencial)}</div></div>
-        <div><div style="color:var(--muted);font-size:11px;">Margem</div><div style="font-weight:700;font-size:14px;color:${margem<0?'var(--danger)':'var(--success)'};">${margem.toFixed(1)}%</div><div class="hint" style="margin:0;">Lucro: ${fmtMoney(lucro)}</div></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding-top:6px;border-top:1px solid var(--border);">
+        <div><div style="color:var(--muted);font-size:9.5px;">Custo unitário</div><div style="font-weight:700;font-size:12px;">${fmtMoney(p.costPrice)}</div><div class="hint" style="margin:0;font-size:9.5px;">Custo total: ${fmtMoney(custoTotal)}</div></div>
+        <div><div style="color:var(--muted);font-size:9.5px;">Preço de venda</div><div style="font-weight:700;font-size:12px;">${fmtMoney(p.salePrice)}</div><div class="hint" style="margin:0;font-size:9.5px;">Total potencial: ${fmtMoney(potencial)}</div></div>
+        <div><div style="color:var(--muted);font-size:9.5px;">Margem</div><div style="font-weight:700;font-size:12px;color:${margem<0?'var(--danger)':'var(--success)'};">${margem.toFixed(1)}%</div><div class="hint" style="margin:0;font-size:9.5px;">Lucro: ${fmtMoney(lucro)}</div></div>
       </div>
       <div>
-        <div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.max(0,Math.min(100,margem))}%;background:${barColor};"></div></div>
-        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:${barColor};margin-top:3px;"><span>${barLabel}</span><span>${margem.toFixed(1)}%</span></div>
+        <div style="height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.max(0,Math.min(100,margem))}%;background:${barColor};"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:${barColor};margin-top:2px;"><span>${barLabel}</span><span>${margem.toFixed(1)}%</span></div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="openStockModal('produto_acabado','${p.id}')" style="width:100%;justify-content:center;">📊 Ver detalhes</button>
+      <button class="btn btn-ghost btn-sm" onclick="openStockModal('produto_acabado','${p.id}')" style="width:100%;justify-content:center;padding:6px;font-size:12px;">📊 Ver detalhes</button>
     </div>
   </div>`;
 }
