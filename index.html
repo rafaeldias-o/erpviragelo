@@ -300,6 +300,7 @@ tr:last-child td{border-bottom:none;}
       <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Início</span></div>
       <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="notif-badge badge badge-danger" style="display:none;margin-left:auto;"></span></div>
       <div class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
+      <div class="nav-item" data-view="produtos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 9.5 L12 4 L3.4 9.5 L3.4 14.5 L12 20 L20.6 14.5 Z"/><path d="M3.4 9.5 L12 15 L20.6 9.5 M12 15 V20"/></svg><span>Produtos</span></div>
       <div class="nav-item" data-view="producao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
       <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
       <div class="nav-item" data-view="financeiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
@@ -337,6 +338,7 @@ tr:last-child td{border-bottom:none;}
         <div class="more-sheet-title">Mais opções</div>
         <div class="more-sheet-grid">
           <div class="nav-item" data-view="estoque" onclick="switchView('estoque'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
+          <div class="nav-item" data-view="produtos" onclick="switchView('produtos'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 9.5 L12 4 L3.4 9.5 L3.4 14.5 L12 20 L20.6 14.5 Z"/><path d="M3.4 9.5 L12 15 L20.6 9.5 M12 15 V20"/></svg><span>Produtos</span></div>
           <div class="nav-item" data-view="producao" onclick="switchView('producao'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
           <div class="nav-item" data-view="crm" onclick="switchView('crm'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
           <div class="nav-item" data-view="clientes" onclick="switchView('clientes'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Clientes</span></div>
@@ -523,6 +525,20 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Valor em estoque (mês)</div></div>
             <div id="stockValueChart"></div>
           </div>
+        </div>
+      </section>
+
+      <!-- PRODUTOS -->
+      <section class="view" id="view-produtos">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="section-title">Produtos</div>
+              <div class="hint" style="margin:2px 0 0 0;">Catálogo de produtos acabados vendidos — os que já entram em produção usam esse cadastro automaticamente. Aqui também dá pra adicionar produtos novos, como gelo saborizado, mesmo antes de produzir a primeira leva.</div>
+            </div>
+            <button class="btn btn-primary" onclick="openStockModal('produto_acabado')">+ Novo produto</button>
+          </div>
+          <div id="produtosTableWrap" class="table-scroll"></div>
         </div>
       </section>
 
@@ -716,10 +732,6 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
           </div>
-          <div class="two-col">
-            <div class="panel" id="driverFeeBox-beto"></div>
-            <div class="panel" id="driverFeeBox-gui"></div>
-          </div>
         </div>
 
         <div id="finFluxoView" style="display:none;">
@@ -830,6 +842,19 @@ tr:last-child td{border-bottom:none;}
           </div>
           <div class="hint" style="margin-bottom:10px;">Arraste um cartão para outro dia para reagendar.</div>
           <div class="kanban-board" id="weekAgendaBox"></div>
+        </div>
+        <div class="two-col">
+          <div class="panel" id="driverFeeBox-beto"></div>
+          <div class="panel" id="driverFeeBox-gui"></div>
+        </div>
+        <div class="panel" style="max-width:640px;">
+          <div class="panel-head"><div class="section-title">⛽ Combustível e taxa de entrega</div></div>
+          <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas acima e o alerta mensal de pagamento.</div>
+          <div class="field-row">
+            <div class="field"><label>Preço da gasolina (R$/L)</label><input id="cfg-fuel-price" type="number" step="0.01"></div>
+            <div class="field"><label>Autonomia dos carros (km/L)</label><input id="cfg-fuel-efficiency" type="number" step="0.1"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveFuelSettings()">Salvar</button>
         </div>
       </section>
 
@@ -1119,17 +1144,6 @@ tr:last-child td{border-bottom:none;}
           <div class="field"><label>E-mail</label><input id="cfg-email"></div>
           <div class="field"><label>Endereço</label><input id="cfg-address"></div>
           <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
-          <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-            <button class="btn btn-ghost btn-sm" id="fuelSettingsToggle" onclick="toggleFuelSettings()">⛽ Combustível e taxa de entrega</button>
-            <div id="fuelSettingsWrap" style="display:none;margin-top:10px;">
-              <div class="field-row">
-                <div class="field"><label>Preço da gasolina (R$/L)</label><input id="cfg-fuel-price" type="number" step="0.01"></div>
-                <div class="field"><label>Autonomia dos carros (km/L)</label><input id="cfg-fuel-efficiency" type="number" step="0.1"></div>
-              </div>
-              <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas (Financeiro → Contas a Pagar) e o alerta mensal de pagamento.</div>
-              <button class="btn btn-primary btn-sm" onclick="saveFuelSettings()">Salvar</button>
-            </div>
-          </div>
         </div>
         <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">🔔 Notificações do navegador</div></div>
@@ -1563,6 +1577,7 @@ document.querySelectorAll('.nav-item').forEach(item=> item.addEventListener('cli
 const titles = {
   dashboard:['Início','Visão geral da fábrica'], notificacoes:['Central de Notificações','Tudo que exige sua atenção, num só lugar'],
   estoque:['Estoque','Matéria-prima e produtos acabados'],
+  produtos:['Produtos','Catálogo de produtos acabados — custo, preço e cadastro de novos produtos'],
   producao:['Produção','Registros diários de produção'], pedidos:['Pedidos','Vendas e acompanhamento de entrega'],
   financeiro:['Financeiro','Despesas, contas e fluxo de caixa'], crm:['CRM','Funil de vendas e negociações'],
   clientes:['Clientes','Cadastro completo de clientes, por bairro'],
@@ -1604,6 +1619,30 @@ function setStockTab(cat){
   renderEstoque();
 }
 
+// Módulo Produtos — mesma fonte de dados de Estoque > Produtos acabados (categoria produto_acabado),
+// só que aqui a criação manual é permitida (em Estoque fica desabilitada de propósito, já que a maioria
+// dos produtos nasce automaticamente da Produção).
+function renderProdutos(){
+  const wrap = document.getElementById('produtosTableWrap');
+  if(!wrap) return;
+  const list = state.stockItems.filter(p=>p.category==='produto_acabado').sort((a,b)=>a.name.localeCompare(b.name));
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum produto cadastrado ainda.','+ Novo produto',"openStockModal('produto_acabado')"); return; }
+  wrap.innerHTML = `<table><thead><tr><th>Código</th><th>Nome</th><th>Peso (kg)</th><th>Estoque atual</th><th>Custo unit.</th><th>Preço de venda</th><th>Margem</th><th></th></tr></thead><tbody>
+    ${list.map(p=>{
+      const margem = p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
+      return `<tr>
+        <td style="color:var(--muted);">${esc(p.code||'—')}</td>
+        <td><strong>${esc(p.name)}</strong></td>
+        <td>${p.weightKg!=null?p.weightKg+' kg':'—'}</td>
+        <td>${p.qty} ${esc(p.unit||'un')}</td>
+        <td>${fmtMoney(p.costPrice)}</td>
+        <td>${fmtMoney(p.salePrice)}</td>
+        <td style="color:${margem<0?'var(--danger)':'inherit'}">${margem.toFixed(1)}%</td>
+        <td class="row-actions"><button class="icon-btn" onclick="openStockModal('produto_acabado','${p.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteStockItem('${p.id}')" title="Excluir">${iconTrash}</button></td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
 function openStockModal(category, id){
   if(!canWrite('estoque')){ toast('Seu perfil não tem permissão para editar o estoque', true); return; }
   const it = id ? state.stockItems.find(x=>x.id===id) : null;
@@ -3787,7 +3826,6 @@ function renderPagarTable(){
   const tableHead = `<table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>`;
   pagasWrap.innerHTML = pagas.length===0 ? emptyState('Nenhuma conta paga nesse período.', null) : tableHead + pagas.map(renderTxRow).join('') + '</tbody></table>';
   abertasWrap.innerHTML = abertas.length===0 ? emptyState('Nenhuma conta em aberto nesse período.','Nova despesa','openTransactionModal()') : tableHead + abertas.map(renderTxRow).join('') + '</tbody></table>';
-  renderDriverFeeBoxes();
 }
 
 // =========================================================
@@ -5244,6 +5282,11 @@ function renderWeekAgenda(){
       </div>
     </div>`;
   }).join('');
+  renderDriverFeeBoxes();
+  const fuelPriceEl = document.getElementById('cfg-fuel-price');
+  if(fuelPriceEl && document.activeElement !== fuelPriceEl) fuelPriceEl.value = state.company.fuelPricePerLiter ?? 6.20;
+  const fuelEffEl = document.getElementById('cfg-fuel-efficiency');
+  if(fuelEffEl && document.activeElement !== fuelEffEl) fuelEffEl.value = state.company.fuelEfficiencyKmL ?? 10;
 }
 
 // ---- Rota otimizada do dia (OSRM — dados e roteamento OpenStreetMap) ----
@@ -7319,8 +7362,6 @@ function renderConfig(){
   document.getElementById('cfg-phone').value = state.company.phone || '';
   document.getElementById('cfg-email').value = state.company.email || '';
   document.getElementById('cfg-address').value = state.company.address || '';
-  document.getElementById('cfg-fuel-price').value = state.company.fuelPricePerLiter ?? 6.20;
-  document.getElementById('cfg-fuel-efficiency').value = state.company.fuelEfficiencyKmL ?? 10;
   renderNotificationSettingsUI();
   renderFreightTiers();
 }
@@ -7416,10 +7457,6 @@ function checkAndSendNotifications(){
     already.add(a.key);
   });
   markNotifiedToday([...already]);
-}
-function toggleFuelSettings(){
-  const wrap = document.getElementById('fuelSettingsWrap');
-  wrap.style.display = wrap.style.display==='none' ? 'block' : 'none';
 }
 async function saveFuelSettings(){
   const price = parseFloat(document.getElementById('cfg-fuel-price').value) || 6.20;
@@ -8579,6 +8616,7 @@ function renderAll(){
   if(document.getElementById('reportMensalWrap')) renderReportMensal();
   if(document.getElementById('relFrom')) renderRelatorios();
   if(document.getElementById('freezerCadastroWrap')) renderFreezerCadastro();
+  if(document.getElementById('produtosTableWrap')) renderProdutos();
   renderConfig();
   renderNotifications();
   updateNotifBadge();
