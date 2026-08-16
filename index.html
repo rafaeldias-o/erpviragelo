@@ -1587,6 +1587,7 @@ async function loadAll(){
     fuelEfficiencyKmL: co.fuel_efficiency_km_l!=null ? Number(co.fuel_efficiency_km_l) : 10,
     freezerMetaPacotesMes: co.freezer_meta_pacotes_mes!=null ? Number(co.freezer_meta_pacotes_mes) : 20,
     revenueGoalMonthly: co.revenue_goal_monthly!=null ? Number(co.revenue_goal_monthly) : 50000,
+    machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
   } : {};
 
   state.freezers = (freezerRes.data||[]).map(f => ({
@@ -1996,7 +1997,20 @@ function storageStats(){
   }
   const packsParaNormalizar = pct>80 ? Math.ceil(occupiedPacks - totalCapacity*0.80) : 0;
 
-  return { totalCapacity, occupiedPacks, pct, producaoDiaKg, vendaDiaKg, netDiaPacks, diasAteLotar, packsParaNormalizar };
+  // Cenário "e se a máquina rodasse no máximo?" — útil quando a produção real está baixa de propósito
+  // (máquina parada pra não lotar o armazenamento), já que o ritmo médio dos últimos 30 dias não reflete
+  // a capacidade de verdade da máquina nesse caso.
+  const maquinaMaxKgDia = state.company.machineMaxCapacityKgDay || 150;
+  const maquinaMaxPacksDia = maquinaMaxKgDia / 3;
+  const netMaximoPacks = maquinaMaxPacksDia - vendaDiaKg/3;
+  let diasAteLotarMaximo = null;
+  if(netMaximoPacks > 0.05 && totalCapacity>0 && occupiedPacks < totalCapacity){
+    diasAteLotarMaximo = (totalCapacity - occupiedPacks) / netMaximoPacks;
+  }
+  const metaVendaDiariaPacks = Math.ceil(maquinaMaxPacksDia); // pra rodar a máquina no máximo sem acumular estoque
+
+  return { totalCapacity, occupiedPacks, pct, producaoDiaKg, vendaDiaKg, netDiaPacks, diasAteLotar, packsParaNormalizar,
+    maquinaMaxKgDia, maquinaMaxPacksDia, diasAteLotarMaximo, metaVendaDiariaPacks };
 }
 function renderStorageCapacityPanel(){
   const box = document.getElementById('storageCapacityPanel');
@@ -2024,7 +2038,37 @@ function renderStorageCapacityPanel(){
       <div class="stat-card"><div class="stat-label">${st.diasAteLotar!=null?'Dias até lotar':'Situação'}</div><div class="stat-value" style="font-size:16px;">${st.diasAteLotar!=null?Math.round(st.diasAteLotar)+' dias':'Sob controle'}</div><div class="hint">no ritmo atual</div></div>
     </div>
     ${st.packsParaNormalizar>0?`<div class="hint" style="color:var(--warn);margin-top:12px;">⚠️ Armazenamento acima de 80% — venda pelo menos <strong>${st.packsParaNormalizar} pacote(s) de 3kg</strong> pra voltar a uma faixa confortável.</div>`:''}
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-weight:700;font-size:13px;">⚙️ Se a máquina rodasse no máximo (${fmtKgNum(st.maquinaMaxKgDia)} kg/dia)</div>
+        <button class="btn btn-ghost btn-sm" onclick="toggleMachineCapacitySettings()" id="machineCapToggle">Ajustar</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px;">Útil quando a produção real está baixa de propósito (máquina parada pra não lotar o armazenamento) — o ritmo médio dos últimos 30 dias não reflete a capacidade real da máquina nesse caso.</div>
+      <div id="machineCapSettingsWrap" style="display:none;margin-bottom:12px;">
+        <div class="field-row">
+          <div class="field"><label>Capacidade máxima da máquina (kg/dia)</label><input id="cfg-machine-capacity" type="number" step="1" value="${st.maquinaMaxKgDia}"></div>
+          <div></div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveMachineCapacity()">Salvar</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Produção máxima</div><div class="stat-value" style="font-size:16px;">${st.maquinaMaxPacksDia.toFixed(0)} pac/dia</div><div class="hint">${fmtKgNum(st.maquinaMaxKgDia)} kg/dia</div></div>
+        <div class="stat-card"><div class="stat-label">Dias até lotar</div><div class="stat-value" style="font-size:16px;">${st.diasAteLotarMaximo!=null?Math.round(st.diasAteLotarMaximo)+' dias':'Sob controle'}</div><div class="hint">rodando no máximo, vendendo no ritmo atual</div></div>
+        <div class="stat-card"><div class="stat-label">🎯 Meta de venda diária</div><div class="stat-value" style="font-size:16px;color:var(--accent);">${st.metaVendaDiariaPacks} pac/dia</div><div class="hint">pra acompanhar a máquina a 100% sem acumular</div></div>
+      </div>
+    </div>
   `;
+}
+function toggleMachineCapacitySettings(){
+  const wrap = document.getElementById('machineCapSettingsWrap');
+  wrap.style.display = wrap.style.display==='none' ? 'block' : 'none';
+}
+async function saveMachineCapacity(){
+  if(!canWrite('estoque')){ toast('Seu perfil não tem permissão pra editar isso', true); return; }
+  const val = parseFloat(document.getElementById('cfg-machine-capacity').value) || 150;
+  const { error } = await sb.from('company_settings').upsert({ id:true, machine_max_capacity_kg_day: val });
+  if(error){ dbErr(error, 'Erro ao salvar capacidade da máquina'); return; }
+  toast('Capacidade da máquina atualizada'); await loadAll(); renderAll();
 }
 function renderEstoque(){
   renderStorageCapacityPanel();
