@@ -531,15 +531,40 @@ tr:last-child td{border-bottom:none;}
 
       <!-- PRODUTOS -->
       <section class="view" id="view-produtos">
+        <div class="stat-grid" id="produtosStatsGrid" style="margin-bottom:18px;"></div>
         <div class="panel">
           <div class="panel-head">
             <div>
-              <div class="section-title">Produtos</div>
-              <div class="hint" style="margin:2px 0 0 0;">Catálogo de produtos acabados vendidos — os que já entram em produção usam esse cadastro automaticamente. Aqui também dá pra adicionar produtos novos, como gelo saborizado, mesmo antes de produzir a primeira leva.</div>
+              <div class="section-title">Lista de produtos</div>
+              <div class="hint" style="margin:2px 0 0 0;">Produtos acabados vendidos ou em produção. As vendas atualizam o estoque automaticamente.</div>
             </div>
             <button class="btn btn-primary" onclick="openStockModal('produto_acabado')">+ Novo produto</button>
           </div>
-          <div id="produtosTableWrap" class="table-scroll"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <div class="search-box" style="max-width:220px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="produtosSearch" placeholder="Buscar produto..." oninput="renderProdutos()"></div>
+              <select id="produtosStatusFilter" onchange="renderProdutos()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="">Todos os status</option>
+                <option value="ativo">Ativo</option>
+                <option value="inativo">Inativo</option>
+              </select>
+              <select id="produtosCategoryFilter" onchange="renderProdutos()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="">Todas as categorias</option>
+              </select>
+              <select id="produtosSort" onchange="renderProdutos()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="nome_asc">Ordenar: Nome A-Z</option>
+                <option value="nome_desc">Ordenar: Nome Z-A</option>
+                <option value="preco_asc">Ordenar: Menor preço</option>
+                <option value="preco_desc">Ordenar: Maior preço</option>
+              </select>
+            </div>
+            <div class="tabs" style="margin-bottom:0;">
+              <div class="tab active" data-produtosview="grade" onclick="setProdutosViewMode('grade')">▦</div>
+              <div class="tab" data-produtosview="lista" onclick="setProdutosViewMode('lista')">☰</div>
+            </div>
+          </div>
+          <div id="produtosTableWrap"></div>
+          <div id="produtosPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:16px;"></div>
         </div>
       </section>
 
@@ -1460,6 +1485,7 @@ async function loadAll(){
     qty: Number(s.qty), minQty: Number(s.min_qty), costPrice: Number(s.cost_price),
     salePrice: s.sale_price!=null ? Number(s.sale_price) : 0, supplierId: s.supplier_id,
     weightKg: s.weight_kg!=null ? Number(s.weight_kg) : null,
+    active: s.active !== false, categoryLabel: s.category_label || null, imageUrl: s.image_url || null,
     lastIn: null, lastOut: null, createdAt: (s.created_at||'').slice(0,10)
   }));
 
@@ -1623,26 +1649,184 @@ function setStockTab(cat){
 // Módulo Produtos — mesma fonte de dados de Estoque > Produtos acabados (categoria produto_acabado),
 // só que aqui a criação manual é permitida (em Estoque fica desabilitada de propósito, já que a maioria
 // dos produtos nasce automaticamente da Produção).
+let produtosViewMode = 'grade';
+let produtosPage = 1;
+let produtosPerPage = 10;
+function setProdutosViewMode(mode){
+  produtosViewMode = mode;
+  document.querySelectorAll('[data-produtosview]').forEach(t=>t.classList.toggle('active', t.dataset.produtosview===mode));
+  produtosPage = 1;
+  renderProdutos();
+}
+function produtosGoToPage(p){ produtosPage = p; renderProdutos(); }
+function produtosSetPerPage(n){ produtosPerPage = parseInt(n); produtosPage = 1; renderProdutos(); }
+function renderProdutosStats(){
+  const box = document.getElementById('produtosStatsGrid');
+  if(!box) return;
+  const all = state.stockItems.filter(p=>p.category==='produto_acabado');
+  const ativos = all.filter(p=>p.active!==false);
+  const produzidoHoje = state.production.filter(pr=>pr.date===todayStr()).reduce((s,pr)=>s+Number(pr.kg),0);
+  const estoqueTotal = all.reduce((s,p)=>s+p.qty,0);
+  const custoMedio = all.length ? all.reduce((s,p)=>s+p.costPrice,0)/all.length : 0;
+  const precoMedio = all.length ? all.reduce((s,p)=>s+p.salePrice,0)/all.length : 0;
+  const margemMedia = all.length ? all.reduce((s,p)=> s + (p.salePrice>0?(p.salePrice-p.costPrice)/p.salePrice*100:0), 0)/all.length : 0;
+  const card = (icon, bg, value, label, note, onclick) => `
+    <div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <div style="width:30px;height:30px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">${icon}</div>
+        <div class="stat-value" style="margin:0;">${value}</div>
+      </div>
+      <div class="stat-label" style="margin-bottom:1px;">${label}</div>
+      <div class="hint" style="margin:0;">${note}</div>
+    </div>`;
+  box.innerHTML = [
+    card('📦','#DBEAFE', all.length, 'Produtos cadastrados', `Ativos: ${ativos.length}`),
+    card('📈','#DCFCE7', fmtKgNum(produzidoHoje)+' kg', 'Produzido hoje', 'Ver produção →', "switchView('producao')"),
+    card('🥧','#FEF3C7', estoqueTotal+' un', 'Estoque total', 'Disponível'),
+    card('🏷️','#F3E8FF', fmtMoney(custoMedio), 'Custo médio unit.', 'Todos os produtos'),
+    card('🛒','#FFE4E6', fmtMoney(precoMedio), 'Preço médio de venda', 'Todos os produtos'),
+    card('📈','#DCFCE7', margemMedia.toFixed(1)+'%', 'Margem média', 'Todos os produtos'),
+  ].join('');
+}
+function produtoCardHtml(p){
+  const margem = p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
+  const lucro = p.salePrice - p.costPrice;
+  const custoTotal = p.costPrice * p.qty;
+  const potencial = p.salePrice * p.qty;
+  const isActive = p.active!==false;
+  const barColor = margem>=50?'var(--success)':margem>=25?'var(--warn)':'var(--danger)';
+  const barLabel = margem>=50?'Margem saudável':margem>=25?'Margem OK':'Margem baixa';
+  const imgHtml = p.imageUrl
+    ? `<img src="${esc(p.imageUrl)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;">`
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:40px;background:var(--surface-2);">🧊</div>`;
+  return `<div class="panel" style="margin-bottom:0;padding:0;overflow:hidden;display:flex;flex-wrap:wrap;">
+    <div style="width:140px;flex-shrink:0;position:relative;background:var(--surface-2);min-height:140px;">
+      ${imgHtml}
+      <span class="badge ${isActive?'badge-success':'badge-muted'}" style="position:absolute;top:8px;left:8px;">${isActive?'Ativo':'Inativo'}</span>
+      ${p.weightKg!=null?`<span class="badge" style="position:absolute;bottom:8px;right:8px;background:rgba(14,36,56,.75);color:#fff;">❄️ ${p.weightKg}kg</span>`:''}
+    </div>
+    <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:220px;">
+      <div style="display:flex;justify-content:space-between;gap:10px;">
+        <div>
+          <div style="font-weight:700;font-size:14.5px;">${esc(p.name)}</div>
+          ${p.categoryLabel?`<span class="badge badge-info" style="margin-top:4px;">${esc(p.categoryLabel)}</span>`:''}
+        </div>
+        <div class="row-actions" style="flex-shrink:0;">
+          <button class="icon-btn" onclick="openStockModal('produto_acabado','${p.id}')" title="Editar">${iconEdit}</button>
+          <button class="icon-btn" onclick="duplicateProduct('${p.id}')" title="Duplicar">📋</button>
+          <button class="icon-btn" onclick="deleteStockItem('${p.id}')" title="Excluir">${iconTrash}</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+        <div><div style="color:var(--muted);">Peso</div><div style="font-weight:600;">${p.weightKg!=null?p.weightKg+' kg':'—'}</div></div>
+        <div><div style="color:var(--muted);">Estoque atual</div><div style="font-weight:600;color:${p.qty<=0?'var(--danger)':'inherit'}">${p.qty} un</div></div>
+        <div><div style="color:var(--muted);">Última atualização</div><div style="font-weight:600;">${p.createdAt?fmtDate(p.createdAt):'—'}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div><div style="color:var(--muted);font-size:11px;">Custo unitário</div><div style="font-weight:700;font-size:14px;">${fmtMoney(p.costPrice)}</div><div class="hint" style="margin:0;">Custo total: ${fmtMoney(custoTotal)}</div></div>
+        <div><div style="color:var(--muted);font-size:11px;">Preço de venda</div><div style="font-weight:700;font-size:14px;">${fmtMoney(p.salePrice)}</div><div class="hint" style="margin:0;">Total potencial: ${fmtMoney(potencial)}</div></div>
+        <div><div style="color:var(--muted);font-size:11px;">Margem</div><div style="font-weight:700;font-size:14px;color:${margem<0?'var(--danger)':'var(--success)'};">${margem.toFixed(1)}%</div><div class="hint" style="margin:0;">Lucro: ${fmtMoney(lucro)}</div></div>
+      </div>
+      <div>
+        <div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.max(0,Math.min(100,margem))}%;background:${barColor};"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:${barColor};margin-top:3px;"><span>${barLabel}</span><span>${margem.toFixed(1)}%</span></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="openStockModal('produto_acabado','${p.id}')" style="width:100%;justify-content:center;">📊 Ver detalhes</button>
+    </div>
+  </div>`;
+}
+async function duplicateProduct(id){
+  if(!canWrite('estoque')){ toast('Seu perfil não tem permissão pra isso', true); return; }
+  const p = state.stockItems.find(x=>x.id===id);
+  if(!p) return;
+  const { error } = await sb.from('stock_items').insert({
+    category:'produto_acabado', name: p.name+' (cópia)', unit:p.unit, qty:0, min_qty:p.minQty,
+    cost_price:p.costPrice, sale_price:p.salePrice, weight_kg:p.weightKg, category_label:p.categoryLabel, active:true,
+  });
+  if(error){ dbErr(error, 'Erro ao duplicar produto'); return; }
+  toast('Produto duplicado'); await loadAll(); renderAll();
+}
 function renderProdutos(){
+  renderProdutosStats();
   const wrap = document.getElementById('produtosTableWrap');
   if(!wrap) return;
-  const list = state.stockItems.filter(p=>p.category==='produto_acabado').sort((a,b)=>a.name.localeCompare(b.name));
-  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum produto cadastrado ainda.','+ Novo produto',"openStockModal('produto_acabado')"); return; }
-  wrap.innerHTML = `<table><thead><tr><th>Código</th><th>Nome</th><th>Peso (kg)</th><th>Estoque atual</th><th>Custo unit.</th><th>Preço de venda</th><th>Margem</th><th></th></tr></thead><tbody>
-    ${list.map(p=>{
-      const margem = p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
-      return `<tr>
-        <td style="color:var(--muted);">${esc(p.code||'—')}</td>
-        <td><strong>${esc(p.name)}</strong></td>
-        <td>${p.weightKg!=null?p.weightKg+' kg':'—'}</td>
-        <td>${p.qty} ${esc(p.unit||'un')}</td>
-        <td>${fmtMoney(p.costPrice)}</td>
-        <td>${fmtMoney(p.salePrice)}</td>
-        <td style="color:${margem<0?'var(--danger)':'inherit'}">${margem.toFixed(1)}%</td>
-        <td class="row-actions"><button class="icon-btn" onclick="openStockModal('produto_acabado','${p.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteStockItem('${p.id}')" title="Excluir">${iconTrash}</button></td>
-      </tr>`;
-    }).join('')}
-  </tbody></table>`;
+  const all = state.stockItems.filter(p=>p.category==='produto_acabado');
+
+  const catSel = document.getElementById('produtosCategoryFilter');
+  const cats = [...new Set(all.map(p=>p.categoryLabel).filter(Boolean))].sort();
+  if(catSel){
+    const current = catSel.value;
+    catSel.innerHTML = '<option value="">Todas as categorias</option>' + cats.map(c=>`<option value="${esc(c)}" ${current===c?'selected':''}>${esc(c)}</option>`).join('');
+  }
+
+  const q = (document.getElementById('produtosSearch')?.value||'').toLowerCase();
+  const statusFilter = document.getElementById('produtosStatusFilter')?.value || '';
+  const catFilter = document.getElementById('produtosCategoryFilter')?.value || '';
+  const sortMode = document.getElementById('produtosSort')?.value || 'nome_asc';
+
+  let list = all.filter(p=>p.name.toLowerCase().includes(q));
+  if(statusFilter==='ativo') list = list.filter(p=>p.active!==false);
+  if(statusFilter==='inativo') list = list.filter(p=>p.active===false);
+  if(catFilter) list = list.filter(p=>p.categoryLabel===catFilter);
+
+  if(sortMode==='nome_asc') list.sort((a,b)=>a.name.localeCompare(b.name));
+  else if(sortMode==='nome_desc') list.sort((a,b)=>b.name.localeCompare(a.name));
+  else if(sortMode==='preco_asc') list.sort((a,b)=>a.salePrice-b.salePrice);
+  else if(sortMode==='preco_desc') list.sort((a,b)=>b.salePrice-a.salePrice);
+
+  const paginationWrap = document.getElementById('produtosPaginationWrap');
+  if(all.length===0){
+    wrap.innerHTML = emptyState('Nenhum produto cadastrado ainda.','+ Novo produto',"openStockModal('produto_acabado')");
+    if(paginationWrap) paginationWrap.innerHTML = '';
+    return;
+  }
+  if(list.length===0){ wrap.innerHTML = '<div class="empty-state"><p>Nenhum produto encontrado.</p></div>'; if(paginationWrap) paginationWrap.innerHTML = ''; return; }
+
+  const totalPages = Math.max(1, Math.ceil(list.length/produtosPerPage));
+  if(produtosPage>totalPages) produtosPage = totalPages;
+  const startIdx = (produtosPage-1)*produtosPerPage;
+  const visible = list.slice(startIdx, startIdx+produtosPerPage);
+
+  if(produtosViewMode==='lista'){
+    wrap.innerHTML = `<table><thead><tr><th>Produto</th><th>Categoria</th><th>Peso</th><th>Estoque</th><th>Custo</th><th>Preço</th><th>Margem</th><th>Status</th><th></th></tr></thead><tbody>
+      ${visible.map(p=>{
+        const margem = p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
+        const isActive = p.active!==false;
+        return `<tr>
+          <td><strong>${esc(p.name)}</strong></td>
+          <td style="color:var(--muted);">${esc(p.categoryLabel||'—')}</td>
+          <td>${p.weightKg!=null?p.weightKg+' kg':'—'}</td>
+          <td>${p.qty} un</td>
+          <td>${fmtMoney(p.costPrice)}</td>
+          <td>${fmtMoney(p.salePrice)}</td>
+          <td style="color:${margem<0?'var(--danger)':'var(--success)'}">${margem.toFixed(1)}%</td>
+          <td><span class="badge ${isActive?'badge-success':'badge-muted'}">${isActive?'Ativo':'Inativo'}</span></td>
+          <td class="row-actions"><button class="icon-btn" onclick="openStockModal('produto_acabado','${p.id}')">${iconEdit}</button><button class="icon-btn" onclick="deleteStockItem('${p.id}')">${iconTrash}</button></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  } else {
+    wrap.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;">${visible.map(produtoCardHtml).join('')}</div>`;
+  }
+
+  if(paginationWrap){
+    paginationWrap.innerHTML = `
+      <div class="hint" style="margin:0;">Mostrando ${startIdx+1} a ${Math.min(startIdx+produtosPerPage,list.length)} de ${list.length} produto(s)</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-ghost btn-sm" onclick="produtosGoToPage(${produtosPage-1})" ${produtosPage<=1?'disabled':''}>«</button>
+        ${Array.from({length:totalPages},(_,i)=>i+1).map(p=>`<button class="btn ${p===produtosPage?'btn-primary':'btn-ghost'} btn-sm" onclick="produtosGoToPage(${p})">${p}</button>`).join('')}
+        <button class="btn btn-ghost btn-sm" onclick="produtosGoToPage(${produtosPage+1})" ${produtosPage>=totalPages?'disabled':''}>»</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+        Itens por página:
+        <select onchange="produtosSetPerPage(this.value)" style="border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;">
+          <option value="10" ${produtosPerPage===10?'selected':''}>10</option>
+          <option value="20" ${produtosPerPage===20?'selected':''}>20</option>
+          <option value="50" ${produtosPerPage===50?'selected':''}>50</option>
+        </select>
+      </div>
+    `;
+  }
 }
 function openStockModal(category, id){
   if(!canWrite('estoque')){ toast('Seu perfil não tem permissão para editar o estoque', true); return; }
@@ -1677,6 +1861,12 @@ function openStockModal(category, id){
       <div class="field"><label>Peso por unidade (kg)</label><input id="s-weightkg" type="number" step="0.01" value="${it&&it.weightKg!=null?it.weightKg:''}" placeholder="Ex: 3"></div>
     </div>
     <div class="hint" style="margin-top:-8px;margin-bottom:8px;">Usado no gráfico Produção × Vendas da Produção, pra converter unidades vendidas em kg.</div>
+    <div class="field-row">
+      <div class="field"><label>Categoria</label><input id="s-categorylabel" value="${it?esc(it.categoryLabel||''):''}" placeholder="Ex: Gelo em cubos, Gelo saborizado"></div>
+      <div class="field"><label>Status</label><select id="s-active"><option value="true" ${!it||it.active!==false?'selected':''}>Ativo</option><option value="false" ${it&&it.active===false?'selected':''}>Inativo</option></select></div>
+    </div>
+    <div class="field"><label>URL da foto do produto</label><input id="s-imageurl" value="${it?esc(it.imageUrl||''):''}" placeholder="Ex: products/pacote-3kg.jpg"></div>
+    <div class="hint" style="margin-top:-8px;margin-bottom:8px;">Cola o link de uma foto já hospedada, ou peça pra eu subir a foto pro sistema e te passo o caminho.</div>
     <div class="hint" id="marginPreview" style="margin-bottom:12px;"></div>` : ''}
     <div class="modal-foot">
       ${it?`<button class="btn btn-danger-ghost" onclick="deleteStockItem('${it.id}')">Excluir</button>`:''}
@@ -1724,6 +1914,9 @@ async function saveStockItem(id){
     data.sale_price = parseFloat(document.getElementById('s-price').value)||0;
     const w = document.getElementById('s-weightkg').value;
     data.weight_kg = w ? parseFloat(w) : null;
+    data.category_label = document.getElementById('s-categorylabel').value.trim() || null;
+    data.active = document.getElementById('s-active').value === 'true';
+    data.image_url = document.getElementById('s-imageurl').value.trim() || null;
   }
   const { error } = id
     ? await sb.from('stock_items').update(data).eq('id', id)
