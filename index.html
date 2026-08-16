@@ -493,6 +493,7 @@ tr:last-child td{border-bottom:none;}
 
       <!-- ESTOQUE -->
       <section class="view" id="view-estoque">
+        <div class="panel" id="storageCapacityPanel"></div>
         <div class="tabs">
           <div class="tab active" data-stocktab="materia_prima" onclick="setStockTab('materia_prima')">Matéria-prima</div>
           <div class="tab" data-stocktab="produto_acabado" onclick="setStockTab('produto_acabado')">Produtos acabados</div>
@@ -1444,6 +1445,7 @@ async function loadAll(){
     model:a.model, serialNumber:a.serial_number, purchaseDate:a.purchase_date,
     purchaseValue: a.purchase_value!=null?Number(a.purchase_value):null, location:a.location, situation:a.situation,
     warrantyMonths:a.warranty_months, warrantyEndDate:a.warranty_end_date, notes:a.notes,
+    storageCapacityPacks3kg: a.storage_capacity_packs_3kg!=null ? Number(a.storage_capacity_packs_3kg) : null,
     history: assetHistByAsset[a.id]||[], maintenancePlans: maintByAsset[a.id]||[]
   }));
 
@@ -1968,7 +1970,64 @@ async function saveMovement(){
   closeModal(); toast('Movimentação registrada'); await loadAll(); renderAll();
 }
 
+// ---- Capacidade de armazenamento — quanto cabe no freezer/câmara fria vs quanto está ocupado hoje,
+// além de uma projeção simples de quantos dias faltam pra lotar (ou se está esvaziando), com base no
+// ritmo médio de produção e vendas dos últimos 30 dias. Tudo em "pacotes de 3kg equivalentes", já que
+// é a unidade que a empresa usa no dia a dia (produtos de outros pesos entram convertidos por peso).
+function storageStats(){
+  const capacityAssets = state.assets.filter(a=>a.storageCapacityPacks3kg!=null && a.situation!=='baixado');
+  const totalCapacity = capacityAssets.reduce((s,a)=>s+a.storageCapacityPacks3kg,0);
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  const totalKg = finished.reduce((s,p)=>s+p.qty*(p.weightKg||0),0);
+  const occupiedPacks = totalKg / 3;
+  const pct = totalCapacity>0 ? (occupiedPacks/totalCapacity*100) : 0;
+
+  const cutoff = addDays(todayStr(), -30);
+  const prod30 = state.production.filter(p=>p.date>=cutoff).reduce((s,p)=>s+Number(p.kg),0);
+  const stockByIdSt = {}; state.stockItems.forEach(s=>stockByIdSt[s.id]=s);
+  const vendas30 = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=cutoff)
+    .reduce((s,o)=>s+o.items.reduce((a,it)=>{ const item = stockByIdSt[it.productId]; return a + it.qty*(item?.weightKg||0); },0),0);
+  const producaoDiaKg = prod30/30, vendaDiaKg = vendas30/30;
+  const netDiaPacks = (producaoDiaKg - vendaDiaKg) / 3; // positivo = enchendo, negativo = esvaziando
+
+  let diasAteLotar = null;
+  if(netDiaPacks > 0.05 && totalCapacity>0 && occupiedPacks < totalCapacity){
+    diasAteLotar = (totalCapacity - occupiedPacks) / netDiaPacks;
+  }
+  const packsParaNormalizar = pct>80 ? Math.ceil(occupiedPacks - totalCapacity*0.80) : 0;
+
+  return { totalCapacity, occupiedPacks, pct, producaoDiaKg, vendaDiaKg, netDiaPacks, diasAteLotar, packsParaNormalizar };
+}
+function renderStorageCapacityPanel(){
+  const box = document.getElementById('storageCapacityPanel');
+  if(!box) return;
+  const st = storageStats();
+  if(st.totalCapacity===0){
+    box.innerHTML = `
+      <div class="panel-head"><div class="section-title">📦 Capacidade de armazenamento</div></div>
+      <div class="hint">Cadastre a capacidade do freezer/câmara fria em Configurações → Inventário → editar o patrimônio, campo "Capacidade de armazenamento", pra acompanhar a ocupação aqui.</div>
+    `;
+    return;
+  }
+  const barColor = st.pct>=95?'var(--danger)':st.pct>=80?'var(--warn)':'var(--success)';
+  box.innerHTML = `
+    <div class="panel-head"><div class="section-title">📦 Capacidade de armazenamento</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+      <div style="font-size:20px;font-weight:700;">${Math.round(st.occupiedPacks)} / ${st.totalCapacity} pacotes de 3kg</div>
+      <div style="font-size:15px;font-weight:700;color:${barColor};">${st.pct.toFixed(0)}%</div>
+    </div>
+    <div style="height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;margin-bottom:12px;"><div style="height:100%;width:${Math.min(100,st.pct)}%;background:${barColor};"></div></div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-label">Produção média/dia</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(st.producaoDiaKg)} kg</div><div class="hint">últimos 30 dias</div></div>
+      <div class="stat-card"><div class="stat-label">Venda média/dia</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(st.vendaDiaKg)} kg</div><div class="hint">últimos 30 dias</div></div>
+      <div class="stat-card"><div class="stat-label">${st.netDiaPacks>=0?'📈 Enchendo':'📉 Esvaziando'}</div><div class="stat-value" style="font-size:16px;color:${st.netDiaPacks>0?'var(--warn)':'var(--success)'};">${st.netDiaPacks>=0?'+':''}${st.netDiaPacks.toFixed(1)} pac/dia</div><div class="hint">ritmo líquido atual</div></div>
+      <div class="stat-card"><div class="stat-label">${st.diasAteLotar!=null?'Dias até lotar':'Situação'}</div><div class="stat-value" style="font-size:16px;">${st.diasAteLotar!=null?Math.round(st.diasAteLotar)+' dias':'Sob controle'}</div><div class="hint">no ritmo atual</div></div>
+    </div>
+    ${st.packsParaNormalizar>0?`<div class="hint" style="color:var(--warn);margin-top:12px;">⚠️ Armazenamento acima de 80% — venda pelo menos <strong>${st.packsParaNormalizar} pacote(s) de 3kg</strong> pra voltar a uma faixa confortável.</div>`:''}
+  `;
+}
 function renderEstoque(){
+  renderStorageCapacityPanel();
   const items = state.stockItems.filter(p=>p.category===currentStockTab);
   const wrap = document.getElementById('stockTableWrap');
   const isFinished = currentStockTab==='produto_acabado';
@@ -4121,6 +4180,16 @@ function computeSystemAlerts(){
       priority: c.priority==='alta'?'alta':c.priority==='media'?'média':'baixa',
       text: `${c.title}${overdue?' (atrasado desde '+fmtDate(c.date)+')':''}`, date: c.date, entityId:c.id});
   });
+
+  // Capacidade de armazenamento — avisa quando passar de 80%, com o número exato de pacotes a vender
+  // pra normalizar. Só dispara se algum patrimônio tiver capacidade cadastrada.
+  const storageSt = storageStats();
+  if(storageSt.totalCapacity>0 && storageSt.pct>=80){
+    alerts.push({type:'armazenamento_cheio', icon:'📦', color: storageSt.pct>=95?'var(--danger)':'var(--warn)',
+      priority: storageSt.pct>=95?'alta':'média',
+      text:`Armazenamento em ${storageSt.pct.toFixed(0)}% da capacidade — venda ${storageSt.packsParaNormalizar} pacote(s) de 3kg pra normalizar`,
+      date: today, entityId:'armazenamento'});
+  }
 
   // Chave única por alerta (tipo + entidade) e filtro dos que foram ignorados/resolvidos
   alerts.forEach(a=> a.key = a.type + ':' + a.entityId);
@@ -8211,6 +8280,8 @@ function alertActionsHtml(alert){
     btns.push(btn('Concluir', `completeCustomAlert('${alert.entityId}')`, true));
     btns.push(btn('Editar', `closeModal(); openCustomAlertModal('${alert.entityId}')`));
     btns.push(btn('Ignorar por 7 dias', `snoozeCustomAlert('${alert.entityId}', 7)`));
+  } else if(alert.type==='armazenamento_cheio'){
+    btns.push(btn('Ver Estoque', `closeModal(); switchView('estoque')`, true));
   }
   return btns.join('');
 }
@@ -8591,7 +8662,7 @@ function openAssetModal(id){
     <div class="modal-head"><h3>${a?'Editar patrimônio':'Novo patrimônio'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field-row">
       <div class="field"><label>Nome</label><input id="as-name" value="${a?esc(a.name):''}" placeholder="Ex: Freezer horizontal 500L"></div>
-      <div class="field"><label>Categoria</label><select id="as-category">${ASSET_CATEGORIES.map(c=>`<option value="${c.v}" ${a&&a.category===c.v?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria</label><select id="as-category" onchange="document.getElementById('as-storagewrap').style.display=(this.value==='freezer'||this.value==='camara_fria')?'block':'none';">${ASSET_CATEGORIES.map(c=>`<option value="${c.v}" ${a&&a.category===c.v?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Número de patrimônio</label><input id="as-number" value="${a?esc(a.assetNumber||''):''}"></div>
@@ -8604,6 +8675,11 @@ function openAssetModal(id){
     <div class="field-row">
       <div class="field"><label>Número de série</label><input id="as-serial" value="${a?esc(a.serialNumber||''):''}"></div>
       <div class="field"><label>Localização</label><input id="as-location" value="${a?esc(a.location||''):''}" placeholder="Ex: Área de produção"></div>
+    </div>
+    <div class="field" id="as-storagewrap" style="display:${a&&(a.category==='freezer'||a.category==='camara_fria')?'block':'none'};">
+      <label>Capacidade de armazenamento (em pacotes de 3kg)</label>
+      <input id="as-storagecapacity" type="number" min="0" value="${a&&a.storageCapacityPacks3kg!=null?a.storageCapacityPacks3kg:''}" placeholder="Ex: 180">
+      <div class="hint" style="margin-top:4px;">Só preenche se esse equipamento guarda produto acabado (gelo pronto pra vender) — usado pra calcular a ocupação do armazenamento na aba Estoque.</div>
     </div>
     <div class="field-row3">
       <div class="field"><label>Data da compra</label><input id="as-purchasedate" type="date" value="${a?a.purchaseDate||'':''}"></div>
@@ -8640,6 +8716,7 @@ async function saveAsset(id){
     purchase_date: purchaseDate, purchase_value: parseFloat(document.getElementById('as-purchasevalue').value)||null,
     warranty_months: warrantyMonths, warranty_end_date: warrantyEndDate,
     notes: document.getElementById('as-notes').value.trim(),
+    storage_capacity_packs_3kg: document.getElementById('as-storagecapacity')?.value ? parseInt(document.getElementById('as-storagecapacity').value) : null,
   };
   if(id){
     const { error } = await sb.from('assets').update(data).eq('id', id);
