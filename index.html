@@ -169,8 +169,10 @@ tr:last-child td{border-bottom:none;}
 .modal-foot{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:16px;}
 
 .search-box{position:relative;max-width:240px;}
-.search-box svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--muted);}
-.search-box input{padding-left:28px;}
+.search-box svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--muted);pointer-events:none;}
+.search-box input{width:100%;padding:8px 10px 8px 32px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);transition:border-color .15s, box-shadow .15s;}
+.search-box input:focus{outline:none;border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(79,195,224,.18);}
+.search-box input::placeholder{color:var(--muted);}
 
 .bars{display:flex;align-items:flex-end;gap:12px;height:130px;padding-top:10px;overflow-x:auto;}
 .bar-group{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;}
@@ -405,10 +407,12 @@ tr:last-child td{border-bottom:none;}
               <div class="tab" data-notifperiod="mes" onclick="setNotifPeriod('mes')">Este mês</div>
               <div class="tab" data-notifperiod="todos" onclick="setNotifPeriod('todos')">Todos</div>
             </div>
-            <button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">📅 Novo compromisso</button>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <div class="search-box" style="max-width:240px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
+              <button class="btn btn-primary btn-sm" onclick="openCommitmentModal()">📅 Novo compromisso</button>
+            </div>
           </div>
-          <div class="hint" style="margin-top:8px;margin-bottom:12px;">Filtra Alertas, Tarefas e Entregas abaixo. Compromissos tem o próprio filtro de período, no painel dele.</div>
-          <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
+          <div class="hint" style="margin-top:10px;margin-bottom:16px;">Filtra Alertas, Tarefas e Entregas abaixo. Compromissos tem o próprio filtro de período, no painel dele.</div>
 
           <div class="two-col">
             <div class="panel">
