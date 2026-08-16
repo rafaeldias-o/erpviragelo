@@ -410,14 +410,20 @@ tr:last-child td{border-bottom:none;}
           <div class="hint" style="margin-top:8px;margin-bottom:12px;">Filtra Alertas, Tarefas e Entregas abaixo. Compromissos tem o próprio filtro de período, no painel dele.</div>
           <div class="search-box" style="max-width:320px;margin-bottom:16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="notifSearch" placeholder="Pesquisar notificações..." oninput="renderNotifications()"></div>
 
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div>
-              <select id="notifAlertSort" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="renderNotifAlerts()">
-                <option value="prioridade">Ordenar por prioridade</option>
-                <option value="data">Ordenar por data</option>
-              </select>
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">🔴 Alertas automáticos</div>
+                <select id="notifAlertSort" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="renderNotifAlerts()">
+                  <option value="prioridade">Ordenar por prioridade</option>
+                  <option value="data">Ordenar por data</option>
+                </select>
+              </div>
+              <div id="notifAlertsWrap"></div>
             </div>
-            <div id="notifAlertsWrap"></div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
+              <div id="notifDeliveriesWrap"></div>
+            </div>
           </div>
           <div class="two-col">
             <div class="panel">
@@ -425,21 +431,17 @@ tr:last-child td{border-bottom:none;}
               <div id="notifTasksWrap"></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
-              <div id="notifDeliveriesWrap"></div>
+              <div class="panel-head">
+                <div class="section-title">📅 Compromissos</div>
+                <select id="notifCommitPeriod" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="setNotifCommitPeriod(this.value)">
+                  <option value="hoje">Hoje</option>
+                  <option value="semana">Próximos 7 dias</option>
+                  <option value="mes" selected>Este mês</option>
+                  <option value="todos">Todos</option>
+                </select>
+              </div>
+              <div id="notifCommitmentsWrap"></div>
             </div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <div class="section-title">📅 Compromissos</div>
-              <select id="notifCommitPeriod" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;" onchange="setNotifCommitPeriod(this.value)">
-                <option value="hoje">Hoje</option>
-                <option value="semana">Próximos 7 dias</option>
-                <option value="mes" selected>Este mês</option>
-                <option value="todos">Todos</option>
-              </select>
-            </div>
-            <div id="notifCommitmentsWrap"></div>
           </div>
         </div>
 
