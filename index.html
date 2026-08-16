@@ -5674,9 +5674,9 @@ function renderDashboard(){
     <div class="panel-head"><div class="section-title">💰 Financeiro</div></div>
     <div class="stat-row-list">
       <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Faturamento do mês</span><span class="stat-row-value">${fmtMoney(faturamentoMes)}</span></div>
-      <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Margem bruta de vendas</span><span class="stat-row-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</span></div>
-      <div class="stat-row clickable" onclick="goToFinTab('lancamentos')"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Despesas do mês</span><span class="stat-row-value">${fmtMoney(despesasMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToFinTab('lancamentos')"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
+      <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Margem bruta de vendas</span><span class="stat-row-value" style="color:${margemBrutaMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(margemBrutaMes)}</span></div>
       <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Pedidos realizados (mês)</span><span class="stat-row-value">${pedidosEntreguesMes.length}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Contas pendentes (mês)</span><span class="stat-row-value">${pendentesMes.length}${vencidosMes.length?` <span style="color:var(--danger);font-size:11px;font-weight:600;">(${vencidosMes.length} vencida${vencidosMes.length>1?'s':''})</span>`:''}</span></div>
     </div>
