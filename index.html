@@ -368,8 +368,8 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Faturamento x Despesas (6m)</div></div>
             <div class="legend" style="margin-bottom:2px;"><span><i style="background:var(--accent-2)"></i>Faturamento</span><span><i style="background:#F3C08A"></i>Despesas</span></div>
-            <div id="chartBarsWrap" style="height:100px;"></div>
-            <button class="btn btn-ghost btn-sm" id="dashMoreToggle" onclick="toggleDashMore()" style="margin-top:12px;width:100%;justify-content:center;">📊 Ver mais indicadores</button>
+            <div id="chartBarsWrap" style="height:130px;"></div>
+            <button class="btn btn-ghost btn-sm" id="dashMoreToggle" onclick="toggleDashMore()" style="margin-top:16px;width:100%;justify-content:center;">📊 Ver mais indicadores</button>
           </div>
           <div class="panel">
             <div class="panel-head"><div class="section-title">🚚 Entregas de hoje</div></div>
@@ -5900,15 +5900,14 @@ function renderDashboard(){
   });
   const max = Math.max(1, ...totals.map(t=>Math.max(t.rev,t.exp)));
   document.getElementById('chartBarsWrap').innerHTML = `
-    <div style="display:flex;gap:8px;height:100%;">
-      <div style="display:flex;flex-direction:column;justify-content:space-between;height:90px;padding-top:0;padding-bottom:18px;font-size:9px;color:var(--muted);text-align:right;white-space:nowrap;">
+    <div style="display:flex;gap:10px;height:100%;">
+      <div style="display:flex;flex-direction:column;justify-content:space-between;height:110px;padding-bottom:22px;font-size:10px;color:var(--muted);text-align:right;white-space:nowrap;flex-shrink:0;">
         <span>${fmtMoney(max)}</span>
-        <span>${fmtMoney(max/2)}</span>
         <span>R$ 0</span>
       </div>
-      <div class="bars" style="flex:1;">
+      <div class="bars" style="flex:1;height:110px;">
         ${months.map((m,i)=>`
-          <div class="bar-group"><div class="bar-pair"><div class="bar rev" style="width:8px;height:${Math.round(totals[i].rev/max*100)}%" title="${fmtMoney(totals[i].rev)}"></div><div class="bar exp" style="width:8px;height:${Math.round(totals[i].exp/max*100)}%" title="${fmtMoney(totals[i].exp)}"></div></div><div class="bar-label" style="font-size:9px;">${m.label}</div></div>
+          <div class="bar-group"><div class="bar-pair"><div class="bar rev" style="width:10px;height:${Math.round(totals[i].rev/max*100)}%" title="${fmtMoney(totals[i].rev)}"></div><div class="bar exp" style="width:10px;height:${Math.round(totals[i].exp/max*100)}%" title="${fmtMoney(totals[i].exp)}"></div></div><div class="bar-label" style="font-size:10px;">${m.label}</div></div>
         `).join('')}
       </div>
     </div>`;
