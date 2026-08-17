@@ -3195,15 +3195,19 @@ function renderDashBottomCards(){
     <div class="hint">${pctMeta.toFixed(0)}%</div>
   `;
 
-  const in30 = addDays(todayStr(), 30);
-  const previsaoTxs = state.transactions.filter(t=>t.type==='receita'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=in30);
-  const previsao = previsaoTxs.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const cutoff10 = addDays(todayStr(), -10);
+  const vendas10dias = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=cutoff10).reduce((s,o)=>s+o.total,0);
+  const mediaVendaDiaria = vendas10dias / 10;
+  const estoqueDisponivelValor = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
+  const projecao30dias = mediaVendaDiaria * 30;
+  const previsaoVendas = Math.min(projecao30dias, estoqueDisponivelValor); // limitado pelo que realmente tem em estoque pra vender
+  const limitante = projecao30dias > estoqueDisponivelValor ? 'estoque' : 'ritmo';
   prevBox.style.cursor = 'pointer';
   prevBox.onclick = () => openPrevisaoRecebimentosModal();
   prevBox.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de recebimentos</span></div>
-    <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(previsao)}</div>
-    <div class="hint" style="color:var(--success);">Próximos 30 dias · clique pra ver detalhes</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de vendas</span></div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(previsaoVendas)}</div>
+    <div class="hint" style="color:var(--success);">${limitante==='estoque'?'Limitado pelo estoque disponível':'No ritmo de vendas atual'} · próx. 30 dias · clique pra ver detalhes</div>
   `;
 
   const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
@@ -3225,38 +3229,47 @@ function openPrevisaoRecebimentosModal(){
   const total = list.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
   const today = todayStr();
 
-  // Projeção baseada no ritmo de vendas recente x estoque disponível — diferente das contas a receber
-  // (que são dinheiro já vendido, só não pago ainda), essa parte projeta quanto o estoque ATUAL de
-  // produto acabado pode virar de receita, no ritmo médio de venda dos últimos 10 dias.
+  // Projeção baseada no ritmo de vendas recente x estoque disponível — a principal aqui, já que a
+  // empresa raramente vende a prazo (contas a receber costuma ficar zerada ou perto disso).
   const cutoff10 = addDays(today, -10);
   const vendas10dias = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=cutoff10).reduce((s,o)=>s+o.total,0);
   const mediaVendaDiaria = vendas10dias / 10;
   const estoqueDisponivelValor = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
   const diasDeEstoque = mediaVendaDiaria>0 ? estoqueDisponivelValor/mediaVendaDiaria : null;
+  const projecao30dias = mediaVendaDiaria * 30;
+  const previsaoVendas = Math.min(projecao30dias, estoqueDisponivelValor);
+  const limitante = projecao30dias > estoqueDisponivelValor ? 'estoque' : 'ritmo';
 
   openModal(`
-    <div class="modal-head"><h3>📈 Previsão de recebimentos</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:14px;">Contas a receber com vencimento nos próximos 30 dias (${fmtDate(today)} a ${fmtDate(in30)}), que ainda não foram pagas.</div>
-    <div class="stat-card" style="margin-bottom:14px;"><div class="stat-label">Total previsto</div><div class="stat-value">${fmtMoney(total)}</div></div>
-    ${list.length===0 ? '<div class="empty-state"><p>Nenhuma conta a receber prevista pros próximos 30 dias.</p></div>' : `
-    <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
-      ${list.map(t=>{
-        const overdue = t.dueDate<today;
-        return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
-          <td>${fmtDate(t.dueDate)}</td><td><strong>${esc(t.description)}</strong></td>
-          <td>${fmtMoney(transactionTotalDue(t)-t.paidAmount)}</td>
-          <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
-        </tr>`;
-      }).join('')}
-    </tbody></table>`}
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
-      <div style="font-weight:700;font-size:13.5px;margin-bottom:4px;">📦 Projeção pelo ritmo de vendas x estoque disponível</div>
-      <div class="hint" style="margin-bottom:12px;">Diferente das contas acima (que já são vendas confirmadas, só falta receber), essa parte projeta quanto o estoque de produto acabado ainda pode gerar de receita, vendendo no ritmo médio dos últimos 10 dias.</div>
-      <div class="stat-grid">
-        <div class="stat-card"><div class="stat-label">Média vendida/dia</div><div class="stat-value" style="font-size:16px;">${fmtMoney(mediaVendaDiaria)}</div><div class="hint">últimos 10 dias</div></div>
-        <div class="stat-card"><div class="stat-label">Estoque disponível</div><div class="stat-value" style="font-size:16px;">${fmtMoney(estoqueDisponivelValor)}</div><div class="hint">a preço de venda</div></div>
-        <div class="stat-card"><div class="stat-label">Dias de estoque</div><div class="stat-value" style="font-size:16px;">${diasDeEstoque!=null?Math.round(diasDeEstoque)+' dias':'—'}</div><div class="hint">nesse ritmo de venda</div></div>
-      </div>
+    <div class="modal-head"><h3>📈 Previsão de vendas</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:12px;">Quanto você deve conseguir vender nos próximos 30 dias, com base no ritmo de vendas recente (últimos 10 dias) e no que tem disponível pra vender agora.</div>
+    <div class="stat-card" style="margin-bottom:14px;">
+      <div class="stat-label">Previsão de vendas (30 dias)</div>
+      <div class="stat-value">${fmtMoney(previsaoVendas)}</div>
+      <div class="hint" style="margin-top:2px;">${limitante==='estoque' ? '📦 Limitado pelo estoque disponível — no ritmo atual, você venderia mais se tivesse mais produto pronto.' : '⚡ Limitado pelo ritmo de vendas — tem estoque de sobra, o gargalo é vender mais rápido.'}</div>
+    </div>
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-label">Média vendida/dia</div><div class="stat-value" style="font-size:16px;">${fmtMoney(mediaVendaDiaria)}</div><div class="hint">últimos 10 dias</div></div>
+      <div class="stat-card"><div class="stat-label">Projeção sem limite de estoque</div><div class="stat-value" style="font-size:16px;">${fmtMoney(projecao30dias)}</div><div class="hint">só pelo ritmo, 30 dias</div></div>
+      <div class="stat-card"><div class="stat-label">Estoque disponível</div><div class="stat-value" style="font-size:16px;">${fmtMoney(estoqueDisponivelValor)}</div><div class="hint">a preço de venda</div></div>
+      <div class="stat-card"><div class="stat-label">Dias de estoque</div><div class="stat-value" style="font-size:16px;">${diasDeEstoque!=null?Math.round(diasDeEstoque)+' dias':'—'}</div><div class="hint">nesse ritmo de venda</div></div>
+    </div>
+
+    <div style="margin-top:8px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px;color:var(--muted);">💳 Contas a receber (vendas a prazo já confirmadas)</div>
+      <div class="hint" style="margin-bottom:10px;">Diferente da projeção acima — isso aqui é dinheiro de vendas que já aconteceram, só falta receber. Vencimento nos próximos 30 dias (${fmtDate(today)} a ${fmtDate(in30)}).</div>
+      <div class="stat-card" style="margin-bottom:10px;max-width:260px;"><div class="stat-label">Total a receber</div><div class="stat-value" style="font-size:18px;">${fmtMoney(total)}</div></div>
+      ${list.length===0 ? '<div class="hint">Nenhuma conta a receber prevista pros próximos 30 dias.</div>' : `
+      <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+        ${list.map(t=>{
+          const overdue = t.dueDate<today;
+          return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
+            <td>${fmtDate(t.dueDate)}</td><td><strong>${esc(t.description)}</strong></td>
+            <td>${fmtMoney(transactionTotalDue(t)-t.paidAmount)}</td>
+            <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody></table>`}
     </div>
   `, 'wide');
 }
