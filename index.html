@@ -633,6 +633,7 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
+          <div class="tab" data-fintab="metas" onclick="setFinTab('metas')">🎯 Metas &amp; Insights</div>
         </div>
 
         <div class="panel" id="finResumoPanel" style="display:none;">
@@ -787,6 +788,33 @@ tr:last-child td{border-bottom:none;}
             <div class="panel-head"><div class="section-title">Conciliação Financeira</div></div>
             <div class="hint" style="margin-bottom:10px;">Compara pedidos entregues, recebimentos, pagamentos e transferências pra encontrar possíveis inconsistências — não altera nada sozinho, só aponta o que vale a pena olhar.</div>
             <div id="conciliacaoWrap"></div>
+          </div>
+        </div>
+
+        <div id="finMetasView" style="display:none;">
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">🎯 Metas de faturamento</div></div>
+            <div class="hint" style="margin-bottom:14px;">Faturamento considera pedidos entregues no período. Clique numa meta pra editar o valor.</div>
+            <div class="stat-grid" id="metasGrid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">📊 Simulador de cenários</div>
+                <div class="hint" style="margin:2px 0 0 0;">Baseado no pacote de 3kg (o produto principal). Ajuste os campos abaixo pra simular faturamento e lucro potenciais.</div>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Produção (% da capacidade máxima)</label><input id="sim-pct-producao" type="number" min="0" max="200" value="100" oninput="renderSimuladorInsights()"></div>
+              <div class="field"><label>Período (dias)</label><select id="sim-dias" onchange="renderSimuladorInsights()">
+                <option value="30">30 dias (mensal)</option>
+                <option value="90">90 dias (trimestral)</option>
+                <option value="180">180 dias (semestral)</option>
+                <option value="365">365 dias (anual)</option>
+              </select></div>
+              <div class="field"><label>Aumento no preço (%)</label><input id="sim-pct-preco" type="number" min="-50" max="100" value="0" oninput="renderSimuladorInsights()"></div>
+            </div>
+            <div id="simuladorResultWrap"></div>
           </div>
         </div>
 
@@ -1607,6 +1635,9 @@ async function loadAll(){
     fuelEfficiencyKmL: co.fuel_efficiency_km_l!=null ? Number(co.fuel_efficiency_km_l) : 10,
     freezerMetaPacotesMes: co.freezer_meta_pacotes_mes!=null ? Number(co.freezer_meta_pacotes_mes) : 20,
     revenueGoalMonthly: co.revenue_goal_monthly!=null ? Number(co.revenue_goal_monthly) : 50000,
+    revenueGoalQuarterly: co.revenue_goal_quarterly!=null ? Number(co.revenue_goal_quarterly) : null,
+    revenueGoalSemestral: co.revenue_goal_semestral!=null ? Number(co.revenue_goal_semestral) : null,
+    revenueGoalYearly: co.revenue_goal_yearly!=null ? Number(co.revenue_goal_yearly) : null,
     machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
     routeCalcMode: co.route_calc_mode || 'ida',
     betoHomeAddress: co.beto_home_address || null, betoHomeLat: co.beto_home_lat!=null?Number(co.beto_home_lat):null, betoHomeLng: co.beto_home_lng!=null?Number(co.beto_home_lng):null,
@@ -3194,14 +3225,15 @@ function renderDashBottomCards(){
   const faturamentoMes = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=monthFrom).reduce((s,o)=>s+o.total,0);
   const meta = state.company.revenueGoalMonthly || 50000;
   const pctMeta = meta>0 ? Math.min(100, faturamentoMes/meta*100) : 0;
+  metaBox.style.cursor = 'pointer';
+  metaBox.onclick = () => setFinTab('metas');
   metaBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
       <span style="font-size:20px;">🎯</span><span style="font-size:12.5px;color:var(--muted);">Meta mensal</span>
-      <button class="icon-btn" style="margin-left:auto;" onclick="promptEditRevenueGoal()" title="Editar meta">${iconEdit}</button>
     </div>
     <div style="font-size:16px;font-weight:700;margin-bottom:8px;">${fmtMoney(faturamentoMes)} / ${fmtMoney(meta)}</div>
     <div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;margin-bottom:6px;"><div style="height:100%;width:${pctMeta}%;background:var(--accent);"></div></div>
-    <div class="hint">${pctMeta.toFixed(0)}%</div>
+    <div class="hint">${pctMeta.toFixed(0)}% · clique pra ver todas as metas e o simulador</div>
   `;
 
   const cutoff10 = addDays(todayStr(), -10);
@@ -3308,15 +3340,99 @@ function openSaudeFinanceiraModal(){
     ` : '<div class="hint">Nenhuma conta a pagar em aberto no momento.</div>'}
   `, 'wide');
 }
-async function promptEditRevenueGoal(){
-  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar a meta', true); return; }
-  const val = prompt('Nova meta mensal de faturamento (R$):', state.company.revenueGoalMonthly || 50000);
+const GOAL_PERIODS = [
+  { key:'monthly', label:'Mensal', field:'revenueGoalMonthly', dbField:'revenue_goal_monthly', days:30 },
+  { key:'quarterly', label:'Trimestral', field:'revenueGoalQuarterly', dbField:'revenue_goal_quarterly', days:90 },
+  { key:'semestral', label:'Semestral', field:'revenueGoalSemestral', dbField:'revenue_goal_semestral', days:180 },
+  { key:'yearly', label:'Anual', field:'revenueGoalYearly', dbField:'revenue_goal_yearly', days:365 },
+];
+// Pra Mensal usa o mês corrente exato (bate com o resto do sistema). Pros demais, usa uma janela rolante
+// dos últimos N dias até hoje — um "trimestre corrente" fixo (jan-mar, abr-jun...) seria menos intuitivo
+// pra medir progresso de uma meta que pode ter sido definida a qualquer momento do ano.
+function goalPeriodRange(days){
+  const today = todayStr();
+  if(days===30){
+    const now = new Date();
+    return { from: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`, to: today };
+  }
+  return { from: addDays(today, -days), to: today };
+}
+async function promptEditGoal(key){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar metas', true); return; }
+  const gp = GOAL_PERIODS.find(g=>g.key===key);
+  const val = prompt(`Meta ${gp.label.toLowerCase()} de faturamento (R$):`, state.company[gp.field] || '');
   if(val==null) return;
   const num = parseFloat(val);
   if(isNaN(num)||num<0){ toast('Valor inválido', true); return; }
-  const { error } = await sb.from('company_settings').upsert({ id:true, revenue_goal_monthly: num });
+  const { error } = await sb.from('company_settings').upsert({ id:true, [gp.dbField]: num });
   if(error){ dbErr(error, 'Erro ao salvar meta'); return; }
-  toast('Meta atualizada'); await loadAll(); renderFinDashboard();
+  toast('Meta atualizada'); await loadAll(); renderAll();
+}
+async function promptEditRevenueGoal(){ promptEditGoal('monthly'); } // mantido pra compatibilidade com quem ainda chama esse nome
+function renderMetasEInsights(){
+  const box = document.getElementById('metasGrid');
+  if(!box) return;
+  box.innerHTML = GOAL_PERIODS.map(gp=>{
+    const range = goalPeriodRange(gp.days);
+    const faturamento = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to).reduce((s,o)=>s+o.total,0);
+    const meta = state.company[gp.field];
+    const pct = meta>0 ? Math.min(100, faturamento/meta*100) : 0;
+    const barColor = pct>=100?'var(--success)':pct>=60?'var(--accent)':'var(--warn)';
+    return `<div class="stat-card" style="cursor:pointer;" onclick="promptEditGoal('${gp.key}')">
+      <div class="stat-label">${gp.label}</div>
+      <div class="stat-value" style="font-size:16px;">${fmtMoney(faturamento)}${meta?' / '+fmtMoney(meta):''}</div>
+      ${meta ? `<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:${pct}%;background:${barColor};"></div></div><div class="hint" style="margin-top:3px;">${pct.toFixed(0)}%</div>` : '<div class="hint" style="margin-top:3px;color:var(--accent);">Clique pra definir uma meta</div>'}
+    </div>`;
+  }).join('');
+  renderSimuladorInsights();
+}
+function renderSimuladorInsights(){
+  const box = document.getElementById('simuladorResultWrap');
+  if(!box) return;
+  const produto3kg = state.stockItems.find(p=>p.category==='produto_acabado' && p.weightKg===3);
+  if(!produto3kg){
+    box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre o pacote de 3kg em Produtos (com o peso preenchido) pra usar o simulador.</div>';
+    return;
+  }
+  const pctProducao = parseFloat(document.getElementById('sim-pct-producao')?.value) || 0;
+  const dias = parseInt(document.getElementById('sim-dias')?.value) || 30;
+  const pctPreco = parseFloat(document.getElementById('sim-pct-preco')?.value) || 0;
+
+  const capacidadeKgDia = state.company.machineMaxCapacityKgDay || 150;
+  const kgProduzidos = capacidadeKgDia * (pctProducao/100) * dias;
+  const pacotes = kgProduzidos / 3;
+
+  const precoBase = produto3kg.salePrice || 0;
+  const custoBase = produto3kg.costPrice || 0;
+  const precoAjustado = precoBase * (1 + pctPreco/100);
+
+  const faturamentoAtualPreco = pacotes * precoBase;
+  const faturamentoComAumento = pacotes * precoAjustado;
+  const lucroAtualPreco = pacotes * (precoBase - custoBase);
+  const lucroComAumento = pacotes * (precoAjustado - custoBase);
+  const margemAtual = precoBase>0 ? ((precoBase-custoBase)/precoBase*100) : 0;
+  const margemAjustada = precoAjustado>0 ? ((precoAjustado-custoBase)/precoAjustado*100) : 0;
+
+  box.innerHTML = `
+    <div class="stat-grid" style="margin-top:14px;margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Produção no período</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(kgProduzidos)} kg</div><div class="hint">${Math.round(pacotes).toLocaleString('pt-BR')} pacotes de 3kg</div></div>
+      <div class="stat-card"><div class="stat-label">Preço do 3kg</div><div class="stat-value" style="font-size:16px;">${fmtMoney(precoBase)}${pctPreco!==0?' → '+fmtMoney(precoAjustado):''}</div><div class="hint">custo: ${fmtMoney(custoBase)}</div></div>
+      <div class="stat-card"><div class="stat-label">Margem</div><div class="stat-value" style="font-size:16px;">${margemAtual.toFixed(1)}%${pctPreco!==0?' → '+margemAjustada.toFixed(1)+'%':''}</div><div class="hint">no preço ${pctPreco!==0?'ajustado':'atual'}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">💰 Faturamento potencial</div>
+        <div style="font-size:22px;font-weight:700;">${fmtMoney(faturamentoComAumento)}</div>
+        ${pctPreco!==0?`<div class="hint" style="margin-top:2px;">Sem o ajuste de preço seria ${fmtMoney(faturamentoAtualPreco)} — diferença de ${fmtMoney(faturamentoComAumento-faturamentoAtualPreco)}</div>`:''}
+      </div>
+      <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📈 Lucro potencial</div>
+        <div style="font-size:22px;font-weight:700;color:var(--success);">${fmtMoney(lucroComAumento)}</div>
+        ${pctPreco!==0?`<div class="hint" style="margin-top:2px;">Sem o ajuste de preço seria ${fmtMoney(lucroAtualPreco)} — diferença de ${fmtMoney(lucroComAumento-lucroAtualPreco)}</div>`:''}
+      </div>
+    </div>
+    <div class="hint" style="margin-top:12px;">Simulação: ${pctProducao}% da capacidade máxima (${fmtKgNum(capacidadeKgDia)} kg/dia, configurável em Estoque) durante ${dias} dias${pctPreco!==0?`, com ${pctPreco>0?'aumento':'redução'} de ${Math.abs(pctPreco)}% no preço`:''}. Considera só o pacote de 3kg — os demais formatos (5kg, 15kg) não entram nessa conta, já que são pra pedidos pontuais.</div>
+  `;
 }
 function renderFinDashboard(){
   const compactBox = document.getElementById('finCompactStats');
@@ -3648,8 +3764,9 @@ function setFinTab(tab){
   document.getElementById('finPagarView').style.display = tab==='pagar' ? 'block' : 'none';
   document.getElementById('finFluxoView').style.display = tab==='fluxo' ? 'block' : 'none';
   document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
+  document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
-  document.getElementById('finResumoPanel').style.display = tab==='dashboard' ? 'none' : 'block';
+  document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas') ? 'none' : 'block';
   if(tab==='contas') renderFinAccountsTable();
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
@@ -3657,6 +3774,7 @@ function setFinTab(tab){
   if(tab==='pagar') renderPagarTable();
   if(tab==='fluxo') renderFluxoCaixa();
   if(tab==='conciliacao') renderConciliacao();
+  if(tab==='metas') renderMetasEInsights();
   if(tab==='dashboard') renderFinDashboard();
 }
 
