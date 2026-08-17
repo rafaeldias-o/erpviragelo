@@ -3200,14 +3200,12 @@ function renderDashBottomCards(){
   const mediaVendaDiaria = vendas10dias / 10;
   const estoqueDisponivelValor = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
   const projecao30dias = mediaVendaDiaria * 30;
-  const previsaoVendas = Math.min(projecao30dias, estoqueDisponivelValor); // limitado pelo que realmente tem em estoque pra vender
-  const limitante = projecao30dias > estoqueDisponivelValor ? 'estoque' : 'ritmo';
   prevBox.style.cursor = 'pointer';
   prevBox.onclick = () => openPrevisaoRecebimentosModal();
   prevBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de vendas</span></div>
-    <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(previsaoVendas)}</div>
-    <div class="hint" style="color:var(--success);">${limitante==='estoque'?'Limitado pelo estoque disponível':'No ritmo de vendas atual'} · próx. 30 dias · clique pra ver detalhes</div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(projecao30dias)}</div>
+    <div class="hint" style="color:var(--success);">Média vendida × 30 dias · clique pra ver detalhes</div>
   `;
 
   const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
@@ -3237,22 +3235,15 @@ function openPrevisaoRecebimentosModal(){
   const estoqueDisponivelValor = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
   const diasDeEstoque = mediaVendaDiaria>0 ? estoqueDisponivelValor/mediaVendaDiaria : null;
   const projecao30dias = mediaVendaDiaria * 30;
-  const previsaoVendas = Math.min(projecao30dias, estoqueDisponivelValor);
-  const limitante = projecao30dias > estoqueDisponivelValor ? 'estoque' : 'ritmo';
 
   openModal(`
     <div class="modal-head"><h3>📈 Previsão de vendas</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:12px;">Quanto você deve conseguir vender nos próximos 30 dias, com base no ritmo de vendas recente (últimos 10 dias) e no que tem disponível pra vender agora.</div>
-    <div class="stat-card" style="margin-bottom:14px;">
-      <div class="stat-label">Previsão de vendas (30 dias)</div>
-      <div class="stat-value">${fmtMoney(previsaoVendas)}</div>
-      <div class="hint" style="margin-top:2px;">${limitante==='estoque' ? '📦 Limitado pelo estoque disponível — no ritmo atual, você venderia mais se tivesse mais produto pronto.' : '⚡ Limitado pelo ritmo de vendas — tem estoque de sobra, o gargalo é vender mais rápido.'}</div>
-    </div>
-    <div class="stat-grid" style="margin-bottom:16px;">
-      <div class="stat-card"><div class="stat-label">Média vendida/dia</div><div class="stat-value" style="font-size:16px;">${fmtMoney(mediaVendaDiaria)}</div><div class="hint">últimos 10 dias</div></div>
-      <div class="stat-card"><div class="stat-label">Projeção sem limite de estoque</div><div class="stat-value" style="font-size:16px;">${fmtMoney(projecao30dias)}</div><div class="hint">só pelo ritmo, 30 dias</div></div>
-      <div class="stat-card"><div class="stat-label">Estoque disponível</div><div class="stat-value" style="font-size:16px;">${fmtMoney(estoqueDisponivelValor)}</div><div class="hint">a preço de venda</div></div>
-      <div class="stat-card"><div class="stat-label">Dias de estoque</div><div class="stat-value" style="font-size:16px;">${diasDeEstoque!=null?Math.round(diasDeEstoque)+' dias':'—'}</div><div class="hint">nesse ritmo de venda</div></div>
+    <div class="hint" style="margin-bottom:14px;">Quanto você deve conseguir vender nos próximos 30 dias, com base no ritmo de vendas recente (últimos 10 dias) e no que tem disponível pra vender agora.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-label">Média vendida</div><div class="stat-value">${fmtMoney(mediaVendaDiaria)}</div><div class="hint">por dia, últimos 10 dias</div></div>
+      <div class="stat-card"><div class="stat-label">Projeção de venda</div><div class="stat-value">${fmtMoney(projecao30dias)}</div><div class="hint">média × 30 dias</div></div>
+      <div class="stat-card"><div class="stat-label">Estoque disponível</div><div class="stat-value">${fmtMoney(estoqueDisponivelValor)}</div><div class="hint">a preço de venda</div></div>
+      <div class="stat-card"><div class="stat-label">Dias de estoque</div><div class="stat-value">${diasDeEstoque!=null?Math.round(diasDeEstoque)+' dias':'—'}</div><div class="hint">nesse ritmo de venda</div></div>
     </div>
 
     <div style="margin-top:8px;padding-top:14px;border-top:1px solid var(--border);">
