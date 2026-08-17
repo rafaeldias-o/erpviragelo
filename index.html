@@ -2175,8 +2175,7 @@ async function renderStockCharts(items, isFinished){
   const year = now.getFullYear(), month = now.getMonth();
   const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
   const todayDay = now.getDate();
-  const targetDays = [1,10,20,30].filter(d=>d<=todayDay);
-  if(targetDays[targetDays.length-1] !== todayDay) targetDays.push(todayDay); // garante que "hoje" sempre aparece
+  const targetDays = Array.from({length: todayDay}, (_,i) => i+1); // todo dia do mês, do dia 1 até hoje
   const targetDates = targetDays.map(d=>monthPrefix+String(d).padStart(2,'0'));
 
   const itemIds = new Set(items.map(i=>i.id));
@@ -2211,13 +2210,17 @@ async function renderStockCharts(items, isFinished){
   const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   const saidaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='saida' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   const maxInOut = Math.max(1, ...entradaSeries, ...saidaSeries);
+  const lastIdx = targetDays.length-1;
+  const labelIdxs = new Set([0]);
+  for(let i=4;i<targetDays.length;i+=5) labelIdxs.add(i);
+  labelIdxs.add(lastIdx);
   inOutBox.innerHTML = targetDays.map((d,i)=>`
     <div class="bar-group">
       <div class="bar-pair">
-        <div class="bar rev" style="width:9px;height:${Math.round(entradaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Entradas acumuladas: ${entradaSeries[i]}"></div>
-        <div class="bar exp" style="width:9px;height:${Math.round(saidaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Saídas acumuladas: ${saidaSeries[i]}"></div>
+        <div class="bar rev" style="width:${targetDays.length>15?6:9}px;height:${Math.round(entradaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Entradas acumuladas: ${entradaSeries[i]}"></div>
+        <div class="bar exp" style="width:${targetDays.length>15?6:9}px;height:${Math.round(saidaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Saídas acumuladas: ${saidaSeries[i]}"></div>
       </div>
-      <div class="bar-label" style="font-size:9px;">${d}</div>
+      <div class="bar-label" style="font-size:9px;">${labelIdxs.has(i)?d:''}</div>
     </div>
   `).join('');
 }
