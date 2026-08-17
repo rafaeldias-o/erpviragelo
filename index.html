@@ -2990,7 +2990,7 @@ function buildSparklineSvg(values, color){
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:32px;display:block;" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 function buildComboChartSvg(entradas, saidas, saldo, labels){
-  const w=700, h=190, padL=42, padR=10, padT=14, padB=24;
+  const w=700, h=190, padL=58, padR=10, padT=14, padB=24;
   const maxBar = Math.max(1, ...entradas, ...saidas);
   const minSaldo = Math.min(0, ...saldo), maxSaldo = Math.max(1, ...saldo);
   const rangeSaldo = (maxSaldo-minSaldo)||1;
@@ -3009,7 +3009,14 @@ function buildComboChartSvg(entradas, saidas, saldo, labels){
   const linePoints = labels.map((l,i)=> `${xOfGroup(i).toFixed(1)},${yOfLine(saldo[i]).toFixed(1)}`).join(' ');
   const dots = labels.map((l,i)=> `<circle cx="${xOfGroup(i).toFixed(1)}" cy="${yOfLine(saldo[i]).toFixed(1)}" r="3" style="fill:var(--accent);"><title>${esc(l)} — Saldo: ${fmtMoney(saldo[i])}</title></circle>`).join('');
   const axisLabels = labels.map((l,i)=> `<text x="${xOfGroup(i)}" y="${h-6}" style="fill:var(--muted);font-size:9.5px;" text-anchor="middle">${esc(l)}</text>`).join('');
+  const yAxisLabels = [1, 0.5, 0].map(frac => {
+    const val = maxBar * frac;
+    const y = yOfBar(val);
+    const label = val.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:0});
+    return `<text x="${padL-6}" y="${(y+3).toFixed(1)}" style="fill:var(--muted);font-size:9px;" text-anchor="end">${label}</text>`;
+  }).join('');
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:190px;">
+    ${yAxisLabels}
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     ${barsHtml}
