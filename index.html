@@ -797,28 +797,30 @@ tr:last-child td{border-bottom:none;}
             <div class="hint" style="margin-bottom:14px;">Faturamento considera pedidos entregues no período. Clique numa meta pra editar o valor.</div>
             <div class="stat-grid" id="metasGrid"></div>
           </div>
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <div class="section-title">🏭 Máquinas de produção</div>
-                <div class="hint" style="margin:2px 0 0 0;">Cada máquina soma capacidade ao simulador abaixo e ao painel de Capacidade de Armazenamento (Estoque).</div>
+          <div class="two-col">
+            <div class="panel">
+              <div class="panel-head">
+                <div>
+                  <div class="section-title">🏭 Máquinas de produção</div>
+                  <div class="hint" style="margin:2px 0 0 0;">Cada máquina soma capacidade ao simulador abaixo e ao painel de Capacidade de Armazenamento (Estoque).</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openMachineModal()">+ Nova máquina</button>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="openMachineModal()">+ Nova máquina</button>
+              <div id="machinesListWrap"></div>
             </div>
-            <div id="machinesListWrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <div class="section-title">📦 Armazenamento saudável</div>
-                <div class="hint" style="margin:2px 0 0 0;">Quanto vender por dia/semana pra manter o estoque girando, sem parar a máquina e sem lotar o armazenamento.</div>
+            <div class="panel">
+              <div class="panel-head">
+                <div>
+                  <div class="section-title">📦 Armazenamento saudável</div>
+                  <div class="hint" style="margin:2px 0 0 0;">Quanto vender por dia/semana pra manter o estoque girando, sem parar a máquina e sem lotar o armazenamento.</div>
+                </div>
               </div>
+              <div class="field-row">
+                <div class="field"><label>Margem de segurança (pacotes de 3kg sempre disponíveis)</label><input id="storage-safety-margin" type="number" min="0" value="20" oninput="renderStorageHealthCalc()"></div>
+                <div></div>
+              </div>
+              <div id="storageHealthResultWrap"></div>
             </div>
-            <div class="field-row">
-              <div class="field"><label>Margem de segurança (pacotes de 3kg sempre disponíveis)</label><input id="storage-safety-margin" type="number" min="0" value="20" oninput="renderStorageHealthCalc()"></div>
-              <div></div>
-            </div>
-            <div id="storageHealthResultWrap"></div>
           </div>
           <div class="panel">
             <div class="panel-head">
