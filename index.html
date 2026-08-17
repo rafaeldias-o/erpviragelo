@@ -4336,6 +4336,7 @@ function computeSystemAlerts(){
   state.clients.filter(c=>c.status==='ativo' && c.clientType==='recorrente' && c.nextExpectedContact).forEach(c=>{
     const daysLeft = -daysSince(c.nextExpectedContact);
     if(daysLeft < 0) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--danger)', priority:'alta', text:`Visitar ${c.name} — pedido esperado há ${Math.abs(daysLeft)} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
+    else if(daysLeft === 0) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--danger)', priority:'alta', text:`Visitar ${c.name} — pedido esperado para hoje`, date: c.nextExpectedContact, entityId:c.id});
     else if(daysLeft <= 3) alerts.push({type:'contato_recorrente_pendente', icon:'🔁', color:'var(--warn)', priority:'média', text:`Visitar ${c.name} — pedido esperado em ${daysLeft} dia(s)`, date: c.nextExpectedContact, entityId:c.id});
   });
   // Taxa de entrega dos motoristas — só aparece do dia 1 ao 5 do mês, mostrando o valor do MÊS ANTERIOR
