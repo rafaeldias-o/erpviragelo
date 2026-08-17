@@ -800,6 +800,16 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head">
               <div>
+                <div class="section-title">🏭 Máquinas de produção</div>
+                <div class="hint" style="margin:2px 0 0 0;">Cada máquina soma capacidade ao simulador abaixo e ao painel de Capacidade de Armazenamento (Estoque).</div>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="openMachineModal()">+ Nova máquina</button>
+            </div>
+            <div id="machinesListWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
                 <div class="section-title">📊 Simulador de cenários</div>
                 <div class="hint" style="margin:2px 0 0 0;">Baseado no pacote de 3kg (o produto principal). Ajuste os campos abaixo pra simular faturamento e lucro potenciais.</div>
               </div>
@@ -815,6 +825,38 @@ tr:last-child td{border-bottom:none;}
               <div class="field"><label>Aumento no preço (%)</label><input id="sim-pct-preco" type="number" min="-50" max="100" value="0" oninput="renderSimuladorInsights()"></div>
             </div>
             <div id="simuladorResultWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">🚀 Vale a pena adicionar uma máquina?</div>
+                <div class="hint" style="margin:2px 0 0 0;">Simula o retorno (payback) de investir numa máquina ou módulo de capacidade novo.</div>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Capacidade da nova máquina (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Custo da nova máquina (R$)</label><input id="exp-cost" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>% da capacidade extra que espera vender</label><input id="exp-pct-aproveitamento" type="number" min="0" max="100" value="100" oninput="renderExpansaoPayback()"></div>
+            </div>
+            <div id="expansaoResultWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">🎯 Quanto você quer faturar?</div>
+                <div class="hint" style="margin:2px 0 0 0;">Informe uma meta e veja se sua capacidade atual dá conta, ou quantas máquinas precisaria.</div>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Faturamento desejado (R$)</label><input id="rev-target" type="number" step="0.01" min="0" placeholder="Ex: 15000" oninput="renderReverseCalc()"></div>
+              <div class="field"><label>Período (dias)</label><select id="rev-dias" onchange="renderReverseCalc()">
+                <option value="30">30 dias (mensal)</option>
+                <option value="90">90 dias (trimestral)</option>
+                <option value="180">180 dias (semestral)</option>
+                <option value="365">365 dias (anual)</option>
+              </select></div>
+            </div>
+            <div id="reverseCalcResultWrap"></div>
           </div>
         </div>
 
@@ -1407,7 +1449,7 @@ async function afterLogin(session){
 
 // ================= DATA LAYER (Supabase) =================
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes] = await Promise.all([
+  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes, machinesRes] = await Promise.all([
     sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
     sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
@@ -1442,6 +1484,7 @@ async function loadAll(){
     sb.from('recurring_expense_templates').select('*').is('deleted_at', null).order('description'),
     sb.from('account_transfers').select('*').is('deleted_at', null).order('date', {ascending:false}),
     sb.from('freezers').select('*').order('name'),
+    sb.from('production_machines').select('*').eq('active', true).order('created_at'),
   ]);
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
@@ -1451,7 +1494,7 @@ async function loadAll(){
     ['rotas comerciais',crRes],['paradas de rota',crStopsRes],['perfis de usuário',profRes],['compromissos',commitRes],
     ['patrimônio',assetRes],['histórico do patrimônio',assetHistRes],['planos de manutenção',maintRes],['alertas ignorados',dismissRes],
     ['alertas personalizados',customAlertRes],['contas financeiras',finAccRes],['categorias financeiras',finCatRes],['centros de custo',costCenterRes],
-    ['despesas recorrentes',recurTplRes],['transferências entre contas',transferRes],['freezers',freezerRes]]){
+    ['despesas recorrentes',recurTplRes],['transferências entre contas',transferRes],['freezers',freezerRes],['máquinas de produção',machinesRes]]){
     if(res.error) dbErr(res.error, 'Erro ao carregar ' + label);
   }
 
@@ -1639,6 +1682,7 @@ async function loadAll(){
     revenueGoalSemestral: co.revenue_goal_semestral!=null ? Number(co.revenue_goal_semestral) : null,
     revenueGoalYearly: co.revenue_goal_yearly!=null ? Number(co.revenue_goal_yearly) : null,
     machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
+    nextMachineCost: co.next_machine_cost!=null ? Number(co.next_machine_cost) : 9000,
     routeCalcMode: co.route_calc_mode || 'ida',
     betoHomeAddress: co.beto_home_address || null, betoHomeLat: co.beto_home_lat!=null?Number(co.beto_home_lat):null, betoHomeLng: co.beto_home_lng!=null?Number(co.beto_home_lng):null,
     guiHomeAddress: co.gui_home_address || null, guiHomeLat: co.gui_home_lat!=null?Number(co.gui_home_lat):null, guiHomeLng: co.gui_home_lng!=null?Number(co.gui_home_lng):null,
@@ -1647,6 +1691,9 @@ async function loadAll(){
   state.freezers = (freezerRes.data||[]).map(f => ({
     id:f.id, name:f.name, brand:f.brand, capacityL:f.capacity_l!=null?Number(f.capacity_l):null,
     serial:f.serial, quantityTotal:Number(f.quantity_total)||1, notes:f.notes,
+  }));
+  state.productionMachines = (machinesRes.data||[]).map(m => ({
+    id:m.id, name:m.name, capacityKgDay:Number(m.capacity_kg_day), cost:m.cost!=null?Number(m.cost):null, active:m.active!==false,
   }));
 }
 
@@ -2029,6 +2076,13 @@ async function saveMovement(){
 // além de uma projeção simples de quantos dias faltam pra lotar (ou se está esvaziando), com base no
 // ritmo médio de produção e vendas dos últimos 30 dias. Tudo em "pacotes de 3kg equivalentes", já que
 // é a unidade que a empresa usa no dia a dia (produtos de outros pesos entram convertidos por peso).
+// Soma a capacidade de todas as máquinas de produção ativas cadastradas — se nenhuma tiver sido
+// cadastrada ainda, cai no campo único antigo (compatibilidade com quem configurou antes dessa lista existir).
+function totalMachineCapacityKgDay(){
+  const machines = (state.productionMachines||[]).filter(m=>m.active);
+  if(machines.length>0) return machines.reduce((s,m)=>s+m.capacityKgDay,0);
+  return state.company.machineMaxCapacityKgDay || 150;
+}
 function storageStats(){
   const capacityAssets = state.assets.filter(a=>a.storageCapacityPacks3kg!=null && a.situation!=='baixado');
   const totalCapacity = capacityAssets.reduce((s,a)=>s+a.storageCapacityPacks3kg,0);
@@ -2059,7 +2113,7 @@ function storageStats(){
   // Cenário "e se a máquina rodasse no máximo?" — útil quando a produção real está baixa de propósito
   // (máquina parada pra não lotar o armazenamento), já que o ritmo médio dos últimos 30 dias não reflete
   // a capacidade de verdade da máquina nesse caso.
-  const maquinaMaxKgDia = state.company.machineMaxCapacityKgDay || 150;
+  const maquinaMaxKgDia = totalMachineCapacityKgDay();
   const maquinaMaxPacksDia = maquinaMaxKgDia / 3;
   const netMaximoPacks = maquinaMaxPacksDia - vendaDiaKg/3;
   let diasAteLotarMaximo = null;
@@ -3357,18 +3411,25 @@ function goalPeriodRange(days){
   }
   return { from: addDays(today, -days), to: today };
 }
-async function promptEditGoal(key){
+function openEditGoalModal(key){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar metas', true); return; }
   const gp = GOAL_PERIODS.find(g=>g.key===key);
-  const val = prompt(`Meta ${gp.label.toLowerCase()} de faturamento (R$):`, state.company[gp.field] || '');
-  if(val==null) return;
+  openModal(`
+    <div class="modal-head"><h3>🎯 Meta ${gp.label.toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Meta de faturamento (R$)</label><input id="goal-edit-value" type="number" step="0.01" min="0" value="${state.company[gp.field]||''}" placeholder="0,00"></div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveGoalModal('${key}')">Salvar</button></div>
+  `);
+}
+async function saveGoalModal(key){
+  const gp = GOAL_PERIODS.find(g=>g.key===key);
+  const val = document.getElementById('goal-edit-value').value;
   const num = parseFloat(val);
   if(isNaN(num)||num<0){ toast('Valor inválido', true); return; }
   const { error } = await sb.from('company_settings').upsert({ id:true, [gp.dbField]: num });
   if(error){ dbErr(error, 'Erro ao salvar meta'); return; }
-  toast('Meta atualizada'); await loadAll(); renderAll();
+  closeModal(); toast('Meta atualizada'); await loadAll(); renderAll();
 }
-async function promptEditRevenueGoal(){ promptEditGoal('monthly'); } // mantido pra compatibilidade com quem ainda chama esse nome
+async function promptEditRevenueGoal(){ openEditGoalModal('monthly'); } // mantido pra compatibilidade com quem ainda chama esse nome
 function renderMetasEInsights(){
   const box = document.getElementById('metasGrid');
   if(!box) return;
@@ -3378,13 +3439,152 @@ function renderMetasEInsights(){
     const meta = state.company[gp.field];
     const pct = meta>0 ? Math.min(100, faturamento/meta*100) : 0;
     const barColor = pct>=100?'var(--success)':pct>=60?'var(--accent)':'var(--warn)';
-    return `<div class="stat-card" style="cursor:pointer;" onclick="promptEditGoal('${gp.key}')">
+    return `<div class="stat-card" style="cursor:pointer;" onclick="openEditGoalModal('${gp.key}')">
       <div class="stat-label">${gp.label}</div>
       <div class="stat-value" style="font-size:16px;">${fmtMoney(faturamento)}${meta?' / '+fmtMoney(meta):''}</div>
       ${meta ? `<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:${pct}%;background:${barColor};"></div></div><div class="hint" style="margin-top:3px;">${pct.toFixed(0)}%</div>` : '<div class="hint" style="margin-top:3px;color:var(--accent);">Clique pra definir uma meta</div>'}
     </div>`;
   }).join('');
+  renderMachinesList();
   renderSimuladorInsights();
+  const expCostEl = document.getElementById('exp-cost');
+  if(expCostEl && document.activeElement!==expCostEl && !expCostEl.value) expCostEl.value = state.company.nextMachineCost || 9000;
+  renderExpansaoPayback();
+  renderReverseCalc();
+}
+// ---- Máquinas de produção ----
+function renderMachinesList(){
+  const box = document.getElementById('machinesListWrap');
+  if(!box) return;
+  const machines = state.productionMachines||[];
+  if(machines.length===0){
+    box.innerHTML = `<div class="hint">Nenhuma máquina cadastrada ainda — o simulador está usando a capacidade única configurada em Estoque (${fmtKgNum(state.company.machineMaxCapacityKgDay||150)} kg/dia). Cadastre sua(s) máquina(s) aqui pra ter controle detalhado e simular expansão.</div>`;
+    return;
+  }
+  const total = machines.reduce((s,m)=>s+m.capacityKgDay,0);
+  box.innerHTML = `<table><thead><tr><th>Máquina</th><th>Capacidade</th><th>Custo de aquisição</th><th></th></tr></thead><tbody>
+    ${machines.map(m=>`<tr>
+      <td><strong>${esc(m.name||'Sem nome')}</strong></td>
+      <td>${fmtKgNum(m.capacityKgDay)} kg/dia</td>
+      <td>${m.cost!=null?fmtMoney(m.cost):'—'}</td>
+      <td class="row-actions"><button class="icon-btn" onclick="openMachineModal('${m.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteMachine('${m.id}')" title="Excluir">${iconTrash}</button></td>
+    </tr>`).join('')}
+  </tbody></table>
+  <div class="hint" style="margin-top:10px;">Capacidade total: <strong>${fmtKgNum(total)} kg/dia</strong></div>`;
+}
+function openMachineModal(id){
+  if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra isso', true); return; }
+  const m = id ? (state.productionMachines||[]).find(x=>x.id===id) : null;
+  openModal(`
+    <div class="modal-head"><h3>${m?'Editar':'Nova'} máquina</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Nome/identificação</label><input id="mach-name" value="${m?esc(m.name||''):''}" placeholder="Ex: Máquina 1"></div>
+    <div class="field-row">
+      <div class="field"><label>Capacidade (kg/dia)</label><input id="mach-capacity" type="number" step="1" min="0" value="${m?m.capacityKgDay:150}"></div>
+      <div class="field"><label>Custo de aquisição (R$)</label><input id="mach-cost" type="number" step="0.01" min="0" value="${m&&m.cost!=null?m.cost:''}" placeholder="Ex: 21390"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveMachine('${id||''}')">Salvar</button>
+    </div>
+  `);
+}
+async function saveMachine(id){
+  const name = document.getElementById('mach-name').value.trim();
+  const capacity = parseFloat(document.getElementById('mach-capacity').value);
+  const cost = document.getElementById('mach-cost').value;
+  if(isNaN(capacity) || capacity<=0){ toast('Informe uma capacidade válida', true); return; }
+  const data = { name: name||null, capacity_kg_day: capacity, cost: cost?parseFloat(cost):null, active:true };
+  const { error } = id ? await sb.from('production_machines').update(data).eq('id', id) : await sb.from('production_machines').insert(data);
+  if(error){ dbErr(error, 'Erro ao salvar máquina'); return; }
+  closeModal(); toast('Máquina salva'); await loadAll(); renderAll();
+}
+async function deleteMachine(id){
+  if(!confirm('Excluir essa máquina? A capacidade dela deixa de contar no simulador.')) return;
+  const { error } = await sb.from('production_machines').update({ active:false }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao excluir máquina'); return; }
+  toast('Máquina removida'); await loadAll(); renderAll();
+}
+// ---- Expansão: vale a pena adicionar uma máquina? (payback) ----
+function renderExpansaoPayback(){
+  const box = document.getElementById('expansaoResultWrap');
+  if(!box) return;
+  const produto3kg = state.stockItems.find(p=>p.category==='produto_acabado' && p.weightKg===3);
+  if(!produto3kg){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre o pacote de 3kg em Produtos pra usar essa simulação.</div>'; return; }
+
+  const novaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 0;
+  const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || 0;
+  const pctAproveitamento = document.getElementById('exp-pct-aproveitamento')?.value;
+  const pctAprov = pctAproveitamento===''||pctAproveitamento==null ? 100 : parseFloat(pctAproveitamento);
+
+  const capacidadeAtual = totalMachineCapacityKgDay();
+  const capacidadeNova = capacidadeAtual + novaCapacidade;
+  const pctAumentoCapacidade = capacidadeAtual>0 ? (novaCapacidade/capacidadeAtual*100) : 0;
+
+  const precoBase = produto3kg.salePrice||0, custoBase = produto3kg.costPrice||0;
+  const lucroPorKg = (precoBase - custoBase) / 3;
+  const capacidadeExtraAproveitada = novaCapacidade * (pctAprov/100);
+  const lucroExtraDia = capacidadeExtraAproveitada * lucroPorKg;
+  const faturamentoExtraDia = capacidadeExtraAproveitada * (precoBase/3);
+  const paybackDias = lucroExtraDia>0 ? custoMaquina/lucroExtraDia : null;
+
+  box.innerHTML = `
+    <div class="stat-grid" style="margin-top:14px;margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Capacidade atual → nova</div><div class="stat-value" style="font-size:15px;">${fmtKgNum(capacidadeAtual)} → ${fmtKgNum(capacidadeNova)} kg/dia</div><div class="hint">+${pctAumentoCapacidade.toFixed(0)}% de capacidade</div></div>
+      <div class="stat-card"><div class="stat-label">Faturamento extra</div><div class="stat-value" style="font-size:15px;">${fmtMoney(faturamentoExtraDia)}/dia</div><div class="hint">${fmtMoney(faturamentoExtraDia*30)}/mês</div></div>
+      <div class="stat-card"><div class="stat-label">Lucro extra</div><div class="stat-value" style="font-size:15px;color:var(--success);">${fmtMoney(lucroExtraDia)}/dia</div><div class="hint">${fmtMoney(lucroExtraDia*30)}/mês</div></div>
+    </div>
+    <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">⏱️ Payback (tempo pra máquina se pagar)</div>
+      <div style="font-size:22px;font-weight:700;">${paybackDias!=null ? (paybackDias<30 ? Math.round(paybackDias)+' dias' : (paybackDias/30).toFixed(1)+' meses') : (custoMaquina<=0 ? 'Informe o custo da máquina' : '—')}</div>
+      <div class="hint" style="margin-top:2px;">${paybackDias!=null ? `Considerando que ${pctAprov}% da capacidade extra (${fmtKgNum(capacidadeExtraAproveitada)} kg/dia) realmente vira venda, no preço e margem atuais do pacote de 3kg.` : ''}</div>
+    </div>
+  `;
+}
+// ---- Quanto você quer faturar? (calculadora reversa) ----
+function renderReverseCalc(){
+  const box = document.getElementById('reverseCalcResultWrap');
+  if(!box) return;
+  const produto3kg = state.stockItems.find(p=>p.category==='produto_acabado' && p.weightKg===3);
+  if(!produto3kg){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre o pacote de 3kg em Produtos pra usar essa simulação.</div>'; return; }
+  const target = parseFloat(document.getElementById('rev-target')?.value);
+  const dias = parseInt(document.getElementById('rev-dias')?.value) || 30;
+  if(!target || target<=0){ box.innerHTML = ''; return; }
+
+  const precoBase = produto3kg.salePrice||0;
+  if(precoBase<=0){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Preço de venda do pacote de 3kg não está definido em Produtos.</div>'; return; }
+
+  const pacotesNecessarios = target / precoBase;
+  const kgNecessarios = pacotesNecessarios * 3;
+  const capacidadeDiariaNecessaria = kgNecessarios / dias;
+  const capacidadeAtual = totalMachineCapacityKgDay();
+
+  let resultHtml;
+  if(capacidadeDiariaNecessaria <= capacidadeAtual){
+    resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--success);">
+      <div style="font-weight:700;font-size:14px;color:var(--success);">✅ Sua capacidade atual já dá conta!</div>
+      <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia — sua capacidade atual (${fmtKgNum(capacidadeAtual)} kg/dia) cobre isso usando ${((capacidadeDiariaNecessaria/capacidadeAtual)*100).toFixed(0)}% dela. O desafio aqui é vender nesse ritmo, não produzir.</div>
+    </div>`;
+  } else {
+    const novaMaquinaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
+    const faltante = capacidadeDiariaNecessaria - capacidadeAtual;
+    const maquinasNecessarias = Math.ceil(faltante / novaMaquinaCapacidade);
+    const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || state.company.nextMachineCost || 9000;
+    const investimentoTotal = maquinasNecessarias * custoMaquina;
+    resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--warn);">
+      <div style="font-weight:700;font-size:14px;">📈 Precisa expandir a capacidade</div>
+      <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia, mas sua capacidade atual é ${fmtKgNum(capacidadeAtual)} kg/dia — faltam ${fmtKgNum(faltante)} kg/dia.</div>
+      <div style="font-size:20px;font-weight:700;margin-top:10px;">${maquinasNecessarias} máquina${maquinasNecessarias>1?'s':''} de ${fmtKgNum(novaMaquinaCapacidade)} kg/dia</div>
+      <div class="hint" style="margin-top:2px;">Investimento estimado: ${fmtMoney(investimentoTotal)} (${maquinasNecessarias} × ${fmtMoney(custoMaquina)}, valores da seção "Vale a pena adicionar uma máquina?" acima)</div>
+    </div>`;
+  }
+  box.innerHTML = `
+    <div class="stat-grid" style="margin-top:14px;margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">Pacotes de 3kg necessários</div><div class="stat-value" style="font-size:16px;">${Math.round(pacotesNecessarios).toLocaleString('pt-BR')}</div></div>
+      <div class="stat-card"><div class="stat-label">Produção necessária</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(kgNecessarios)} kg</div><div class="hint">em ${dias} dias</div></div>
+      <div class="stat-card"><div class="stat-label">Capacidade diária necessária</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia</div></div>
+    </div>
+    ${resultHtml}
+  `;
 }
 function renderSimuladorInsights(){
   const box = document.getElementById('simuladorResultWrap');
@@ -3398,7 +3598,7 @@ function renderSimuladorInsights(){
   const dias = parseInt(document.getElementById('sim-dias')?.value) || 30;
   const pctPreco = parseFloat(document.getElementById('sim-pct-preco')?.value) || 0;
 
-  const capacidadeKgDia = state.company.machineMaxCapacityKgDay || 150;
+  const capacidadeKgDia = totalMachineCapacityKgDay();
   const kgProduzidos = capacidadeKgDia * (pctProducao/100) * dias;
   const pacotes = kgProduzidos / 3;
 
