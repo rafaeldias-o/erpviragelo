@@ -3460,6 +3460,8 @@ function renderMetasEInsights(){
   const expCostEl = document.getElementById('exp-cost');
   if(expCostEl && document.activeElement!==expCostEl && !expCostEl.value) expCostEl.value = state.company.nextMachineCost || 18100;
   renderExpansaoPayback();
+  const revTargetEl = document.getElementById('rev-target');
+  if(revTargetEl && document.activeElement!==revTargetEl && !revTargetEl.value) revTargetEl.value = state.company.revenueGoalMonthly || 15000;
   renderReverseCalc();
 }
 // ---- Máquinas de produção ----
@@ -3563,9 +3565,15 @@ function renderReverseCalc(){
   const precoBase = produto3kg.salePrice||0;
   if(precoBase<=0){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Preço de venda do pacote de 3kg não está definido em Produtos.</div>'; return; }
 
+  const custoBase = produto3kg.costPrice||0;
+  const margemAtual = precoBase>0 ? ((precoBase-custoBase)/precoBase) : 0;
+  const lucroProjetado = target * margemAtual;
+
   const pacotesNecessarios = target / precoBase;
   const kgNecessarios = pacotesNecessarios * 3;
   const capacidadeDiariaNecessaria = kgNecessarios / dias;
+  const pacotesPorDia = pacotesNecessarios / dias;
+  const pacotesPorSemana = pacotesPorDia * 7;
   const capacidadeAtual = totalMachineCapacityKgDay();
 
   let resultHtml;
@@ -3589,7 +3597,9 @@ function renderReverseCalc(){
   }
   box.innerHTML = `
     <div class="stat-grid" style="margin-top:14px;margin-bottom:14px;">
-      <div class="stat-card"><div class="stat-label">Pacotes de 3kg necessários</div><div class="stat-value" style="font-size:16px;">${Math.round(pacotesNecessarios).toLocaleString('pt-BR')}</div></div>
+      <div class="stat-card"><div class="stat-label">💰 Lucro projetado</div><div class="stat-value" style="font-size:16px;color:var(--success);">${fmtMoney(lucroProjetado)}</div><div class="hint">na margem atual (${(margemAtual*100).toFixed(1)}%)</div></div>
+      <div class="stat-card"><div class="stat-label">Pacotes de 3kg necessários</div><div class="stat-value" style="font-size:16px;">${Math.round(pacotesNecessarios).toLocaleString('pt-BR')}</div><div class="hint">no período todo</div></div>
+      <div class="stat-card"><div class="stat-label">Venda necessária</div><div class="stat-value" style="font-size:16px;">${pacotesPorDia.toFixed(1)} pac/dia</div><div class="hint">≈ ${pacotesPorSemana.toFixed(0)} pacotes/semana</div></div>
       <div class="stat-card"><div class="stat-label">Produção necessária</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(kgNecessarios)} kg</div><div class="hint">em ${dias} dias</div></div>
       <div class="stat-card"><div class="stat-label">Capacidade diária necessária</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia</div></div>
     </div>
