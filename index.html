@@ -2005,6 +2005,11 @@ function storageStats(){
   const totalKg = finished.reduce((s,p)=>s+p.qty*(p.weightKg||0),0);
   const occupiedPacks = totalKg / 3;
   const pct = totalCapacity>0 ? (occupiedPacks/totalCapacity*100) : 0;
+  // Contagem real por produto (sem converter por peso) — pra deixar claro na tela o que de fato está
+  // parado, já que um pacote de 15kg não ocupa o mesmo espaço físico que 5 pacotes de 3kg separados
+  // (a conversão por peso é só uma estimativa auxiliar pro % de ocupação, não uma contagem literal).
+  const breakdown = finished.filter(p=>p.qty>0).sort((a,b)=>(a.weightKg||0)-(b.weightKg||0))
+    .map(p=>`${p.qty} pacote${p.qty!==1?'s':''} de ${p.weightKg}kg`);
 
   const cutoff = addDays(todayStr(), -30);
   const prod30 = state.production.filter(p=>p.date>=cutoff).reduce((s,p)=>s+Number(p.kg),0);
@@ -2033,7 +2038,7 @@ function storageStats(){
   const metaVendaDiariaPacks = Math.ceil(maquinaMaxPacksDia); // pra rodar a máquina no máximo sem acumular estoque
 
   return { totalCapacity, occupiedPacks, pct, producaoDiaKg, vendaDiaKg, netDiaPacks, diasAteLotar, packsParaNormalizar,
-    maquinaMaxKgDia, maquinaMaxPacksDia, diasAteLotarMaximo, metaVendaDiariaPacks };
+    maquinaMaxKgDia, maquinaMaxPacksDia, diasAteLotarMaximo, metaVendaDiariaPacks, breakdown };
 }
 function renderStorageCapacityPanel(){
   const box = document.getElementById('storageCapacityPanel');
@@ -2049,10 +2054,11 @@ function renderStorageCapacityPanel(){
   const barColor = st.pct>=95?'var(--danger)':st.pct>=80?'var(--warn)':'var(--success)';
   box.innerHTML = `
     <div class="panel-head"><div class="section-title">📦 Capacidade de armazenamento</div></div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
-      <div style="font-size:20px;font-weight:700;">${Math.round(st.occupiedPacks)} / ${st.totalCapacity} pacotes de 3kg</div>
-      <div style="font-size:15px;font-weight:700;color:${barColor};">${st.pct.toFixed(0)}%</div>
+    <div style="margin-bottom:6px;">
+      <div style="font-size:18px;font-weight:700;">${st.breakdown.length>0 ? st.breakdown.join(' + ') : 'Nenhum produto em estoque'}</div>
+      <div class="hint" style="margin-top:2px;">≈ ${Math.round(st.occupiedPacks)} de ${st.totalCapacity} pacotes de 3kg equivalentes (${st.pct.toFixed(0)}%) — estimativa por peso, já que pacotes maiores ocupam menos espaço proporcional que vários pacotes pequenos juntos</div>
     </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><div style="font-size:15px;font-weight:700;color:${barColor};">${st.pct.toFixed(0)}%</div></div>
     <div style="height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;margin-bottom:12px;"><div style="height:100%;width:${Math.min(100,st.pct)}%;background:${barColor};"></div></div>
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-label">Produção média/dia</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(st.producaoDiaKg)} kg</div><div class="hint">últimos 30 dias</div></div>
