@@ -810,6 +810,19 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head">
               <div>
+                <div class="section-title">📦 Armazenamento saudável</div>
+                <div class="hint" style="margin:2px 0 0 0;">Quanto vender por dia/semana pra manter o estoque girando, sem parar a máquina e sem lotar o armazenamento.</div>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Margem de segurança (pacotes de 3kg sempre disponíveis)</label><input id="storage-safety-margin" type="number" min="0" value="20" oninput="renderStorageHealthCalc()"></div>
+              <div></div>
+            </div>
+            <div id="storageHealthResultWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
                 <div class="section-title">📊 Simulador de cenários</div>
                 <div class="hint" style="margin:2px 0 0 0;">Baseado no pacote de 3kg (o produto principal). Ajuste os campos abaixo pra simular faturamento e lucro potenciais.</div>
               </div>
@@ -829,18 +842,18 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head">
               <div>
-                <div class="section-title">🚀 Vale a pena adicionar uma máquina?</div>
-                <div class="hint" style="margin:2px 0 0 0;">Simula o retorno (payback) de investir numa máquina ou módulo de capacidade novo.</div>
+                <div class="section-title">📈 Quanto vou faturar a mais se aumentar a produção?</div>
+                <div class="hint" style="margin:2px 0 0 0;">Informe quanto quer adicionar de capacidade e veja o faturamento e lucro extra — o payback fica como observação, no final.</div>
               </div>
             </div>
             <div class="field-row">
-              <div class="field"><label>Capacidade por unidade de expansão (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>Custo da máquina base (R$)</label><input id="exp-cost-base" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>Custo do módulo adicional (R$)</label><input id="exp-cost-modulo" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Quanto quer adicionar de capacidade (kg/dia)</label><input id="exp-add-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Tamanho de cada máquina/módulo (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
             </div>
             <div class="field-row">
+              <div class="field"><label>Custo da máquina base (R$)</label><input id="exp-cost-base" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Custo do módulo adicional (R$)</label><input id="exp-cost-modulo" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
               <div class="field"><label>% da capacidade extra que espera vender</label><input id="exp-pct-aproveitamento" type="number" min="0" max="100" value="100" oninput="renderExpansaoPayback()"></div>
-              <div></div>
             </div>
             <div class="hint" style="margin-top:-8px;margin-bottom:10px;">Cada máquina base aceita só 1 módulo adicional (300kg/dia no total). Passando disso, precisa de uma máquina base nova.</div>
             <div id="expansaoResultWrap"></div>
@@ -2093,6 +2106,25 @@ async function saveMovement(){
 // é a unidade que a empresa usa no dia a dia (produtos de outros pesos entram convertidos por peso).
 // Soma a capacidade de todas as máquinas de produção ativas cadastradas — se nenhuma tiver sido
 // cadastrada ainda, cai no campo único antigo (compatibilidade com quem configurou antes dessa lista existir).
+// Confere se o armazenamento atual (câmara fria/freezer, cadastrado em Configurações > Inventário)
+// aguenta guardar com segurança a produção diária informada — usa um colchão mínimo de alguns dias,
+// pra não deixar a operação "no fio da navalha" assim que a produção aumentar.
+function checkStorageForProduction(capacidadeProducaoKgDia){
+  const st = storageStats();
+  if(st.totalCapacity===0){
+    return { needsMore:false, message:'Cadastre a capacidade de armazenamento (freezer/câmara fria) em Configurações pra essa checagem funcionar.' };
+  }
+  const armazenamentoKg = st.totalCapacity * 3;
+  const diasColchao = 3;
+  const kgNecessario = capacidadeProducaoKgDia * diasColchao;
+  if(armazenamentoKg >= kgNecessario){
+    const diasQueAguenta = capacidadeProducaoKgDia>0 ? (armazenamentoKg/capacidadeProducaoKgDia) : null;
+    return { needsMore:false, message:`Seu armazenamento atual (${st.totalCapacity} pacotes de 3kg) aguenta essa produção com folga${diasQueAguenta!=null?` — dá pra guardar até ${diasQueAguenta.toFixed(1)} dias de produção nesse ritmo`:''}.` };
+  }
+  const faltaKg = kgNecessario - armazenamentoKg;
+  const faltaPacotes = Math.ceil(faltaKg/3);
+  return { needsMore:true, message:`Armazenamento pode não aguentar essa produção com segurança — pra manter ${diasColchao} dias de colchão, precisaria de ~${faltaPacotes} pacotes de 3kg a mais de capacidade (câmara fria/freezer).` };
+}
 function totalMachineCapacityKgDay(){
   const machines = (state.productionMachines||[]).filter(m=>m.active);
   if(machines.length>0) return machines.reduce((s,m)=>s+m.capacityKgDay,0);
@@ -3461,6 +3493,7 @@ function renderMetasEInsights(){
     </div>`;
   }).join('');
   renderMachinesList();
+  renderStorageHealthCalc();
   renderSimuladorInsights();
   const expCostBaseEl = document.getElementById('exp-cost-base');
   if(expCostBaseEl && document.activeElement!==expCostBaseEl && !expCostBaseEl.value) expCostBaseEl.value = 21390;
@@ -3472,6 +3505,31 @@ function renderMetasEInsights(){
   renderReverseCalc();
 }
 // ---- Máquinas de produção ----
+// Quanto vender por dia/semana pra manter o estoque girando de forma saudável, sem acumular além de
+// uma margem de segurança (pacotes sempre disponíveis) nem deixar a máquina rodando sem escoamento.
+function renderStorageHealthCalc(){
+  const box = document.getElementById('storageHealthResultWrap');
+  if(!box) return;
+  const st = storageStats();
+  if(st.totalCapacity===0){
+    box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre a capacidade de armazenamento (freezer/câmara fria) em Configurações → Inventário pra usar esse cálculo.</div>';
+    return;
+  }
+  const margem = parseFloat(document.getElementById('storage-safety-margin')?.value) || 0;
+  const estoqueDeGiro = Math.max(0, st.totalCapacity - margem);
+  const capacidadeProducaoAtual = totalMachineCapacityKgDay();
+  const producaoPacotesDia = capacidadeProducaoAtual / 3;
+  const producaoPacotesSemana = producaoPacotesDia * 7;
+
+  box.innerHTML = `
+    <div class="stat-grid" style="margin-top:14px;">
+      <div class="stat-card"><div class="stat-label">Capacidade de armazenamento</div><div class="stat-value" style="font-size:16px;">${st.totalCapacity} pacotes</div><div class="hint">de 3kg equivalentes</div></div>
+      <div class="stat-card"><div class="stat-label">Estoque de giro disponível</div><div class="stat-value" style="font-size:16px;">${estoqueDeGiro} pacotes</div><div class="hint">descontando a margem de ${margem}</div></div>
+      <div class="stat-card"><div class="stat-label">🎯 Venda saudável necessária</div><div class="stat-value" style="font-size:16px;color:var(--accent);">${producaoPacotesDia.toFixed(0)} pac/dia</div><div class="hint">≈ ${producaoPacotesSemana.toFixed(0)} pacotes/semana</div></div>
+    </div>
+    <div class="hint" style="margin-top:8px;">Pra manter a produção na capacidade atual (${fmtKgNum(capacidadeProducaoAtual)} kg/dia) sem acumular estoque além da margem de segurança, a venda precisa acompanhar esse ritmo — produção e venda devem andar juntas, em equilíbrio.</div>
+  `;
+}
 function renderMachinesList(){
   const box = document.getElementById('machinesListWrap');
   if(!box) return;
@@ -3530,47 +3588,64 @@ async function deleteMachine(id){
 function expansionUnitCost(unitIndex, custoBase, custoModulo){
   return (unitIndex % 2 === 1) ? custoBase : custoModulo;
 }
+// Calcula o investimento pra ir de capacidadeAtual até capacidadeAtual+capacidadeExtra, em unidades de
+// "unidade" kg/dia cada, alternando entre máquina base e módulo. Devolve o total, a contagem de cada
+// tipo, e uma descrição pronta pra mostrar na tela (ex: "1 máquina base + 2 módulos").
+function calcExpansionInvestment(capacidadeAtual, capacidadeExtra, unidade, custoBase, custoModulo){
+  if(unidade<=0 || capacidadeExtra<=0) return { investimentoTotal:0, qtdBases:0, qtdModulos:0, descricao:'—' };
+  const unidadesAtuais = Math.round(capacidadeAtual / unidade);
+  const unidadesNecessarias = Math.ceil(capacidadeExtra / unidade);
+  let investimentoTotal = 0, qtdBases = 0, qtdModulos = 0;
+  for(let i=1; i<=unidadesNecessarias; i++){
+    const unitIndex = unidadesAtuais + i;
+    investimentoTotal += expansionUnitCost(unitIndex, custoBase, custoModulo);
+    if(unitIndex % 2 === 1) qtdBases++; else qtdModulos++;
+  }
+  const partes = [];
+  if(qtdBases>0) partes.push(`${qtdBases} máquina${qtdBases>1?'s':''} base${qtdBases>1?'s':''}`);
+  if(qtdModulos>0) partes.push(`${qtdModulos} módulo${qtdModulos>1?'s':''}`);
+  return { investimentoTotal, qtdBases, qtdModulos, descricao: partes.join(' + ') };
+}
 function renderExpansaoPayback(){
   const box = document.getElementById('expansaoResultWrap');
   if(!box) return;
   const produto3kg = state.stockItems.find(p=>p.category==='produto_acabado' && p.weightKg===3);
   if(!produto3kg){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre o pacote de 3kg em Produtos pra usar essa simulação.</div>'; return; }
 
-  const novaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 0;
+  const capacidadeAdicionar = parseFloat(document.getElementById('exp-add-capacity')?.value) || 0;
+  const unidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
   const custoBaseVal = parseFloat(document.getElementById('exp-cost-base')?.value) || 0;
   const custoModuloVal = parseFloat(document.getElementById('exp-cost-modulo')?.value) || 0;
   const pctAproveitamento = document.getElementById('exp-pct-aproveitamento')?.value;
   const pctAprov = pctAproveitamento===''||pctAproveitamento==null ? 100 : parseFloat(pctAproveitamento);
 
   const capacidadeAtual = totalMachineCapacityKgDay();
-  const capacidadeNova = capacidadeAtual + novaCapacidade;
-  const pctAumentoCapacidade = capacidadeAtual>0 ? (novaCapacidade/capacidadeAtual*100) : 0;
+  const capacidadeNova = capacidadeAtual + capacidadeAdicionar;
+  const pctAumentoCapacidade = capacidadeAtual>0 ? (capacidadeAdicionar/capacidadeAtual*100) : 0;
 
-  // Detecta automaticamente se essa próxima unidade seria uma base nova ou um módulo, baseado em quantas
-  // unidades a empresa já tem hoje.
-  const unidadesAtuais = novaCapacidade>0 ? Math.round(capacidadeAtual / novaCapacidade) : 0;
-  const proximaUnidadeIndex = unidadesAtuais + 1;
-  const ehModulo = proximaUnidadeIndex % 2 === 0;
-  const custoMaquina = expansionUnitCost(proximaUnidadeIndex, custoBaseVal, custoModuloVal);
+  const inv = calcExpansionInvestment(capacidadeAtual, capacidadeAdicionar, unidade, custoBaseVal, custoModuloVal);
 
   const precoBase = produto3kg.salePrice||0, custoBase = produto3kg.costPrice||0;
   const lucroPorKg = (precoBase - custoBase) / 3;
-  const capacidadeExtraAproveitada = novaCapacidade * (pctAprov/100);
+  const capacidadeExtraAproveitada = capacidadeAdicionar * (pctAprov/100);
   const lucroExtraDia = capacidadeExtraAproveitada * lucroPorKg;
   const faturamentoExtraDia = capacidadeExtraAproveitada * (precoBase/3);
-  const paybackDias = lucroExtraDia>0 ? custoMaquina/lucroExtraDia : null;
+  const paybackDias = (lucroExtraDia>0 && inv.investimentoTotal>0) ? inv.investimentoTotal/lucroExtraDia : null;
+
+  // Checa se o armazenamento atual aguenta essa produção nova com segurança — reaproveita a mesma
+  // lógica/capacidade usada no painel de Estoque.
+  const storageCheck = checkStorageForProduction(capacidadeNova);
 
   box.innerHTML = `
-    <div class="hint" style="margin-bottom:10px;">Sua próxima expansão de ${fmtKgNum(novaCapacidade)} kg/dia seria: <strong>${ehModulo?'um módulo adicional':'uma máquina base nova'}</strong> (${fmtMoney(custoMaquina)}).</div>
-    <div class="stat-grid" style="margin-bottom:14px;">
-      <div class="stat-card"><div class="stat-label">Capacidade atual → nova</div><div class="stat-value" style="font-size:15px;">${fmtKgNum(capacidadeAtual)} → ${fmtKgNum(capacidadeNova)} kg/dia</div><div class="hint">+${pctAumentoCapacidade.toFixed(0)}% de capacidade</div></div>
-      <div class="stat-card"><div class="stat-label">Faturamento extra</div><div class="stat-value" style="font-size:15px;">${fmtMoney(faturamentoExtraDia)}/dia</div><div class="hint">${fmtMoney(faturamentoExtraDia*30)}/mês</div></div>
-      <div class="stat-card"><div class="stat-label">Lucro extra</div><div class="stat-value" style="font-size:15px;color:var(--success);">${fmtMoney(lucroExtraDia)}/dia</div><div class="hint">${fmtMoney(lucroExtraDia*30)}/mês</div></div>
+    <div class="stat-grid" style="margin-top:14px;margin-bottom:6px;">
+      <div class="stat-card"><div class="stat-label">Capacidade atual → nova</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(capacidadeAtual)} → ${fmtKgNum(capacidadeNova)} kg/dia</div><div class="hint">+${pctAumentoCapacidade.toFixed(0)}%</div></div>
+      <div class="stat-card"><div class="stat-label">💰 Faturamento extra</div><div class="stat-value" style="font-size:16px;">${fmtMoney(faturamentoExtraDia)}/dia</div><div class="hint">${fmtMoney(faturamentoExtraDia*30)}/mês</div></div>
+      <div class="stat-card"><div class="stat-label">📈 Lucro extra</div><div class="stat-value" style="font-size:16px;color:var(--success);">${fmtMoney(lucroExtraDia)}/dia</div><div class="hint">${fmtMoney(lucroExtraDia*30)}/mês</div></div>
     </div>
+    ${storageCheck.needsMore ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">📦 ${storageCheck.message}</div>` : `<div class="hint" style="color:var(--success);margin-bottom:10px;">📦 ${storageCheck.message}</div>`}
     <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
-      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">⏱️ Payback (tempo pra se pagar)</div>
-      <div style="font-size:22px;font-weight:700;">${paybackDias!=null ? (paybackDias<30 ? Math.round(paybackDias)+' dias' : (paybackDias/30).toFixed(1)+' meses') : (custoMaquina<=0 ? 'Informe o custo' : '—')}</div>
-      <div class="hint" style="margin-top:2px;">${paybackDias!=null ? `Considerando que ${pctAprov}% da capacidade extra (${fmtKgNum(capacidadeExtraAproveitada)} kg/dia) realmente vira venda, no preço e margem atuais do pacote de 3kg.` : ''}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Pra chegar nessa capacidade, precisaria de: <strong>${inv.descricao||'nada (já tem capacidade suficiente)'}</strong>${inv.investimentoTotal>0?` — investimento de ${fmtMoney(inv.investimentoTotal)}`:''}</div>
+      <div style="font-size:12px;color:var(--muted);">⏱️ Payback: <strong>${paybackDias!=null ? (paybackDias<30 ? Math.round(paybackDias)+' dias' : (paybackDias/30).toFixed(1)+' meses') : '—'}</strong>${paybackDias!=null?` (considerando ${pctAprov}% de aproveitamento da capacidade extra)`:''}</div>
     </div>
   `;
 }
@@ -3599,35 +3674,27 @@ function renderReverseCalc(){
   const capacidadeAtual = totalMachineCapacityKgDay();
 
   let resultHtml;
+  const storageCheck = checkStorageForProduction(capacidadeDiariaNecessaria);
+  const storageNote = `<div class="hint" style="margin-top:8px;color:${storageCheck.needsMore?'var(--warn)':'var(--success)'};">📦 ${storageCheck.message}</div>`;
   if(capacidadeDiariaNecessaria <= capacidadeAtual){
     resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--success);">
       <div style="font-weight:700;font-size:14px;color:var(--success);">✅ Sua capacidade atual já dá conta!</div>
       <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia — sua capacidade atual (${fmtKgNum(capacidadeAtual)} kg/dia) cobre isso usando ${((capacidadeDiariaNecessaria/capacidadeAtual)*100).toFixed(0)}% dela. O desafio aqui é vender nesse ritmo, não produzir.</div>
+      ${storageNote}
     </div>`;
   } else {
     const unidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
     const custoBaseVal = parseFloat(document.getElementById('exp-cost-base')?.value) || 0;
     const custoModuloVal = parseFloat(document.getElementById('exp-cost-modulo')?.value) || (state.company.nextMachineCost || 18100);
     const faltante = capacidadeDiariaNecessaria - capacidadeAtual;
-    const unidadesAtuais = unidade>0 ? Math.round(capacidadeAtual / unidade) : 0;
-    const unidadesNecessarias = Math.ceil(faltante / unidade);
-
-    let investimentoTotal = 0, qtdBases = 0, qtdModulos = 0;
-    for(let i=1; i<=unidadesNecessarias; i++){
-      const unitIndex = unidadesAtuais + i;
-      const custoUnidade = expansionUnitCost(unitIndex, custoBaseVal, custoModuloVal);
-      investimentoTotal += custoUnidade;
-      if(unitIndex % 2 === 1) qtdBases++; else qtdModulos++;
-    }
-    const partes = [];
-    if(qtdBases>0) partes.push(`${qtdBases} máquina${qtdBases>1?'s':''} base${qtdBases>1?'s':''}`);
-    if(qtdModulos>0) partes.push(`${qtdModulos} módulo${qtdModulos>1?'s':''}`);
+    const inv = calcExpansionInvestment(capacidadeAtual, faltante, unidade, custoBaseVal, custoModuloVal);
 
     resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--warn);">
       <div style="font-weight:700;font-size:14px;">📈 Precisa expandir a capacidade</div>
       <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia, mas sua capacidade atual é ${fmtKgNum(capacidadeAtual)} kg/dia — faltam ${fmtKgNum(faltante)} kg/dia.</div>
-      <div style="font-size:20px;font-weight:700;margin-top:10px;">${partes.join(' + ')}</div>
-      <div class="hint" style="margin-top:2px;">Investimento estimado: ${fmtMoney(investimentoTotal)} — cada máquina base aceita só 1 módulo, por isso alterna entre os dois custos (valores configuráveis na seção "Vale a pena adicionar uma máquina?" acima)</div>
+      <div style="font-size:20px;font-weight:700;margin-top:10px;">${inv.descricao}</div>
+      <div class="hint" style="margin-top:2px;">Investimento estimado: ${fmtMoney(inv.investimentoTotal)} — cada máquina base aceita só 1 módulo, por isso alterna entre os dois custos (valores configuráveis na seção "Quanto vou faturar a mais?" acima)</div>
+      ${storageNote}
     </div>`;
   }
   box.innerHTML = `
