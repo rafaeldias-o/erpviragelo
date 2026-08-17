@@ -850,12 +850,15 @@ tr:last-child td{border-bottom:none;}
             </div>
             <div class="field-row">
               <div class="field"><label>Quanto quer adicionar de capacidade (kg/dia)</label><input id="exp-add-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>Tamanho de cada máquina/módulo (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label>Custo da máquina base (R$)</label><input id="exp-cost-base" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>Custo do módulo adicional (R$)</label><input id="exp-cost-modulo" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
               <div class="field"><label>% da capacidade extra que espera vender</label><input id="exp-pct-aproveitamento" type="number" min="0" max="100" value="100" oninput="renderExpansaoPayback()"></div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="toggleExpCostSettings()" id="expCostToggle" style="margin-bottom:10px;">⚙️ Ajustar custos das máquinas</button>
+            <div id="expCostSettingsWrap" style="display:none;margin-bottom:10px;">
+              <div class="field-row">
+                <div class="field"><label>Tamanho de cada máquina/módulo (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+                <div class="field"><label>Custo da máquina base (R$)</label><input id="exp-cost-base" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+                <div class="field"><label>Custo do módulo adicional (R$)</label><input id="exp-cost-modulo" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              </div>
             </div>
             <div class="hint" style="margin-top:-8px;margin-bottom:10px;">Cada máquina base aceita só 1 módulo adicional (300kg/dia no total). Passando disso, precisa de uma máquina base nova.</div>
             <div id="expansaoResultWrap"></div>
@@ -2224,6 +2227,10 @@ function renderStorageCapacityPanel(){
 }
 function toggleMachineCapacitySettings(){
   const wrap = document.getElementById('machineCapSettingsWrap');
+  wrap.style.display = wrap.style.display==='none' ? 'block' : 'none';
+}
+function toggleExpCostSettings(){
+  const wrap = document.getElementById('expCostSettingsWrap');
   wrap.style.display = wrap.style.display==='none' ? 'block' : 'none';
 }
 async function saveMachineCapacity(){
