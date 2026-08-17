@@ -834,10 +834,15 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
             <div class="field-row">
-              <div class="field"><label>Capacidade da nova máquina (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>Custo da nova máquina (R$)</label><input id="exp-cost" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
-              <div class="field"><label>% da capacidade extra que espera vender</label><input id="exp-pct-aproveitamento" type="number" min="0" max="100" value="100" oninput="renderExpansaoPayback()"></div>
+              <div class="field"><label>Capacidade por unidade de expansão (kg/dia)</label><input id="exp-capacity" type="number" step="1" min="0" value="150" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Custo da máquina base (R$)</label><input id="exp-cost-base" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
+              <div class="field"><label>Custo do módulo adicional (R$)</label><input id="exp-cost-modulo" type="number" step="0.01" min="0" oninput="renderExpansaoPayback(); renderReverseCalc();"></div>
             </div>
+            <div class="field-row">
+              <div class="field"><label>% da capacidade extra que espera vender</label><input id="exp-pct-aproveitamento" type="number" min="0" max="100" value="100" oninput="renderExpansaoPayback()"></div>
+              <div></div>
+            </div>
+            <div class="hint" style="margin-top:-8px;margin-bottom:10px;">Cada máquina base aceita só 1 módulo adicional (300kg/dia no total). Passando disso, precisa de uma máquina base nova.</div>
             <div id="expansaoResultWrap"></div>
           </div>
           <div class="panel">
@@ -3457,8 +3462,10 @@ function renderMetasEInsights(){
   }).join('');
   renderMachinesList();
   renderSimuladorInsights();
-  const expCostEl = document.getElementById('exp-cost');
-  if(expCostEl && document.activeElement!==expCostEl && !expCostEl.value) expCostEl.value = state.company.nextMachineCost || 18100;
+  const expCostBaseEl = document.getElementById('exp-cost-base');
+  if(expCostBaseEl && document.activeElement!==expCostBaseEl && !expCostBaseEl.value) expCostBaseEl.value = 21390;
+  const expCostModuloEl = document.getElementById('exp-cost-modulo');
+  if(expCostModuloEl && document.activeElement!==expCostModuloEl && !expCostModuloEl.value) expCostModuloEl.value = state.company.nextMachineCost || 18100;
   renderExpansaoPayback();
   const revTargetEl = document.getElementById('rev-target');
   if(revTargetEl && document.activeElement!==revTargetEl && !revTargetEl.value) revTargetEl.value = state.company.revenueGoalMonthly || 15000;
@@ -3517,6 +3524,12 @@ async function deleteMachine(id){
   toast('Máquina removida'); await loadAll(); renderAll();
 }
 // ---- Expansão: vale a pena adicionar uma máquina? (payback) ----
+// Máquina base aceita só 1 módulo — depois disso precisa de outra base. Unidade 1, 3, 5... (contando
+// desde a primeira máquina que a empresa já tem) é sempre base nova; unidade 2, 4, 6... é módulo (mais
+// barato, encaixa na base anterior).
+function expansionUnitCost(unitIndex, custoBase, custoModulo){
+  return (unitIndex % 2 === 1) ? custoBase : custoModulo;
+}
 function renderExpansaoPayback(){
   const box = document.getElementById('expansaoResultWrap');
   if(!box) return;
@@ -3524,13 +3537,21 @@ function renderExpansaoPayback(){
   if(!produto3kg){ box.innerHTML = '<div class="hint" style="color:var(--warn);margin-top:14px;">Cadastre o pacote de 3kg em Produtos pra usar essa simulação.</div>'; return; }
 
   const novaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 0;
-  const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || 0;
+  const custoBaseVal = parseFloat(document.getElementById('exp-cost-base')?.value) || 0;
+  const custoModuloVal = parseFloat(document.getElementById('exp-cost-modulo')?.value) || 0;
   const pctAproveitamento = document.getElementById('exp-pct-aproveitamento')?.value;
   const pctAprov = pctAproveitamento===''||pctAproveitamento==null ? 100 : parseFloat(pctAproveitamento);
 
   const capacidadeAtual = totalMachineCapacityKgDay();
   const capacidadeNova = capacidadeAtual + novaCapacidade;
   const pctAumentoCapacidade = capacidadeAtual>0 ? (novaCapacidade/capacidadeAtual*100) : 0;
+
+  // Detecta automaticamente se essa próxima unidade seria uma base nova ou um módulo, baseado em quantas
+  // unidades a empresa já tem hoje.
+  const unidadesAtuais = novaCapacidade>0 ? Math.round(capacidadeAtual / novaCapacidade) : 0;
+  const proximaUnidadeIndex = unidadesAtuais + 1;
+  const ehModulo = proximaUnidadeIndex % 2 === 0;
+  const custoMaquina = expansionUnitCost(proximaUnidadeIndex, custoBaseVal, custoModuloVal);
 
   const precoBase = produto3kg.salePrice||0, custoBase = produto3kg.costPrice||0;
   const lucroPorKg = (precoBase - custoBase) / 3;
@@ -3540,14 +3561,15 @@ function renderExpansaoPayback(){
   const paybackDias = lucroExtraDia>0 ? custoMaquina/lucroExtraDia : null;
 
   box.innerHTML = `
-    <div class="stat-grid" style="margin-top:14px;margin-bottom:14px;">
+    <div class="hint" style="margin-bottom:10px;">Sua próxima expansão de ${fmtKgNum(novaCapacidade)} kg/dia seria: <strong>${ehModulo?'um módulo adicional':'uma máquina base nova'}</strong> (${fmtMoney(custoMaquina)}).</div>
+    <div class="stat-grid" style="margin-bottom:14px;">
       <div class="stat-card"><div class="stat-label">Capacidade atual → nova</div><div class="stat-value" style="font-size:15px;">${fmtKgNum(capacidadeAtual)} → ${fmtKgNum(capacidadeNova)} kg/dia</div><div class="hint">+${pctAumentoCapacidade.toFixed(0)}% de capacidade</div></div>
       <div class="stat-card"><div class="stat-label">Faturamento extra</div><div class="stat-value" style="font-size:15px;">${fmtMoney(faturamentoExtraDia)}/dia</div><div class="hint">${fmtMoney(faturamentoExtraDia*30)}/mês</div></div>
       <div class="stat-card"><div class="stat-label">Lucro extra</div><div class="stat-value" style="font-size:15px;color:var(--success);">${fmtMoney(lucroExtraDia)}/dia</div><div class="hint">${fmtMoney(lucroExtraDia*30)}/mês</div></div>
     </div>
     <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
-      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">⏱️ Payback (tempo pra máquina se pagar)</div>
-      <div style="font-size:22px;font-weight:700;">${paybackDias!=null ? (paybackDias<30 ? Math.round(paybackDias)+' dias' : (paybackDias/30).toFixed(1)+' meses') : (custoMaquina<=0 ? 'Informe o custo da máquina' : '—')}</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">⏱️ Payback (tempo pra se pagar)</div>
+      <div style="font-size:22px;font-weight:700;">${paybackDias!=null ? (paybackDias<30 ? Math.round(paybackDias)+' dias' : (paybackDias/30).toFixed(1)+' meses') : (custoMaquina<=0 ? 'Informe o custo' : '—')}</div>
       <div class="hint" style="margin-top:2px;">${paybackDias!=null ? `Considerando que ${pctAprov}% da capacidade extra (${fmtKgNum(capacidadeExtraAproveitada)} kg/dia) realmente vira venda, no preço e margem atuais do pacote de 3kg.` : ''}</div>
     </div>
   `;
@@ -3583,16 +3605,29 @@ function renderReverseCalc(){
       <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia — sua capacidade atual (${fmtKgNum(capacidadeAtual)} kg/dia) cobre isso usando ${((capacidadeDiariaNecessaria/capacidadeAtual)*100).toFixed(0)}% dela. O desafio aqui é vender nesse ritmo, não produzir.</div>
     </div>`;
   } else {
-    const novaMaquinaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
+    const unidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
+    const custoBaseVal = parseFloat(document.getElementById('exp-cost-base')?.value) || 0;
+    const custoModuloVal = parseFloat(document.getElementById('exp-cost-modulo')?.value) || (state.company.nextMachineCost || 18100);
     const faltante = capacidadeDiariaNecessaria - capacidadeAtual;
-    const maquinasNecessarias = Math.ceil(faltante / novaMaquinaCapacidade);
-    const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || state.company.nextMachineCost || 18100;
-    const investimentoTotal = maquinasNecessarias * custoMaquina;
+    const unidadesAtuais = unidade>0 ? Math.round(capacidadeAtual / unidade) : 0;
+    const unidadesNecessarias = Math.ceil(faltante / unidade);
+
+    let investimentoTotal = 0, qtdBases = 0, qtdModulos = 0;
+    for(let i=1; i<=unidadesNecessarias; i++){
+      const unitIndex = unidadesAtuais + i;
+      const custoUnidade = expansionUnitCost(unitIndex, custoBaseVal, custoModuloVal);
+      investimentoTotal += custoUnidade;
+      if(unitIndex % 2 === 1) qtdBases++; else qtdModulos++;
+    }
+    const partes = [];
+    if(qtdBases>0) partes.push(`${qtdBases} máquina${qtdBases>1?'s':''} base${qtdBases>1?'s':''}`);
+    if(qtdModulos>0) partes.push(`${qtdModulos} módulo${qtdModulos>1?'s':''}`);
+
     resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--warn);">
       <div style="font-weight:700;font-size:14px;">📈 Precisa expandir a capacidade</div>
       <div class="hint" style="margin-top:4px;">Você precisa produzir ${fmtKgNum(capacidadeDiariaNecessaria)} kg/dia, mas sua capacidade atual é ${fmtKgNum(capacidadeAtual)} kg/dia — faltam ${fmtKgNum(faltante)} kg/dia.</div>
-      <div style="font-size:20px;font-weight:700;margin-top:10px;">${maquinasNecessarias} máquina${maquinasNecessarias>1?'s':''} de ${fmtKgNum(novaMaquinaCapacidade)} kg/dia</div>
-      <div class="hint" style="margin-top:2px;">Investimento estimado: ${fmtMoney(investimentoTotal)} (${maquinasNecessarias} × ${fmtMoney(custoMaquina)}, valores da seção "Vale a pena adicionar uma máquina?" acima)</div>
+      <div style="font-size:20px;font-weight:700;margin-top:10px;">${partes.join(' + ')}</div>
+      <div class="hint" style="margin-top:2px;">Investimento estimado: ${fmtMoney(investimentoTotal)} — cada máquina base aceita só 1 módulo, por isso alterna entre os dois custos (valores configuráveis na seção "Vale a pena adicionar uma máquina?" acima)</div>
     </div>`;
   }
   box.innerHTML = `
