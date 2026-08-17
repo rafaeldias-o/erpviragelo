@@ -3196,22 +3196,85 @@ function renderDashBottomCards(){
   `;
 
   const in30 = addDays(todayStr(), 30);
-  const previsao = state.transactions.filter(t=>t.type==='receita'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=in30).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const previsaoTxs = state.transactions.filter(t=>t.type==='receita'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=in30);
+  const previsao = previsaoTxs.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  prevBox.style.cursor = 'pointer';
+  prevBox.onclick = () => openPrevisaoRecebimentosModal();
   prevBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de recebimentos</span></div>
     <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${fmtMoney(previsao)}</div>
-    <div class="hint" style="color:var(--success);">Próximos 30 dias</div>
+    <div class="hint" style="color:var(--success);">Próximos 30 dias · clique pra ver detalhes</div>
   `;
 
   const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
   const contasPagarAbertas = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
   const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
   const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅'} : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️'} : {label:'Crítica', color:'var(--danger)', icon:'🔴'};
+  saudeBox.style.cursor = 'pointer';
+  saudeBox.onclick = () => openSaudeFinanceiraModal();
   saudeBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">${saude.icon}</span><span style="font-size:12.5px;color:var(--muted);">Saúde financeira</span></div>
     <div style="font-size:20px;font-weight:700;margin-bottom:4px;color:${saude.color};">${saude.label}</div>
-    <div class="hint">Índice de liquidez: ${indiceLiquidez.toFixed(2)}</div>
+    <div class="hint">Índice de liquidez: ${indiceLiquidez.toFixed(2)} · clique pra ver detalhes</div>
   `;
+}
+function openPrevisaoRecebimentosModal(){
+  const in30 = addDays(todayStr(), 30);
+  const list = state.transactions.filter(t=>t.type==='receita'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=in30)
+    .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const total = list.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const today = todayStr();
+  openModal(`
+    <div class="modal-head"><h3>📈 Previsão de recebimentos</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">Contas a receber com vencimento nos próximos 30 dias (${fmtDate(today)} a ${fmtDate(in30)}), que ainda não foram pagas.</div>
+    <div class="stat-card" style="margin-bottom:14px;"><div class="stat-label">Total previsto</div><div class="stat-value">${fmtMoney(total)}</div></div>
+    ${list.length===0 ? '<div class="empty-state"><p>Nenhuma conta a receber prevista pros próximos 30 dias.</p></div>' : `
+    <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+      ${list.map(t=>{
+        const overdue = t.dueDate<today;
+        return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
+          <td>${fmtDate(t.dueDate)}</td><td><strong>${esc(t.description)}</strong></td>
+          <td>${fmtMoney(transactionTotalDue(t)-t.paidAmount)}</td>
+          <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`}
+  `);
+}
+function openSaudeFinanceiraModal(){
+  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  const contasPagarAbertasList = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado').sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const contasPagarAbertas = contasPagarAbertasList.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
+  const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅', explicacao:'Suas contas ativas cobrem bem mais que suas dívidas em aberto — folga saudável.'}
+    : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️', explicacao:'O saldo em contas está próximo do total de contas a pagar em aberto — vale acompanhar de perto.'}
+    : {label:'Crítica', color:'var(--danger)', icon:'🔴', explicacao:'O saldo em contas está bem abaixo do total de contas a pagar em aberto — risco de não conseguir cobrir tudo sem entrar mais dinheiro.'};
+  const today = todayStr();
+  openModal(`
+    <div class="modal-head"><h3>${saude.icon} Saúde financeira</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">Índice de liquidez = saldo em contas ativas ÷ total de contas a pagar em aberto (qualquer prazo, não só 30 dias). Acima de 1,3 é considerado saudável.</div>
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-label">Situação</div><div class="stat-value" style="color:${saude.color};">${saude.label}</div></div>
+      <div class="stat-card"><div class="stat-label">Índice de liquidez</div><div class="stat-value">${indiceLiquidez.toFixed(2)}</div></div>
+      <div class="stat-card"><div class="stat-label">Saldo em contas</div><div class="stat-value">${fmtMoney(saldoTotal)}</div></div>
+      <div class="stat-card"><div class="stat-label">Contas a pagar em aberto</div><div class="stat-value">${fmtMoney(contasPagarAbertas)}</div></div>
+    </div>
+    <div class="hint" style="margin-bottom:14px;">${saude.explicacao}</div>
+    ${contasPagarAbertasList.length>0 ? `
+    <div class="subhead" style="margin-top:0;">Contas a pagar em aberto (${contasPagarAbertasList.length})</div>
+    <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+      ${contasPagarAbertasList.slice(0,10).map(t=>{
+        const overdue = t.dueDate<today;
+        return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
+          <td>${fmtDate(t.dueDate)}</td><td><strong>${esc(t.description)}</strong></td>
+          <td>${fmtMoney(transactionTotalDue(t)-t.paidAmount)}</td>
+          <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>
+    ${contasPagarAbertasList.length>10?`<div class="hint" style="margin-top:8px;">Mostrando 10 de ${contasPagarAbertasList.length}. <a href="#" onclick="closeModal(); setFinTab('pagar'); return false;">Ver todas em Contas a Pagar →</a></div>`:''}
+    ` : '<div class="hint">Nenhuma conta a pagar em aberto no momento.</div>'}
+  `, 'wide');
 }
 async function promptEditRevenueGoal(){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar a meta', true); return; }
