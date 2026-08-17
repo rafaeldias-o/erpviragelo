@@ -1303,6 +1303,16 @@ tr:last-child td{border-bottom:none;}
 
 <script>
 
+// Corrige um comportamento chato do navegador: quando o mouse está sobre um campo numérico (type=number)
+// e a pessoa tenta rolar a página com o scroll, o navegador aumenta/diminui o valor do campo em vez de
+// rolar a tela. Isso tira o foco do campo assim que detecta o scroll, deixando a rolagem normal acontecer
+// e sem alterar o valor sem querer. Vale pro sistema inteiro, não só numa tela específica.
+document.addEventListener('wheel', function(e){
+  if(document.activeElement && document.activeElement.tagName==='INPUT' && document.activeElement.type==='number'){
+    document.activeElement.blur();
+  }
+}, { passive: true });
+
 // ================= SUPABASE =================
 const SUPABASE_URL = 'https://iknqqrwhtfnenuynemve.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrbnFxcndodGZuZW51eW5lbXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NzIyMDksImV4cCI6MjA5OTU0ODIwOX0.uBHhExWFo0qhwAUbklDyIE9V8fio3zxzU10Jbmlrw-A';
@@ -1682,7 +1692,7 @@ async function loadAll(){
     revenueGoalSemestral: co.revenue_goal_semestral!=null ? Number(co.revenue_goal_semestral) : null,
     revenueGoalYearly: co.revenue_goal_yearly!=null ? Number(co.revenue_goal_yearly) : null,
     machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
-    nextMachineCost: co.next_machine_cost!=null ? Number(co.next_machine_cost) : 9000,
+    nextMachineCost: co.next_machine_cost!=null ? Number(co.next_machine_cost) : 18100,
     routeCalcMode: co.route_calc_mode || 'ida',
     betoHomeAddress: co.beto_home_address || null, betoHomeLat: co.beto_home_lat!=null?Number(co.beto_home_lat):null, betoHomeLng: co.beto_home_lng!=null?Number(co.beto_home_lng):null,
     guiHomeAddress: co.gui_home_address || null, guiHomeLat: co.gui_home_lat!=null?Number(co.gui_home_lat):null, guiHomeLng: co.gui_home_lng!=null?Number(co.gui_home_lng):null,
@@ -3448,7 +3458,7 @@ function renderMetasEInsights(){
   renderMachinesList();
   renderSimuladorInsights();
   const expCostEl = document.getElementById('exp-cost');
-  if(expCostEl && document.activeElement!==expCostEl && !expCostEl.value) expCostEl.value = state.company.nextMachineCost || 9000;
+  if(expCostEl && document.activeElement!==expCostEl && !expCostEl.value) expCostEl.value = state.company.nextMachineCost || 18100;
   renderExpansaoPayback();
   renderReverseCalc();
 }
@@ -3568,7 +3578,7 @@ function renderReverseCalc(){
     const novaMaquinaCapacidade = parseFloat(document.getElementById('exp-capacity')?.value) || 150;
     const faltante = capacidadeDiariaNecessaria - capacidadeAtual;
     const maquinasNecessarias = Math.ceil(faltante / novaMaquinaCapacidade);
-    const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || state.company.nextMachineCost || 9000;
+    const custoMaquina = parseFloat(document.getElementById('exp-cost')?.value) || state.company.nextMachineCost || 18100;
     const investimentoTotal = maquinasNecessarias * custoMaquina;
     resultHtml = `<div class="panel" style="margin-bottom:0;background:var(--surface-2);border-left:3px solid var(--warn);">
       <div style="font-weight:700;font-size:14px;">📈 Precisa expandir a capacidade</div>
