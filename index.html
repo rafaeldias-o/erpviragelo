@@ -8454,6 +8454,13 @@ function renderNotifications(){
 let notifAlertsList = [];
 let notifAlertsShowCount = 7;
 function notifAlertsShowMore(){ notifAlertsShowCount += 7; renderNotifAlerts(); }
+const ALERT_CATEGORIES = [
+  { key:'visitas', label:'📍 Visitas', types:['contato_recorrente_pendente'] },
+  { key:'manutencao', label:'🔧 Manutenção', types:['manutencao_vencida','manutencao_proxima','garantia_proxima','garantia_expirada'] },
+  { key:'leads', label:'🎯 Leads parados', types:['lead_parado'] },
+  { key:'financeiro', label:'💰 Financeiro', types:['conta_vencida','conta_hoje','conta_em_breve','pagamento_entregador_pendente'] },
+  { key:'outros', label:'📋 Outros', types:['estoque_baixo','cliente_inativo','compromisso_atrasado','entrega_atrasada','tarefa_atrasada','armazenamento_cheio','alerta_personalizado'] },
+];
 function renderNotifAlerts(){
   const wrap = document.getElementById('notifAlertsWrap');
   if(!wrap) return;
@@ -8464,13 +8471,27 @@ function renderNotifAlerts(){
   const prioRank = {alta:0, média:1, baixa:2};
   if(sortMode==='prioridade') alerts.sort((a,b)=> (prioRank[a.priority]??3) - (prioRank[b.priority]??3) || a.date.localeCompare(b.date));
   else alerts.sort((a,b)=> a.date.localeCompare(b.date));
-  notifAlertsList = alerts;
+  notifAlertsList = alerts; // openAlertDetail(i) sempre indexa nessa lista plana — as colunas abaixo só reorganizam a EXIBIÇÃO, os índices continuam batendo
+
+  if(alerts.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>'; return; }
+
   const prioBadge = p => p==='alta' ? 'badge-danger' : p==='média' ? 'badge-warn' : 'badge-muted';
-  const visible = alerts.slice(0, notifAlertsShowCount);
-  const temMais = alerts.length > notifAlertsShowCount;
-  wrap.innerHTML = alerts.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum alerta no momento.</p></div>' :
-    visible.map((a,i)=>`<div class="alert-row" style="cursor:pointer;" onclick="openAlertDetail(${i})"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`).join('')
-    + (temMais ? `<div style="text-align:center;margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="notifAlertsShowMore()">Ver mais</button></div>` : '');
+  const alertRowHtml = (a,i) => `<div class="alert-row" style="cursor:pointer;" onclick="openAlertDetail(${i})"><span class="alert-dot" style="background:${a.color}"></span><span>${a.icon} ${esc(a.text)}</span><span class="badge ${prioBadge(a.priority)}" style="margin-left:auto;">${a.priority}</span></div>`;
+
+  const perCategoryCap = 8;
+  const columnsHtml = ALERT_CATEGORIES.map(cat=>{
+    const indexed = alerts.map((a,i)=>({a,i})).filter(({a})=>cat.types.includes(a.type));
+    if(indexed.length===0) return '';
+    const visible = indexed.slice(0, perCategoryCap);
+    const resto = indexed.length - visible.length;
+    return `<div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">${cat.label} <span style="color:var(--muted);font-weight:400;">(${indexed.length})</span></div>
+      ${visible.map(({a,i})=>alertRowHtml(a,i)).join('')}
+      ${resto>0?`<div class="hint" style="margin-top:6px;">+${resto} mais nessa categoria</div>`:''}
+    </div>`;
+  }).filter(Boolean);
+
+  wrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;">${columnsHtml.join('')}</div>`;
 }
 // ---- Centro de Alertas (Fase B) — clique num alerta abre ações específicas do tipo ----
 async function promptChangeMinQty(itemId){
