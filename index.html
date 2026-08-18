@@ -1387,6 +1387,11 @@ let currentVisitasTab = 'regioes';
 let selectedVisitCityId = null;
 let currentStockTab = 'produto_acabado';
 let orderDraftItems = [];
+let currentOrderModalId = null;
+// Guarda o rascunho do pedido (itens, desconto, forma de pagamento, status) enquanto o usuário sai
+// pra cadastrar um cliente novo direto do "Novo pedido" — consumido por resumeOrderModalFromClient()
+// pra reabrir o pedido de onde parou, com o cliente recém-criado já selecionado.
+let pendingOrderClientReturn = null;
 let productionDraftPacks = [];
 let deliveryDraftItems = [];
 let activeLeadId = null;
@@ -1801,7 +1806,7 @@ function switchView(view){
 
 // ================= MODAL =================
 function openModal(html, size){ document.getElementById('modalBody').className = 'modal' + (size?' '+size:''); document.getElementById('modalBody').innerHTML = html; document.getElementById('modalOverlay').classList.add('active'); }
-function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); orderDraftItems=[]; productionDraftPacks=[]; activeLeadId=null; }
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); orderDraftItems=[]; productionDraftPacks=[]; activeLeadId=null; pendingOrderClientReturn=null; }
 document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.target.id==='modalOverlay') closeModal(); });
 
 function emptyState(msg, btnLabel, onclick){
@@ -2664,6 +2669,7 @@ function openOrderModal(id){
   try{
     const o = id ? state.orders.find(x=>x.id===id) : null;
     const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+    currentOrderModalId = id || null;
     orderDraftItems = o ? JSON.parse(JSON.stringify(o.items)) : [];
     if(state.clients.length===0){
       openModal(`<div class="modal-head"><h3>Novo pedido</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>${emptyState('Cadastre um cliente antes de criar um pedido.','Ir para Clientes',"closeModal(); switchView('clientes');")}`);
@@ -2675,7 +2681,14 @@ function openOrderModal(id){
     }
     openModal(`
       <div class="modal-head"><h3>${o?'Pedido':'Novo pedido'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-      <div class="field"><label>Cliente</label><select id="o-client" onchange="refreshOrderTotals()">${state.clients.map(c=>`<option value="${c.id}" ${o&&o.clientId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field">
+        <label>Cliente</label>
+        <div style="display:flex;gap:8px;">
+          <select id="o-client" onchange="refreshOrderTotals()" style="flex:1;">${state.clients.map(c=>`<option value="${c.id}" ${o&&o.clientId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+          <button type="button" class="btn btn-ghost btn-sm" style="white-space:nowrap;" onclick="openClientModalFromOrder()">+ Cadastrar cliente</button>
+        </div>
+        <div class="hint" style="margin-top:4px;">Não achou o cliente na lista? Cadastre um novo sem perder os itens já adicionados abaixo.</div>
+      </div>
       <div id="orderItemsWrap"></div>
       <button class="btn btn-ghost btn-sm" onclick="addOrderItemRow()">+ Adicionar item</button>
       <div class="field-row" style="margin-top:12px;">
@@ -2693,6 +2706,37 @@ function openOrderModal(id){
     `, 'wide');
     if(orderDraftItems.length===0) addOrderItemRow(); else renderOrderItems();
   }catch(err){ console.error(err); toast('Ocorreu um erro ao abrir o pedido. Veja o console para detalhes.'); }
+}
+// Chamado pelo botão "+ Cadastrar cliente" dentro do modal de pedido — guarda o rascunho atual (itens,
+// desconto, pagamento, status) e abre o cadastro completo de cliente (recorrente/pontual, freezer etc.)
+// por cima. Como o sistema só permite um modal por vez, o pedido "desaparece" temporariamente — por isso
+// capturamos tudo aqui pra reconstruir exatamente onde parou assim que o cliente for salvo (ou cancelado).
+function openClientModalFromOrder(){
+  pendingOrderClientReturn = {
+    orderId: currentOrderModalId,
+    items: JSON.parse(JSON.stringify(orderDraftItems)),
+    discount: parseFloat(document.getElementById('o-discount')?.value)||0,
+    payment: document.getElementById('o-payment')?.value || null,
+    status: document.getElementById('o-status')?.value || null,
+  };
+  openClientDetailModal();
+}
+// Reabre o modal de pedido de onde o usuário saiu pra cadastrar o cliente, restaurando os itens/desconto/
+// pagamento/status capturados. Se `newClientId` for informado (cliente foi salvo com sucesso), já deixa
+// ele selecionado no campo Cliente.
+function resumeOrderModalFromClient(newClientId){
+  const pending = pendingOrderClientReturn;
+  pendingOrderClientReturn = null;
+  if(!pending){ closeModal(); return; }
+  openOrderModal(pending.orderId);
+  orderDraftItems = pending.items;
+  renderOrderItems();
+  const clientEl = document.getElementById('o-client');
+  if(clientEl && newClientId) clientEl.value = newClientId;
+  const discountEl = document.getElementById('o-discount'); if(discountEl) discountEl.value = pending.discount;
+  const paymentEl = document.getElementById('o-payment'); if(paymentEl && pending.payment) paymentEl.value = pending.payment;
+  const statusEl = document.getElementById('o-status'); if(statusEl && pending.status) statusEl.value = pending.status;
+  refreshOrderTotals();
 }
 function addOrderItemRow(){
   const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
@@ -6141,8 +6185,12 @@ async function saveNextVisitDate(clientId){
 function openClientDetailModal(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar clientes', true); return; }
   const c = id ? state.clients.find(x=>x.id===id) : null;
+  if(id) pendingOrderClientReturn = null; // edição de cliente existente nunca faz parte do fluxo "voltar pro pedido"
+  const fromOrder = !!pendingOrderClientReturn;
+  const closeAction = fromOrder ? 'resumeOrderModalFromClient(null)' : 'closeModal()';
   openModal(`
-    <div class="modal-head"><h3>${c?esc(c.name):'Novo cliente'}${c?clientBadge(c):''}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>${c?esc(c.name):'Novo cliente'}${c?clientBadge(c):''}</h3><button class="icon-btn" onclick="${closeAction}">✕</button></div>
+    ${fromOrder?`<div class="hint" style="margin-bottom:10px;">🛒 Cadastrando cliente pra usar no pedido em andamento — ao salvar, você volta direto pro pedido com esse cliente selecionado.</div>`:''}
     <div class="subhead" style="border-top:none;padding-top:0;">Dados do cliente</div>
     <div class="field-row">
       <div class="field"><label>Nome</label><input id="c-name" value="${c?esc(c.name):''}"></div>
@@ -6203,7 +6251,7 @@ function openClientDetailModal(id){
 
     <div class="modal-foot">
       ${c?`<button class="btn btn-danger-ghost" onclick="deleteClient('${c.id}')">Excluir</button>`:''}
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-ghost" onclick="${closeAction}">Cancelar</button>
       <button class="btn btn-primary" onclick="saveClientDetail(${c?`'${c.id}'`:'null'})">Salvar</button>
     </div>
 
@@ -6447,8 +6495,13 @@ async function saveClientDetail(id){
     if(error){ dbErr(error, 'Erro ao salvar cliente'); return; }
     savedId = created.id;
   }
+  const returnToOrder = pendingOrderClientReturn; // capturar antes do closeModal() limpar a flag
   closeModal(); toast('Cliente salvo'); await loadAll(); renderAll();
   if(addressChanged && savedId){ await ensureClientDistance(savedId, true); await loadAll(); renderAll(); }
+  if(returnToOrder){
+    pendingOrderClientReturn = returnToOrder;
+    resumeOrderModalFromClient(savedId);
+  }
 }
 async function deleteClient(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir clientes', true); return; }
