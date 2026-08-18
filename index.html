@@ -577,16 +577,39 @@ tr:last-child td{border-bottom:none;}
 
       <!-- PRODUÇÃO -->
       <section class="view" id="view-producao">
+        <div class="stat-grid" id="producaoTopStats" style="margin-bottom:18px;"></div>
         <div class="panel">
           <div class="panel-head"><div class="section-title">Registros de produção</div><button class="btn btn-primary" onclick="openProductionModal()">+ Nova produção</button></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <div class="search-box" style="max-width:220px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21 L16.5 16.5"/></svg><input type="text" id="producaoSearch" placeholder="Buscar por funcionário, data ou lote..." oninput="renderProducao()"></div>
+              <select id="producaoFuncionarioFilter" onchange="renderProducao()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="">Todos os funcionários</option>
+              </select>
+              <select id="producaoProdutoFilter" onchange="renderProducao()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="">Todos os produtos</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="exportProductionCsv()">⬇️ Exportar</button>
+          </div>
           <div id="productionTableWrap" class="table-scroll"></div>
+          <div id="producaoPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:16px;"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="section-title">Produção × Vendas (mês atual)</div></div>
+          <div class="panel-head"><div class="section-title" id="producaoVendasTitle">Produção × Vendas (mês atual)</div></div>
           <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:12px;"></div>
           <div id="producaoVendasWarnBox"></div>
-          <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
-          <div id="producaoVendasChart" style="height:150px;"></div>
+          <div class="two-col" style="grid-template-columns:1fr 300px;align-items:start;">
+            <div>
+              <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
+              <div id="producaoVendasChart" style="height:180px;"></div>
+            </div>
+            <div class="panel" style="margin-bottom:0;background:var(--surface-2);">
+              <div style="font-weight:700;font-size:13px;margin-bottom:10px;">💡 Insights do período</div>
+              <div id="producaoInsightsWrap"></div>
+              <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center;margin-top:10px;" onclick="switchView('relatorios')">📊 Ver relatório completo</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1635,7 +1658,8 @@ async function loadAll(){
     });
   });
   state.production = (prodRes.data||[]).map(p => ({
-    id: p.id, date: p.date, kg: Number(p.kg), employee: p.employee, notes: p.notes, packs: packsByProd[p.id] || []
+    id: p.id, date: p.date, kg: Number(p.kg), employee: p.employee, notes: p.notes, packs: packsByProd[p.id] || [],
+    time: p.time || null, lote: p.lote || null,
   }));
 
   const itemsByOrder = {};
@@ -2385,9 +2409,13 @@ function openProductionModal(){
     <div class="modal-head"><h3>Nova produção</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field-row">
       <div class="field"><label>Data</label><input id="p-date" type="date" value="${todayStr()}"></div>
+      <div class="field"><label>Hora</label><input id="p-time" type="time" value="${new Date().toTimeString().slice(0,5)}"></div>
       <div class="field"><label>Quantidade produzida (kg)</label><input id="p-kg" type="number" step="0.01" placeholder="0"></div>
     </div>
-    <div class="field"><label>Funcionário responsável</label><input id="p-employee" placeholder="Nome"></div>
+    <div class="field-row">
+      <div class="field"><label>Funcionário responsável</label><input id="p-employee" placeholder="Nome"></div>
+      <div class="field"><label>Lote (opcional)</label><input id="p-lote" placeholder="Ex: L-180826-01"></div>
+    </div>
     <div class="field"><label>Observações</label><textarea id="p-notes" rows="2"></textarea></div>
     <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
     <div class="section-title" style="font-size:13px;margin-bottom:8px;">Embalagem</div>
@@ -2428,6 +2456,8 @@ function renderPackRows(){
 function removePackRow(i){ productionDraftPacks.splice(i,1); renderPackRows(); }
 async function saveProduction(){
   const date = document.getElementById('p-date').value || todayStr();
+  const time = document.getElementById('p-time').value || null;
+  const lote = document.getElementById('p-lote').value.trim() || null;
   const kg = parseFloat(document.getElementById('p-kg').value)||0;
   const employee = document.getElementById('p-employee').value.trim();
   const notes = document.getElementById('p-notes').value.trim();
@@ -2444,7 +2474,7 @@ async function saveProduction(){
       p.finishedId = created.id;
     }
   }
-  const { data: prod, error: prodErr } = await sb.from('production').insert({ date, kg, employee, notes }).select().single();
+  const { data: prod, error: prodErr } = await sb.from('production').insert({ date, time, lote, kg, employee, notes }).select().single();
   if(prodErr){ dbErr(prodErr, 'Erro ao registrar produção'); return; }
   // integração: a trigger no banco (apply_production_pack) soma o produto acabado e desconta a embalagem sozinha
   for(const p of packs){
@@ -2476,22 +2506,127 @@ async function deleteProduction(id){
   toast('Produção excluída e estoque revertido'); await loadAll(); renderAll();
 }
 
-let producaoShowCount = 7;
-function producaoShowMore(){ producaoShowCount += 7; renderProducao(); }
+const AVATAR_COLORS = ['#4FC3E0','#F0B429','#1D9E75','#D4537E','#7F77DD','#BA7517'];
+function avatarColorFor(name){
+  if(!name) return '#9CA3AF';
+  let hash = 0;
+  for(let i=0;i<name.length;i++) hash = name.charCodeAt(i) + ((hash<<5)-hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+function exportProductionCsv(){
+  const rows = [['Data','Hora','Funcionário','Produzido (kg)','Lote','Embalado','Observações']];
+  state.production.forEach(p=>{
+    rows.push([fmtDate(p.date), p.time||'', p.employee||'', p.kg, p.lote||'', p.packs.map(pk=>`${pk.qty}x ${pk.finishedName}`).join('; '), p.notes||'']);
+  });
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `producao_${todayStr()}.csv`;
+  link.click();
+}
+let producaoPage = 1;
+const producaoPerPage = 5;
+function producaoGoToPage(p){ producaoPage = p; renderProducao(); }
+function renderProducaoTopStats(){
+  const box = document.getElementById('producaoTopStats');
+  if(!box) return;
+  const months = lastNMonths(6);
+  const thisM = months[5], prevM = months[4];
+  const producaoPorMes = months.map(m=>state.production.filter(p=>p.date>=m.from&&p.date<=m.to).reduce((s,p)=>s+p.kg,0));
+  const stockById3 = {}; state.stockItems.forEach(s=>stockById3[s.id]=s);
+  const vendaPorMes = months.map(m=>state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=m.from&&o.deliveredAt<=m.to).reduce((s,o)=>s+o.items.reduce((a,it)=>a+it.qty*(stockById3[it.productId]?.weightKg||0),0),0));
+
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  const estoqueKg = finished.reduce((s,p)=>s+p.qty*(p.weightKg||0),0);
+  const pacotes3kg = finished.filter(p=>p.weightKg===3).reduce((s,p)=>s+p.qty,0);
+  const producaoMes = producaoPorMes[5], vendaMes = vendaPorMes[5];
+  const pctComerc = (producaoMes+estoqueKg)>0 ? (vendaMes/(producaoMes+estoqueKg)*100) : 0;
+  const cutoff30 = addDays(todayStr(),-30);
+  const venda30 = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=cutoff30).reduce((s,o)=>s+o.items.reduce((a,it)=>a+it.qty*(stockById3[it.productId]?.weightKg||0),0),0);
+  const mediaDiaria = venda30/30;
+  const coberturaDias = mediaDiaria>0 ? estoqueKg/mediaDiaria : null;
+
+  const pctChange = (curr,prev) => prev>0 ? ((curr-prev)/prev*100) : (curr>0?100:0);
+  const card = (icon,bg,label,value,note,pct,spark) => `
+    <div class="stat-card" style="padding:14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="width:30px;height:30px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">${icon}</div>
+        <div class="stat-label" style="margin:0;">${label}</div>
+      </div>
+      <div class="stat-value" style="font-size:17px;${value.color?`color:${value.color};`:''}">${value.text}</div>
+      ${pct!=null?`<div class="hint" style="margin-top:2px;color:${pct>=0?'var(--success)':'var(--danger)'};">${pct>=0?'+':''}${pct.toFixed(0)}% vs mês ant.</div>`:`<div class="hint" style="margin-top:2px;">${note}</div>`}
+      ${spark||''}
+    </div>`;
+
+  box.innerHTML = [
+    card('📈','#DBEAFE','Produzido no mês', {text:fmtKgNum(producaoMes)+' kg'}, '', pctChange(producaoMes,producaoPorMes[4]), buildSparklineSvg(producaoPorMes,'#2563EB')),
+    card('📊','#DCFCE7','Vendido no mês', {text:fmtKgNum(vendaMes)+' kg'}, '', pctChange(vendaMes,vendaPorMes[4]), buildSparklineSvg(vendaPorMes,'#16A34A')),
+    card('🧊','#EDE9FE','Estoque atual', {text:fmtKgNum(estoqueKg)+' kg', color:stockLevelColor(estoqueKg)}, 'Disponível', null, buildSparklineSvg(producaoPorMes.map((v,i)=>v-vendaPorMes[i]).reduce((acc,v,i)=>{acc.push((acc[i-1]||0)+v);return acc;},[]),'#7C3AED')),
+    card('📦','#FEF3C7','Pacotes de 3kg', {text:pacotes3kg+' un', color:stockLevelColor(pacotes3kg*3)}, 'Em estoque', null, ''),
+    card('％','#DBEAFE','% Comercializado', {text:pctComerc.toFixed(1)+'%'}, 'sobre vendido + estoque', null, ''),
+    card('📅','#FCE7F3','Cobertura de estoque', {text:coberturaDias!=null?coberturaDias.toFixed(1)+' dias':'—'}, `Média diária: ${fmtKgNum(mediaDiaria)} kg`, null, ''),
+  ].join('');
+}
 function renderProducao(){
+  renderProducaoTopStats();
   const wrap = document.getElementById('productionTableWrap');
-  if(state.production.length===0){ wrap.innerHTML = emptyState('Nenhuma produção registrada ainda.','Nova produção','openProductionModal()'); }
-  else {
-    const visible = state.production.slice(0, producaoShowCount);
-    const temMais = state.production.length > producaoShowCount;
-    wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Kg produzidos</th><th>Funcionário</th><th>Embalado (entrou em estoque)</th><th>Observações</th><th></th></tr></thead><tbody>
-    ${visible.map(p=>`<tr>
-      <td>${fmtDate(p.date)}</td><td>${p.kg} kg</td><td>${esc(p.employee||'—')}</td>
-      <td style="font-size:12px;color:var(--muted)">${p.packs.length? p.packs.map(pk=>`${pk.qty}× ${esc(pk.finishedName)}`).join(', ') : '—'}</td>
+  const paginationWrap = document.getElementById('producaoPaginationWrap');
+
+  // Popula os filtros de funcionário e produto com o que existe nos dados
+  const funcSel = document.getElementById('producaoFuncionarioFilter');
+  const funcionarios = [...new Set(state.production.map(p=>p.employee).filter(Boolean))].sort();
+  if(funcSel){ const cur=funcSel.value; funcSel.innerHTML = '<option value="">Todos os funcionários</option>'+funcionarios.map(f=>`<option value="${esc(f)}" ${cur===f?'selected':''}>${esc(f)}</option>`).join(''); }
+  const prodSel = document.getElementById('producaoProdutoFilter');
+  const produtos = [...new Set(state.production.flatMap(p=>p.packs.map(pk=>pk.finishedName)).filter(Boolean))].sort();
+  if(prodSel){ const cur=prodSel.value; prodSel.innerHTML = '<option value="">Todos os produtos</option>'+produtos.map(pr=>`<option value="${esc(pr)}" ${cur===pr?'selected':''}>${esc(pr)}</option>`).join(''); }
+
+  if(state.production.length===0){ wrap.innerHTML = emptyState('Nenhuma produção registrada ainda.','Nova produção','openProductionModal()'); if(paginationWrap) paginationWrap.innerHTML=''; renderProducaoVendas(); return; }
+
+  const q = (document.getElementById('producaoSearch')?.value||'').toLowerCase();
+  const funcFilter = funcSel?.value||'';
+  const prodFilter = prodSel?.value||'';
+  let list = state.production.slice().sort((a,b)=> (b.date+(b.time||'')).localeCompare(a.date+(a.time||'')));
+  if(q) list = list.filter(p=> (p.employee||'').toLowerCase().includes(q) || p.date.includes(q) || (p.lote||'').toLowerCase().includes(q));
+  if(funcFilter) list = list.filter(p=>p.employee===funcFilter);
+  if(prodFilter) list = list.filter(p=>p.packs.some(pk=>pk.finishedName===prodFilter));
+
+  if(list.length===0){ wrap.innerHTML = '<div class="empty-state"><p>Nenhum registro encontrado.</p></div>'; if(paginationWrap) paginationWrap.innerHTML=''; renderProducaoVendas(); return; }
+
+  const totalPages = Math.max(1, Math.ceil(list.length/producaoPerPage));
+  if(producaoPage>totalPages) producaoPage = totalPages;
+  const startIdx = (producaoPage-1)*producaoPerPage;
+  const visible = list.slice(startIdx, startIdx+producaoPerPage);
+
+  wrap.innerHTML = `<table><thead><tr><th>Data</th><th>Funcionário</th><th>Produzido (kg)</th><th>Produto / Lote</th><th>Embalado (entrou em estoque)</th><th>Observações</th><th></th></tr></thead><tbody>
+  ${visible.map(p=>{
+    const initial = p.employee ? p.employee.trim().charAt(0).toUpperCase() : '?';
+    const mainProduct = p.packs.length ? p.packs[0].finishedName : null;
+    return `<tr>
+      <td>${fmtDate(p.date)}${p.time?`<div class="hint" style="margin:0;">${p.time.slice(0,5)}</div>`:''}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="width:26px;height:26px;border-radius:50%;background:${avatarColorFor(p.employee)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">${initial}</div>
+          <span>${esc(p.employee||'—')}</span>
+        </div>
+      </td>
+      <td style="font-weight:700;">${p.kg} kg</td>
+      <td>${mainProduct?esc(mainProduct):'<span style="color:var(--muted);">—</span>'}${p.lote?`<div class="hint" style="margin:0;">Lote: ${esc(p.lote)}</div>`:''}</td>
+      <td style="font-size:12px;color:var(--muted)">${p.packs.length? p.packs.map(pk=>`<span class="badge badge-info" style="margin:1px;">${pk.qty}× ${esc(pk.finishedName)}</span>`).join(' ') : '—'}</td>
       <td style="color:var(--muted)">${esc(p.notes||'—')}</td>
       <td class="row-actions"><button class="icon-btn" onclick="deleteProduction('${p.id}')" title="Excluir">${iconTrash}</button></td>
-    </tr>`).join('')}</tbody></table>
-    ${temMais ? `<div style="text-align:center;margin-top:12px;"><button class="btn btn-ghost btn-sm" onclick="producaoShowMore()">Mostrar mais</button></div>` : ''}`;
+    </tr>`;
+  }).join('')}</tbody></table>`;
+
+  if(paginationWrap){
+    paginationWrap.innerHTML = `
+      <div class="hint" style="margin:0;">Mostrando ${startIdx+1} a ${Math.min(startIdx+producaoPerPage,list.length)} de ${list.length} registro(s)</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn btn-ghost btn-sm" onclick="producaoGoToPage(${producaoPage-1})" ${producaoPage<=1?'disabled':''}>«</button>
+        ${Array.from({length:totalPages},(_,i)=>i+1).map(p=>`<button class="btn ${p===producaoPage?'btn-primary':'btn-ghost'} btn-sm" onclick="producaoGoToPage(${p})">${p}</button>`).join('')}
+        <button class="btn btn-ghost btn-sm" onclick="producaoGoToPage(${producaoPage+1})" ${producaoPage>=totalPages?'disabled':''}>»</button>
+      </div>
+    `;
   }
   renderProducaoVendas();
 }
@@ -6920,7 +7055,10 @@ function renderProducaoVendas(){
         <span>${fmtKgNum(maxBucket/2)} kg</span>
         <span>0 kg</span>
       </div>
-      <div class="bars" style="flex:1;">
+      <div class="bars" style="flex:1;position:relative;">
+        <div style="position:absolute;left:0;right:0;top:10px;border-top:1px dashed var(--border);pointer-events:none;"></div>
+        <div style="position:absolute;left:0;right:0;top:70px;border-top:1px dashed var(--border);pointer-events:none;"></div>
+        <div style="position:absolute;left:0;right:0;top:130px;border-top:1px solid var(--border);pointer-events:none;"></div>
         ${buckets.map(b=>`
           <div class="bar-group">
             <div class="bar-pair">
@@ -6933,6 +7071,31 @@ function renderProducaoVendas(){
       </div>
     </div>
   `;
+
+  // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
+  const insightsBox = document.getElementById('producaoInsightsWrap');
+  if(insightsBox){
+    const insights = [];
+    if(coberturaDias!=null && coberturaDias>=15) insights.push({icon:'✅',color:'var(--success)',title:'Estoque saudável',text:`Você tem estoque pra ${coberturaDias.toFixed(1)} dias de vendas.`});
+    else if(coberturaDias!=null && coberturaDias<7) insights.push({icon:'🔴',color:'var(--danger)',title:'Estoque baixo',text:`Só ${coberturaDias.toFixed(1)} dias de estoque nesse ritmo de venda — vale reforçar a produção.`});
+    else if(coberturaDias!=null) insights.push({icon:'⚠️',color:'var(--warn)',title:'Estoque em atenção',text:`${coberturaDias.toFixed(1)} dias de estoque — acompanhe de perto.`});
+
+    if(saldo<0) insights.push({icon:'🔴',color:'var(--danger)',title:'Produção abaixo das vendas',text:`Déficit de ${fmtKgNum(Math.abs(saldo))} kg no mês.`});
+    else if(saldo>0) insights.push({icon:'📈',color:'var(--accent)',title:'Produção acima das vendas',text:`Superávit de ${fmtKgNum(saldo)} kg no mês — estoque crescendo.`});
+
+    const prodPorItem = {};
+    const monthKey2 = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    state.production.filter(p=>p.date.slice(0,7)===monthKey2).forEach(p=>p.packs.forEach(pk=>{ prodPorItem[pk.finishedName]=(prodPorItem[pk.finishedName]||0)+pk.qty; }));
+    const maisProduzido = Object.entries(prodPorItem).sort((a,b)=>b[1]-a[1])[0];
+    if(maisProduzido) insights.push({icon:'ℹ️',color:'var(--info)',title:'Produto mais produzido',text:esc(maisProduzido[0])});
+
+    insightsBox.innerHTML = insights.length===0 ? '<div class="hint">Sem dados suficientes ainda pra gerar insights.</div>' : insights.map(i=>`
+      <div style="margin-bottom:10px;">
+        <div style="font-weight:700;font-size:12.5px;color:${i.color};">${i.icon} ${i.title}</div>
+        <div class="hint" style="margin-top:1px;">${i.text}</div>
+      </div>
+    `).join('');
+  }
 }
 
 // =========================================================
