@@ -2130,6 +2130,13 @@ function checkStorageForProduction(capacidadeProducaoKgDia){
   const faltaPacotes = Math.ceil(faltaKg/3);
   return { needsMore:true, message:`Armazenamento pode não aguentar essa produção com segurança — pra manter ${diasColchao} dias de colchão, precisaria de ~${faltaPacotes} pacotes de 3kg a mais de capacidade (câmara fria/freezer).` };
 }
+// Cor por faixa de estoque — acima de 300kg (ou equivalente) verde, abaixo amarelo, abaixo de 100kg
+// vermelho. Usado tanto pro estoque em kg quanto pra contagem de pacotes de 3kg (convertendo pra kg).
+function stockLevelColor(kg){
+  if(kg>=300) return 'var(--success)';
+  if(kg>=100) return 'var(--warn)';
+  return 'var(--danger)';
+}
 function totalMachineCapacityKgDay(){
   const machines = (state.productionMachines||[]).filter(m=>m.active);
   if(machines.length>0) return machines.reduce((s,m)=>s+m.capacityKgDay,0);
@@ -6661,7 +6668,7 @@ function renderDashboard(){
   document.getElementById('dashFinanceiroBox').innerHTML = `
     <div class="panel-head"><div class="section-title">💰 Financeiro</div></div>
     <div class="stat-row-list">
-      <div class="stat-row clickable" onclick="goToFinTab('metas')"><span class="stat-row-label">Total faturado no ano</span><span class="stat-row-value">${fmtMoney(faturamentoAno)}</span></div>
+      <div class="stat-row clickable" onclick="goToFinTab('metas')"><span class="stat-row-label">Total faturado no ano</span><span class="stat-row-value" style="color:var(--success)">${fmtMoney(faturamentoAno)}</span></div>
       <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Faturamento do mês</span><span class="stat-row-value">${fmtMoney(faturamentoMes)}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Despesas do mês</span><span class="stat-row-value">${fmtMoney(despesasMes)}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('lancamentos')"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
@@ -6816,8 +6823,8 @@ function renderCoberturaEstoque(){
       <div style="font-size:32px;font-weight:700;margin-bottom:2px;">${cobertura!=null ? cobertura.toFixed(1)+' dias' : '—'}</div>
       <div class="stat-note ${nivelClass}" style="font-size:13px;font-weight:600;margin-bottom:10px;">${nivelLabel}</div>
       <div class="stat-row-list">
-        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Estoque atual</span><span class="stat-row-value">${fmtKgNum(estoqueKg)} kg</span></div>
-        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Pacotes de 3kg em estoque</span><span class="stat-row-value">${pacotes3kg}</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Estoque atual</span><span class="stat-row-value" style="color:${stockLevelColor(estoqueKg)}">${fmtKgNum(estoqueKg)} kg</span></div>
+        <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Pacotes de 3kg em estoque</span><span class="stat-row-value" style="color:${stockLevelColor(pacotes3kg*3)}">${pacotes3kg}</span></div>
         <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Média diária vendida</span><span class="stat-row-value">${fmtKgNum(mediaDiaria)} kg</span></div>
         <div class="stat-row clickable" onclick="switchView('estoque')"><span class="stat-row-label">Consumo últimos ${windowDays}d</span><span class="stat-row-value">${fmtKgNum(consumoTotalKg)} kg</span></div>
         <div class="stat-row clickable" onclick="switchView('producao')"><span class="stat-row-label">Última produção</span><span class="stat-row-value" style="font-size:12.5px;">${ultimaProducao?fmtDate(ultimaProducao.date)+' · '+fmtKgNum(Number(ultimaProducao.kg))+'kg':'—'}</span></div>
@@ -6883,14 +6890,14 @@ function renderProducaoVendas(){
   const coberturaDias = consumo30>0 ? estoqueTotalKg/(consumo30/30) : null;
 
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">📦 Estoque total</div><div class="stat-value">${fmtKgNum(estoqueTotalKg)} kg</div></div>
+    <div class="stat-card"><div class="stat-label">📦 Estoque total</div><div class="stat-value" style="color:${stockLevelColor(estoqueTotalKg)}">${fmtKgNum(estoqueTotalKg)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalProdMes)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Vendido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalVend)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Saldo do mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(saldo)} kg</div></div>
     <div class="stat-card"><div class="stat-label">% comercializado</div><div class="stat-value" style="font-size:16px;">${pctComercializado.toFixed(1)}%</div><div class="stat-note">sobre vendido + estoque atual</div></div>
     <div class="stat-card"><div class="stat-label">Cobertura de estoque</div><div class="stat-value" style="font-size:16px;">${coberturaDias!=null?coberturaDias.toFixed(1)+' dias':'—'}</div></div>
     <div class="stat-card"><div class="stat-label">Valor em estoque</div><div class="stat-value" style="font-size:16px;">${fmtMoney(valorEstoque)}</div></div>
-    <div class="stat-card"><div class="stat-label">Pacotes de 3kg</div><div class="stat-value" style="font-size:16px;">${pacotes3kg}</div></div>
+    <div class="stat-card"><div class="stat-label">Pacotes de 3kg</div><div class="stat-value" style="font-size:16px;color:${stockLevelColor(pacotes3kg*3)}">${pacotes3kg}</div></div>
   `;
   document.getElementById('producaoVendasWarnBox').innerHTML = unconvertible>0
     ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${unconvertible} item(ns) vendido(s) não puderam ser convertidos pra kg (produto sem peso definido em Estoque) e ficaram fora do total de vendas.</div>`
