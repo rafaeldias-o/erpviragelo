@@ -537,7 +537,7 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Entradas x Saídas (acumulado)</div></div>
             <div class="legend" style="margin-bottom:2px;"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#F3C08A"></i>Saídas</span></div>
-            <div class="bars" id="stockInOutChart" style="height:90px;"></div>
+            <div id="stockInOutChart"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Valor em estoque (mês)</div></div>
@@ -2385,26 +2385,14 @@ async function renderStockCharts(items, isFinished){
   const valueSeries = targetDates.map(t => items.reduce((s,i)=> s + (perDateQty[t][i.id]||0) * (isFinished?(i.salePrice||0):(i.costPrice||0)), 0));
   const dayLabels = targetDays.map(d=>String(d));
 
-  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels) + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'}</div>`;
-  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels) + `<div class="hint" style="margin-top:4px;">${valueSeries.map(v=>fmtMoney(v)).join(' · ')}</div>`;
+  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — hoje: ${qtySeries[qtySeries.length-1]??0} un</div>`;
+  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED') + `<div class="hint" style="margin-top:4px;">Valor em estoque hoje: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
 
   // Entradas x Saídas acumuladas dentro do mês, até cada data-alvo
   const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   const saidaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='saida' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
-  const maxInOut = Math.max(1, ...entradaSeries, ...saidaSeries);
-  const lastIdx = targetDays.length-1;
-  const labelIdxs = new Set([0]);
-  for(let i=4;i<targetDays.length;i+=5) labelIdxs.add(i);
-  labelIdxs.add(lastIdx);
-  inOutBox.innerHTML = targetDays.map((d,i)=>`
-    <div class="bar-group">
-      <div class="bar-pair">
-        <div class="bar rev" style="width:${targetDays.length>15?6:9}px;height:${Math.round(entradaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Entradas acumuladas: ${entradaSeries[i]}"></div>
-        <div class="bar exp" style="width:${targetDays.length>15?6:9}px;height:${Math.round(saidaSeries[i]/maxInOut*100)}%" title="Dia ${d} — Saídas acumuladas: ${saidaSeries[i]}"></div>
-      </div>
-      <div class="bar-label" style="font-size:9px;">${labelIdxs.has(i)?d:''}</div>
-    </div>
-  `).join('');
+  inOutBox.innerHTML = buildDualBarChartSvg(entradaSeries, saidaSeries, dayLabels, 'var(--accent-2)', '#F3C08A', 'Entradas acumuladas', 'Saídas acumuladas')
+    + `<div class="hint" style="margin-top:4px;">Acumulado no mês — entradas: ${entradaSeries[entradaSeries.length-1]||0} · saídas: ${saidaSeries[saidaSeries.length-1]||0}</div>`;
 }
 
 // =========================================================
@@ -7025,7 +7013,8 @@ function renderDashboard(){
     state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('estoque')"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
 }
 
-function buildLineChartSvg(values, labels){
+function buildLineChartSvg(values, labels, color){
+  color = color || 'var(--accent-2)';
   const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
   // Mesma lógica de "zoom inteligente" usada nos gráficos de barra: se os valores variam pouco entre si
   // e nunca chegam perto de zero (caso comum de saldo de caixa), forçar o eixo a incluir o zero espreme
@@ -7048,14 +7037,51 @@ function buildLineChartSvg(values, labels){
   for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
   if(!labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`).join('');
+  const areaPts = `${xOf(0).toFixed(1)},${(h-padB).toFixed(1)} ${points} ${xOf(lastI).toFixed(1)},${(h-padB).toFixed(1)}`;
+  const gradId = 'lineGrad'+Math.random().toString(36).slice(2,9);
   const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+    <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+    </linearGradient></defs>
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
-    <polyline points="${points}" style="fill:none;stroke:var(--accent-2);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;"/>
-    <circle cx="${xOf(lastI)}" cy="${yOf(values[lastI])}" r="3.5" style="fill:var(--accent-2);"/>
+    <polygon points="${areaPts}" fill="url(#${gradId})" stroke="none"/>
+    <polyline points="${points}" style="fill:none;stroke:${color};stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;"/>
+    <circle cx="${xOf(lastI)}" cy="${yOf(values[lastI])}" r="3.5" style="fill:${color};"/>
     ${axisLabels}
   </svg>`;
   return svg + (zoomed ? `<div class="hint" style="margin-top:2px;">Escala ajustada pra destacar a variação — o eixo não começa em zero.</div>` : '');
+}
+// Gráfico de barras duplas (ex: Entradas x Saídas) em SVG puro — mesma grade/dimensões do
+// buildLineChartSvg, pra manter a altura consistente entre os 3 gráficos da seção Estoque
+// (evita o espaço vazio que sobrava quando esse gráfico era montado com divs flex de altura fixa).
+function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB){
+  const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
+  const n = labels.length;
+  const max = Math.max(1, ...seriesA, ...seriesB);
+  const baseY = h - padB;
+  const groupW = (w-padL-padR) / Math.max(1, n);
+  const barW = Math.max(2.5, Math.min(9, groupW*0.32));
+  const xOfGroup = i => padL + i*groupW + groupW/2;
+  const yOf = v => padT + (h-padT-padB) * (1 - v/max);
+  const bars = labels.map((l,i)=>{
+    const xA = xOfGroup(i) - barW - 1.5, xB = xOfGroup(i) + 1.5;
+    const hA = baseY - yOf(seriesA[i]), hB = baseY - yOf(seriesB[i]);
+    return `<rect x="${xA.toFixed(1)}" y="${yOf(seriesA[i]).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hA).toFixed(1)}" rx="1.5" fill="${colorA}"><title>Dia ${esc(l)} — ${esc(legendA||'Série A')}: ${seriesA[i]}</title></rect>
+      <rect x="${xB.toFixed(1)}" y="${yOf(seriesB[i]).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hB).toFixed(1)}" rx="1.5" fill="${colorB}"><title>Dia ${esc(l)} — ${esc(legendB||'Série B')}: ${seriesB[i]}</title></rect>`;
+  }).join('');
+  const lastI = n-1;
+  const labelIdxs = [0];
+  for(let i=4;i<n;i+=5) labelIdxs.push(i);
+  if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
+  const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${esc(labels[i])}</text>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
+    <line x1="${padL}" y1="${baseY}" x2="${w-padR}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
+    ${bars}
+    ${axisLabels}
+  </svg>`;
 }
 // ---- Produção × Vendas (Gráfico 3) ----
 function inferWeightKg(stockItem){
