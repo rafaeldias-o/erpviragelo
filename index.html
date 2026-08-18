@@ -86,6 +86,12 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .stat-note.danger{color:var(--danger);font-weight:600;}
 .stat-note.success{color:var(--success);font-weight:600;}
 
+#producaoVendasStats .stat-card{padding:10px 12px;}
+#producaoVendasStats .stat-label{font-size:9.5px;white-space:nowrap;}
+#producaoVendasStats .stat-value{font-size:15px;margin-top:4px;}
+@media(max-width:1100px){#producaoVendasStats{grid-template-columns:repeat(3,1fr) !important;}}
+@media(max-width:520px){#producaoVendasStats{grid-template-columns:repeat(2,1fr) !important;}}
+
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .section-title{font-size:15px;font-weight:700;}
@@ -600,9 +606,9 @@ tr:last-child td{border-bottom:none;}
           <div id="producaoVendasWarnBox"></div>
           <div class="two-col" style="grid-template-columns:1fr 260px;align-items:stretch;gap:20px;">
             <div style="padding:6px 4px 0 0;">
-              <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:16px;grid-template-columns:repeat(3,1fr);"></div>
+              <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:28px;grid-template-columns:repeat(6,1fr);gap:8px;"></div>
               <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
-              <div id="producaoVendasChart" style="height:180px;margin-top:6px;"></div>
+              <div id="producaoVendasChart" style="height:240px;margin-top:10px;"></div>
             </div>
             <div class="panel" style="margin-bottom:0;background:var(--surface-2);display:flex;flex-direction:column;">
               <div style="font-weight:700;font-size:13px;margin-bottom:10px;">💡 Insights do período</div>
@@ -7048,15 +7054,15 @@ function renderProducaoVendas(){
   const maxBucket = Math.max(1, ...buckets.map(b=>Math.max(b.producao,b.vendas)));
   document.getElementById('producaoVendasChart').innerHTML = `
     <div style="display:flex;align-items:stretch;gap:8px;height:100%;">
-      <div style="display:flex;flex-direction:column;justify-content:space-between;height:130px;padding-top:10px;padding-bottom:22px;font-size:9px;color:var(--muted);text-align:right;white-space:nowrap;">
+      <div style="display:flex;flex-direction:column;justify-content:space-between;height:190px;padding-top:10px;padding-bottom:22px;font-size:9px;color:var(--muted);text-align:right;white-space:nowrap;">
         <span>${fmtKgNum(maxBucket)} kg</span>
         <span>${fmtKgNum(maxBucket/2)} kg</span>
         <span>0 kg</span>
       </div>
-      <div class="bars" style="flex:1;position:relative;">
+      <div class="bars" style="flex:1;position:relative;height:190px;">
         <div style="position:absolute;left:0;right:0;top:10px;border-top:1px dashed var(--border);pointer-events:none;"></div>
-        <div style="position:absolute;left:0;right:0;top:70px;border-top:1px dashed var(--border);pointer-events:none;"></div>
-        <div style="position:absolute;left:0;right:0;top:130px;border-top:1px solid var(--border);pointer-events:none;"></div>
+        <div style="position:absolute;left:0;right:0;top:100px;border-top:1px dashed var(--border);pointer-events:none;"></div>
+        <div style="position:absolute;left:0;right:0;top:190px;border-top:1px solid var(--border);pointer-events:none;"></div>
         ${buckets.map(b=>`
           <div class="bar-group">
             <div class="bar-pair">
