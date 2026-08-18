@@ -7025,8 +7025,6 @@ function renderProducaoVendas(){
   const coberturaDias = consumo30>0 ? estoqueTotalKg/(consumo30/30) : null;
 
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">📦 Estoque total</div><div class="stat-value" style="color:${stockLevelColor(estoqueTotalKg)}">${fmtKgNum(estoqueTotalKg)} kg</div></div>
-    <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalProdMes)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Vendido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalVend)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Saldo do mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(saldo)} kg</div></div>
     <div class="stat-card"><div class="stat-label">% comercializado</div><div class="stat-value" style="font-size:16px;">${pctComercializado.toFixed(1)}%</div><div class="stat-note">sobre vendido + estoque atual</div></div>
