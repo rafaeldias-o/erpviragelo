@@ -2664,7 +2664,7 @@ function renderProducao(){
 // =========================================================
 // PEDIDOS → ESTOQUE, FINANCEIRO e DASHBOARD (integrado)
 // =========================================================
-function openOrderModal(id){
+function openOrderModal(id, presetClientId){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
   try{
     const o = id ? state.orders.find(x=>x.id===id) : null;
@@ -2684,7 +2684,7 @@ function openOrderModal(id){
       <div class="field">
         <label>Cliente</label>
         <div style="display:flex;gap:8px;">
-          <select id="o-client" onchange="refreshOrderTotals()" style="flex:1;">${state.clients.map(c=>`<option value="${c.id}" ${o&&o.clientId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+          <select id="o-client" onchange="refreshOrderTotals()" style="flex:1;">${state.clients.map(c=>`<option value="${c.id}" ${(o&&o.clientId===c.id)||(!o&&presetClientId===c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
           <button type="button" class="btn btn-ghost btn-sm" style="white-space:nowrap;" onclick="openClientModalFromOrder()">+ Cadastrar cliente</button>
         </div>
         <div class="hint" style="margin-top:4px;">Não achou o cliente na lista? Cadastre um novo sem perder os itens já adicionados abaixo.</div>
@@ -6496,12 +6496,32 @@ async function saveClientDetail(id){
     savedId = created.id;
   }
   const returnToOrder = pendingOrderClientReturn; // capturar antes do closeModal() limpar a flag
+  const isNewClient = !id;
   closeModal(); toast('Cliente salvo'); await loadAll(); renderAll();
   if(addressChanged && savedId){ await ensureClientDistance(savedId, true); await loadAll(); renderAll(); }
   if(returnToOrder){
     pendingOrderClientReturn = returnToOrder;
     resumeOrderModalFromClient(savedId);
+  } else if(isNewClient && savedId){
+    offerCreateOrderForNewClient(savedId, name);
   }
+}
+// Depois de cadastrar um cliente novo pela aba Clientes (fora do fluxo "Novo pedido"), oferece já lançar
+// um pedido pra ele — pequeno modal de confirmação em vez de toast, porque a ação precisa de um botão
+// (e não só de um aviso passageiro) pra não perder o gancho de já vender pro cliente recém-cadastrado.
+function offerCreateOrderForNewClient(clientId, clientName){
+  if(!canWrite('pedidos')) return;
+  openModal(`
+    <div class="modal-head"><h3>✅ Cliente cadastrado</h3></div>
+    <div style="margin:4px 0 20px;font-size:14px;">
+      <strong>${esc(clientName)}</strong> foi cadastrado com sucesso.<br>
+      <span style="color:var(--muted);">Quer lançar um pedido agora pra ele(a)?</span>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Agora não</button>
+      <button class="btn btn-primary" onclick="openOrderModal(null,'${clientId}')">🧊 Lançar pedido</button>
+    </div>
+  `);
 }
 async function deleteClient(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir clientes', true); return; }
