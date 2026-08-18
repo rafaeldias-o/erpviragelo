@@ -5054,8 +5054,76 @@ function renderDriverFeeBoxes(){
         <div class="stat-row"><span class="stat-row-label">Valor a receber</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(fee.value)}</span></div>
       </div>
       <div class="hint" style="margin-top:8px;">Base: ${state.company.fuelEfficiencyKmL||10} km/L · ${fmtMoney(state.company.fuelPricePerLiter||6.20)}/L</div>
+      <div class="hint" style="margin-top:8px;color:var(--accent-2);font-weight:600;">🔍 Clique pra ver as entregas e conferir a quilometragem</div>
     `;
+    box.style.cursor = 'pointer';
+    box.title = 'Ver entregas do período e conferir a quilometragem calculada';
+    box.onclick = () => openDriverFeeDetail(dr.v);
   });
+}
+// Lista as entregas usadas no cálculo da taxa do motorista, pra conferir manualmente se a km bate —
+// ordenadas da maior distância pra menor (pra saltar aos olhos qualquer valor calculado errado) e com
+// aviso visual quando uma entrega está muito acima da média das demais do período. Permite corrigir
+// a distância direto aqui (afeta o valor a receber do motorista na hora).
+function openDriverFeeDetail(driver){
+  const label = DELIVERY_DRIVERS.find(d=>d.v===driver)?.label || driver;
+  renderDriverFeeDetailModal(driver, label, pagarMonthRange());
+}
+function renderDriverFeeDetailModal(driver, label, range){
+  const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=range.from && d.date<=range.to)
+    .sort((a,b)=> b.distanceKm - a.distanceKm);
+  const totalKm = dels.reduce((s,d)=>s+d.distanceKm,0);
+  const efficiency = state.company.fuelEfficiencyKmL || 10;
+  const price = state.company.fuelPricePerLiter || 6.20;
+  // Mediana em vez de média: um único valor absurdo (ex: endereço mal geocodificado, 1000+ km) puxa a
+  // média inteira pra cima e esconde a si mesmo do teste "muito acima da média" — a mediana não sofre
+  // esse efeito e continua identificando o outlier corretamente mesmo com poucos dados no período.
+  const distances = dels.map(d=>d.distanceKm).sort((a,b)=>a-b);
+  const mid = Math.floor(distances.length/2);
+  const medianKm = distances.length ? (distances.length%2 ? distances[mid] : (distances[mid-1]+distances[mid])/2) : 0;
+  const monthLabelCap = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+  openModal(`
+    <div class="modal-head"><h3>🚚 Entregas de ${esc(label)} — ${esc(monthLabelCap)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:12px;">Confira a distância de cada entrega. Valores muito acima da mediana do período (destacados em vermelho) costumam indicar erro no endereço ou no cálculo automático — corrija direto aqui, se precisar.</div>
+    ${dels.length ? `<div class="table-scroll">
+      <table>
+        <thead><tr><th>Data</th><th>Cliente</th><th>Distância (km)</th><th></th></tr></thead>
+        <tbody id="driverFeeDetailRows">${dels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}</tbody>
+      </table>
+    </div>` : '<div class="hint">Nenhuma entrega encontrada nesse período.</div>'}
+    <div class="stat-row-list" style="margin-top:14px;">
+      <div class="stat-row"><span class="stat-row-label">Total km</span><span class="stat-row-value" id="driverFeeDetailTotalKm">${totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span></div>
+      <div class="stat-row"><span class="stat-row-label">Valor a receber</span><span class="stat-row-value" id="driverFeeDetailTotalValue" style="font-weight:700;">${fmtMoney(totalKm/efficiency*price)}</span></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'wide');
+}
+function renderDriverFeeDetailRow(d, medianKm){
+  const client = state.clients.find(c=>c.id===d.clientId);
+  const suspicious = medianKm>0 && d.distanceKm > medianKm*4 && d.distanceKm > 50;
+  return `<tr id="driverFeeDetailRow-${d.id}">
+    <td>${fmtDate(d.date)}</td>
+    <td>${esc(client?client.name:'—')}${client&&client.address?`<div style="color:var(--muted);font-size:11px;">${esc(client.address)}${client.city?', '+esc(client.city):''}</div>`:''}</td>
+    <td>
+      <input type="number" step="0.1" min="0" inputmode="decimal" value="${d.distanceKm}" style="width:90px;${suspicious?'border-color:var(--danger);color:var(--danger);font-weight:700;':''}" id="driverFeeDetailInput-${d.id}">
+      ${suspicious?'<div style="color:var(--danger);font-size:10.5px;margin-top:2px;">⚠️ Muito acima da mediana</div>':''}
+    </td>
+    <td><button class="btn btn-ghost btn-sm" onclick="saveDriverFeeDetailDistance('${d.id}')">Salvar</button></td>
+  </tr>`;
+}
+async function saveDriverFeeDetailDistance(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
+  const input = document.getElementById(`driverFeeDetailInput-${id}`);
+  if(!input) return;
+  const value = parseFloat(input.value);
+  if(isNaN(value) || value<0){ toast('Digite uma distância válida', true); return; }
+  const { error } = await sb.from('deliveries').update({ distance_km: value }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao salvar distância'); return; }
+  toast('Distância atualizada');
+  const driver = state.deliveries.find(x=>x.id===id)?.driver;
+  await loadAll();
+  renderDriverFeeBoxes();
+  if(driver) renderDriverFeeDetailModal(driver, DELIVERY_DRIVERS.find(x=>x.v===driver)?.label||driver, pagarMonthRange());
 }
 function renderPagarTable(){
   const pagasWrap = document.getElementById('pagarPagasWrap');
