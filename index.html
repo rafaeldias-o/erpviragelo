@@ -6345,6 +6345,20 @@ function setHasFreezer(v){
 function normalizeCityName(s){
   return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 }
+// Ponto de referência (centro aproximado de Tubarão-SC, onde fica toda a operação) usado só pra checar
+// se um resultado de geocodificação é PLAUSÍVEL — não pra medir a distância real de entrega (isso
+// continua sendo feito via rota/OSRM a partir da fábrica). Praticamente todo endereço cadastrado no
+// sistema deveria cair a poucos km disso; se vier muito mais longe, quase certamente o geocodificador
+// bateu numa rua de MESMO NOME só que em outra cidade do Brasil (já aconteceu de verdade: endereço de
+// motorista calculado a mais de 1000 km de distância). Serve de segunda camada de proteção mesmo quando
+// o nome da cidade "bate" por coincidência, e protege TODO mundo que usa geocodeAddress — clientes,
+// prospects, endereço da fábrica, casa dos motoristas — a partir de um único lugar.
+const TUBARAO_REF_POINT = { lat: -28.4713, lng: -49.0144 };
+const MAX_PLAUSIBLE_KM_FROM_TUBARAO = 30;
+function isPlausibleTubaraoLocation(lat, lng){
+  if(lat==null || lng==null || isNaN(lat) || isNaN(lng)) return false;
+  return haversineKm(TUBARAO_REF_POINT, {lat, lng}) <= MAX_PLAUSIBLE_KM_FROM_TUBARAO;
+}
 async function geocodeAddress(query, expectedCity){
   if(!query || !query.trim()) return null;
   try{
@@ -6353,24 +6367,32 @@ async function geocodeAddress(query, expectedCity){
     if(!res.ok) return null;
     const data = await res.json();
     if(!data || !data.length) return null;
+    // Filtra primeiro por plausibilidade geográfica (perto de Tubarão). Se ALGUM candidato passar nesse
+    // filtro, só considera esses daqui pra frente — evita escolher por engano um resultado de mesmo nome
+    // só que em outra cidade, mesmo que o nome da cidade também bata (coincidência). Se NENHUM candidato
+    // for plausível, mantém a lista completa: endereços legitimamente fora de Tubarão (raro nesse
+    // sistema, mas possível) ainda funcionam desde que a cidade informada bata certinho abaixo.
+    const plausible = data.filter(d => isPlausibleTubaraoLocation(parseFloat(d.lat), parseFloat(d.lon)));
+    const candidates = plausible.length ? plausible : data;
     if(expectedCity){
       const expected = normalizeCityName(expectedCity);
-      const match = data.find(d=>{
+      const match = candidates.find(d=>{
         const addr = d.address || {};
         // Cidades pequenas/bairros às vezes vêm em campos diferentes dependendo de como a região foi
         // mapeada no OpenStreetMap (city, town, village, municipality, county, ou até suburb/state_district
         // em casos raros) — checamos todos, e como reforço final, se o nome da cidade aparece em QUALQUER
         // lugar do endereço completo formatado (display_name), que praticamente sempre inclui a cidade.
-        const candidates = [addr.city, addr.town, addr.village, addr.municipality, addr.county, addr.suburb, addr.state_district]
+        const candidateCities = [addr.city, addr.town, addr.village, addr.municipality, addr.county, addr.suburb, addr.state_district]
           .filter(Boolean).map(normalizeCityName);
-        const structuredMatch = candidates.some(c => c.includes(expected) || expected.includes(c));
+        const structuredMatch = candidateCities.some(c => c.includes(expected) || expected.includes(c));
         const displayNameMatch = normalizeCityName(d.display_name).includes(expected);
         return structuredMatch || displayNameMatch;
       });
       if(!match) return null; // nenhum resultado bate com a cidade cadastrada — melhor não geocodificar errado
       return { lat: parseFloat(match.lat), lng: parseFloat(match.lon) };
     }
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    if(!plausible.length) return null; // sem cidade esperada informada pra confiar, e nada perto de Tubarão -> não arrisca
+    return { lat: parseFloat(plausible[0].lat), lng: parseFloat(plausible[0].lon) };
   }catch(e){ console.warn('Geocodificação falhou:', e); return null; }
 }
 // Monta o endereço completo na ordem que o geocodificador espera: Rua e número (já vêm juntos no
@@ -9051,15 +9073,15 @@ async function saveRouteModeSettings(){
 
   if(mode==='casa_motorista'){
     if(betoAddress && betoAddress !== state.company.betoHomeAddress){
-      const coords = await geocodeAddress(betoAddress + ', Brasil', null);
-      if(!coords){ toast('Não localizei o endereço da casa do Beto no mapa — confira e tenta de novo', true); return; }
+      const coords = await geocodeAddress(betoAddress + ', Brasil', 'Tubarão');
+      if(!coords){ toast('Não localizei o endereço da casa do Beto perto de Tubarão — confira e tenta de novo', true); return; }
       patch.beto_home_address = betoAddress; patch.beto_home_lat = coords.lat; patch.beto_home_lng = coords.lng;
     } else if(betoAddress){
       patch.beto_home_address = betoAddress;
     }
     if(guiAddress && guiAddress !== state.company.guiHomeAddress){
-      const coords = await geocodeAddress(guiAddress + ', Brasil', null);
-      if(!coords){ toast('Não localizei o endereço da casa do Gui no mapa — confira e tenta de novo', true); return; }
+      const coords = await geocodeAddress(guiAddress + ', Brasil', 'Tubarão');
+      if(!coords){ toast('Não localizei o endereço da casa do Gui perto de Tubarão — confira e tenta de novo', true); return; }
       patch.gui_home_address = guiAddress; patch.gui_home_lat = coords.lat; patch.gui_home_lng = coords.lng;
     } else if(guiAddress){
       patch.gui_home_address = guiAddress;
@@ -9080,9 +9102,9 @@ async function saveCompany(){
     address: document.getElementById('cfg-address').value.trim(),
   };
   if(data.address && data.address !== state.company.geocodedAddress){
-    const coords = await geocodeAddress(data.address + ', Brasil');
+    const coords = await geocodeAddress(data.address + ', Brasil', 'Tubarão');
     if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = data.address; }
-    else { toast('Endereço salvo, mas não localizei ele no mapa — a rota otimizada vai começar direto na primeira entrega até isso ser resolvido.', true); }
+    else { toast('Endereço salvo, mas não localizei ele perto de Tubarão no mapa — a rota otimizada vai começar direto na primeira entrega até isso ser resolvido.', true); }
   }
   const { error } = await sb.from('company_settings').upsert(data);
   if(error){ dbErr(error, 'Erro ao salvar dados da empresa'); return; }
