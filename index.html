@@ -2765,13 +2765,22 @@ function pedidosMonthRange(){
   const y=base.getFullYear(), m=base.getMonth();
   return { from:`${y}-${String(m+1).padStart(2,'0')}-01`, to:new Date(y,m+1,0).toISOString().slice(0,10), label: base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
 }
-// Resumo do mês em Pedidos — sempre o mês corrente, independente do mês que a lista abaixo está navegando
-// (a lista pode olhar pra trás, mas o resumo é sempre "como estamos indo agora").
+// Resumo do mês em Pedidos — reflete o MESMO período que a lista abaixo está mostrando (navegando com as
+// setas de mês, ou "Todos" pra ver tudo), em vez de ficar sempre travado no mês corrente.
 function renderPedidosDashboard(){
   const box = document.getElementById('pedidosDashStats');
   if(!box) return;
-  const monthKey = todayStr().slice(0,7);
-  const pedidosMes = state.orders.filter(o=>o.createdAt && o.createdAt.slice(0,7)===monthKey);
+
+  let pedidosMes, label, monthKey;
+  if(pedidosShowAll){
+    pedidosMes = state.orders;
+    label = 'Todos os períodos';
+  } else {
+    const range = pedidosMonthRange();
+    monthKey = range.from.slice(0,7);
+    label = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+    pedidosMes = state.orders.filter(o=>o.createdAt && o.createdAt.slice(0,7)===monthKey);
+  }
   const entreguesMes = pedidosMes.filter(o=>o.status==='entregue');
   const faturamento = entreguesMes.reduce((s,o)=>s+o.total,0);
   const ticketMedio = entreguesMes.length ? faturamento/entreguesMes.length : 0;
@@ -2786,15 +2795,22 @@ function renderPedidosDashboard(){
     else clientesPontuaisSet.add(c.id);
   });
 
-  document.getElementById('pedidosResumoLabel').textContent = new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'}).replace(/^\w/,c=>c.toUpperCase());
+  document.getElementById('pedidosResumoLabel').textContent = label;
   const totalPedidosMes = pedidosMes.reduce((s,o)=>s+o.total,0);
-  const pctVsPrev = (curr, prev) => prev>0 ? ((curr-prev)/prev*100) : (curr>0?100:0);
-  const prevMonthKey = addDays(monthKey+'-01', -1).slice(0,7);
-  const pedidosPrevMes = state.orders.filter(o=>o.createdAt && o.createdAt.slice(0,7)===prevMonthKey);
-  const entreguesPrevMes = pedidosPrevMes.filter(o=>o.status==='entregue');
-  const faturamentoPrev = entreguesPrevMes.reduce((s,o)=>s+o.total,0);
-  const ticketMedioPrev = entreguesPrevMes.length ? faturamentoPrev/entreguesPrevMes.length : 0;
-  const pacotesPrev = entreguesPrevMes.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+
+  // % vs período anterior só faz sentido olhando um mês específico — no modo "Todos" não tem "anterior" pra comparar.
+  let pctVsPrev = () => null, prevLabel = '';
+  let pedidosPrevMes = [], entreguesPrevMes = [], faturamentoPrev = 0, ticketMedioPrev = 0, pacotesPrev = 0;
+  if(!pedidosShowAll){
+    pctVsPrev = (curr, prev) => prev>0 ? ((curr-prev)/prev*100) : (curr>0?100:0);
+    const prevMonthKey = addDays(monthKey+'-01', -1).slice(0,7);
+    prevLabel = prevMonthKey.split('-').reverse().join('/');
+    pedidosPrevMes = state.orders.filter(o=>o.createdAt && o.createdAt.slice(0,7)===prevMonthKey);
+    entreguesPrevMes = pedidosPrevMes.filter(o=>o.status==='entregue');
+    faturamentoPrev = entreguesPrevMes.reduce((s,o)=>s+o.total,0);
+    ticketMedioPrev = entreguesPrevMes.length ? faturamentoPrev/entreguesPrevMes.length : 0;
+    pacotesPrev = entreguesPrevMes.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
+  }
 
   const card = (icon, bg, label, value, pct) => `
     <div class="stat-card" style="padding:14px;">
@@ -2803,13 +2819,13 @@ function renderPedidosDashboard(){
         <div class="stat-label" style="margin:0;">${label}</div>
       </div>
       <div class="stat-value" style="font-size:18px;">${value}</div>
-      ${pct!=null ? `<div class="hint" style="margin-top:2px;color:${pct>=0?'var(--success)':'var(--danger)'};">${pct>=0?'+':''}${pct.toFixed(1)}% vs ${prevMonthKey.split('-').reverse().join('/')}</div>` : ''}
+      ${pct!=null ? `<div class="hint" style="margin-top:2px;color:${pct>=0?'var(--success)':'var(--danger)'};">${pct>=0?'+':''}${pct.toFixed(1)}% vs ${prevLabel}</div>` : ''}
     </div>`;
 
   box.innerHTML = [
     card('🧾','#DBEAFE','Pedidos realizados', pedidosMes.length, pctVsPrev(pedidosMes.length, pedidosPrevMes.length)),
     card('💰','#EDE9FE','Soma total dos pedidos', fmtMoney(totalPedidosMes), null),
-    card('📊','#DCFCE7','Faturamento no mês', fmtMoney(faturamento), pctVsPrev(faturamento, faturamentoPrev)),
+    card('📊','#DCFCE7',pedidosShowAll?'Faturamento total':'Faturamento no mês', fmtMoney(faturamento), pctVsPrev(faturamento, faturamentoPrev)),
     card('💳','#F3E8FF','Ticket médio', fmtMoney(ticketMedio), pctVsPrev(ticketMedio, ticketMedioPrev)),
     card('📦','#FEF3C7','Pacotes vendidos', pacotes, pctVsPrev(pacotes, pacotesPrev)),
     card('🔁','#DBEAFE','Clientes recorrentes que pediram', clientesRecorrentesSet.size, null),
@@ -6645,6 +6661,7 @@ function renderDashboard(){
   document.getElementById('dashFinanceiroBox').innerHTML = `
     <div class="panel-head"><div class="section-title">💰 Financeiro</div></div>
     <div class="stat-row-list">
+      <div class="stat-row clickable" onclick="goToFinTab('metas')"><span class="stat-row-label">Total faturado no ano</span><span class="stat-row-value">${fmtMoney(faturamentoAno)}</span></div>
       <div class="stat-row clickable" onclick="goToPedidosMonth()"><span class="stat-row-label">Faturamento do mês</span><span class="stat-row-value">${fmtMoney(faturamentoMes)}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('pagar')"><span class="stat-row-label">Despesas do mês</span><span class="stat-row-value">${fmtMoney(despesasMes)}</span></div>
       <div class="stat-row clickable" onclick="goToFinTab('lancamentos')"><span class="stat-row-label">Resultado de caixa do mês</span><span class="stat-row-value" style="color:${lucroMes>=0?'var(--success)':'var(--danger)'}">${fmtMoney(lucroMes)}</span></div>
