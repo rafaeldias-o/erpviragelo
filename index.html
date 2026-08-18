@@ -2817,6 +2817,7 @@ function promptOrderDriver(orderId){
       <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(order?.paymentMethod||'—')}</span></div>
     </div>
     <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
+    <div id="odp-map" style="height:240px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
     <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
     <div class="field"><label>Creditar pagamento na conta</label><select id="odp-account">
       <option value="">— Não creditar em nenhuma conta —</option>
@@ -2832,18 +2833,23 @@ function promptOrderDriver(orderId){
 }
 let odpBaseDistanceKm = null;
 let odpCurrentClientId = null;
+let odpClientCoord = null;
+let odpLeafletMap = null;
 async function loadDeliveryDistanceIntoModal(client){
   const wrap = document.getElementById('odp-distance-wrap');
   odpBaseDistanceKm = null;
+  odpClientCoord = null;
   odpCurrentClientId = client ? client.id : null;
   if(!wrap || !client){ if(wrap) wrap.innerHTML = `<div class="field"><label>Distância até o cliente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`; return; }
   const result = await ensureClientDistance(client.id);
   if(!document.body.contains(wrap)) return; // modal já foi fechado antes de terminar de calcular
   if(result && result.distanceKm!=null){
     odpBaseDistanceKm = result.distanceKm; // fábrica -> cliente, é a base de qualquer um dos 3 modos
+    odpClientCoord = (result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null;
     renderOdpDistanceDisplay();
   } else {
     wrap.innerHTML = `<div class="field"><label>Não localizei o endereço no mapa — digite a distância manualmente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`;
+    renderOdpMap(null, null);
   }
 }
 // Recalcula o texto/valor mostrado no modal de acordo com o modo de rota configurado (ida / ida e volta /
@@ -2858,32 +2864,70 @@ function renderOdpDistanceDisplay(){
   if(mode==='ida_volta'){
     const total = odpBaseDistanceKm * 2;
     wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Ida e volta (fábrica → cliente → fábrica): <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+    renderOdpMap(odpClientCoord, null);
     return;
   }
   if(mode==='casa_motorista'){
     const driver = document.getElementById('odp-driver')?.value;
     if(!driver){
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br>Selecione o motorista pra somar o trecho até a casa dele.</div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
+      renderOdpMap(odpClientCoord, null);
       return;
     }
     const home = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
     if(home.lat==null){
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br><span style="color:var(--warn);">⚠️ Endereço da casa desse motorista não cadastrado — contando só até o cliente. Cadastre em Agenda de Entregas.</span></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
+      renderOdpMap(odpClientCoord, null);
       return;
     }
     wrap.innerHTML = `<div class="hint">📍 Calculando trecho cliente → casa do motorista...</div>`;
-    const client = state.clients.find(c=>c.id===odpCurrentClientId);
     const clientForCalc = odpCurrentClientId; // pra conferir se o modal ainda é o mesmo quando a resposta chegar
-    routeDistanceKm({lat:client.lat,lng:client.lng}, home).then(extra=>{
+    routeDistanceKm(odpClientCoord, home).then(extra=>{
       if(!document.body.contains(wrap) || odpCurrentClientId!==clientForCalc) return; // modal mudou nesse meio tempo
       const finalExtra = extra!=null ? extra : 0;
       const total = odpBaseDistanceKm + finalExtra;
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${baseTxt} km + cliente → casa: ${finalExtra.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+      renderOdpMap(odpClientCoord, home);
     });
     return;
   }
   // modo 'ida' (padrão)
   wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${baseTxt} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
+  renderOdpMap(odpClientCoord, null);
+}
+// Mostra num mapa (Leaflet/OpenStreetMap, mesmo padrão já usado em Visitas Comerciais) o trajeto que está
+// sendo usado pra calcular a km da entrega: 🏭 fábrica (início) → 📍 cliente (destino), e, no modo "casa
+// do motorista", também 🏠 a casa de quem entregou (fim). Só ilustra o cálculo que já roda automaticamente
+// (via ensureClientDistance/routeDistanceKm) — não substitui esse cálculo, só o deixa visível.
+function renderOdpMap(clientCoord, driverHomeCoord){
+  const el = document.getElementById('odp-map');
+  if(!el || typeof L==='undefined') return;
+  const origin = companyOrigin();
+  if(odpLeafletMap){ odpLeafletMap.remove(); odpLeafletMap = null; }
+  if(!origin || !clientCoord){ el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  odpLeafletMap = L.map(el).setView([origin.lat, origin.lng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(odpLeafletMap);
+
+  const factoryIcon = L.divIcon({ className:'', html:'<div style="background:#1C7FA3;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏭</div>', iconSize:[30,30] });
+  L.marker([origin.lat, origin.lng], {icon:factoryIcon}).addTo(odpLeafletMap).bindPopup('Fábrica (início)');
+
+  const destIcon = L.divIcon({ className:'', html:'<div style="background:#16A34A;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">📍</div>', iconSize:[28,28] });
+  L.marker([clientCoord.lat, clientCoord.lng], {icon:destIcon}).addTo(odpLeafletMap).bindPopup(driverHomeCoord?'Cliente':'Cliente (destino)');
+
+  const bounds = [[origin.lat, origin.lng],[clientCoord.lat, clientCoord.lng]];
+  const routePoints = [[origin.lat, origin.lng],[clientCoord.lat, clientCoord.lng]];
+
+  if(driverHomeCoord && driverHomeCoord.lat!=null && driverHomeCoord.lng!=null){
+    const homeIcon = L.divIcon({ className:'', html:'<div style="background:#7C3AED;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏠</div>', iconSize:[28,28] });
+    L.marker([driverHomeCoord.lat, driverHomeCoord.lng], {icon:homeIcon}).addTo(odpLeafletMap).bindPopup('Casa do motorista (fim)');
+    bounds.push([driverHomeCoord.lat, driverHomeCoord.lng]);
+    routePoints.push([driverHomeCoord.lat, driverHomeCoord.lng]);
+  }
+
+  L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(odpLeafletMap);
+  odpLeafletMap.fitBounds(bounds, {padding:[30,30]});
+  setTimeout(()=>{ if(odpLeafletMap) odpLeafletMap.invalidateSize(); }, 150);
 }
 // Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco, Cartão -> Maquininha.
 function suggestedAccountForPaymentMethod(paymentMethod){
@@ -6435,7 +6479,7 @@ async function ensureClientDistance(clientId, force){
     freight_calculated_at: new Date().toISOString()
   }).eq('id', clientId);
   if(error){ dbErr(error, 'Erro ao salvar frete do cliente'); return null; }
-  return { distanceKm, freightValue };
+  return { distanceKm, freightValue, lat, lng };
 }
 // Chamada sempre que a Política de Frete muda: reaplica as faixas a todos os clientes que já têm
 // distância calculada, sem precisar geocodificar de novo (a distância até a fábrica não muda).
