@@ -7025,12 +7025,12 @@ function renderProducaoVendas(){
   const coberturaDias = consumo30>0 ? estoqueTotalKg/(consumo30/30) : null;
 
   box.innerHTML = `
+    <div class="stat-card"><div class="stat-label">📦 Estoque total</div><div class="stat-value" style="color:${stockLevelColor(estoqueTotalKg)}">${fmtKgNum(estoqueTotalKg)} kg</div></div>
+    <div class="stat-card"><div class="stat-label">Pacotes de 3kg</div><div class="stat-value" style="font-size:16px;color:${stockLevelColor(pacotes3kg*3)}">${pacotes3kg}</div></div>
+    <div class="stat-card"><div class="stat-label">Produzido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalProdMes)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Vendido no mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(totalVend)} kg</div></div>
     <div class="stat-card"><div class="stat-label">Saldo do mês</div><div class="stat-value" style="font-size:16px;">${fmtKgNum(saldo)} kg</div></div>
-    <div class="stat-card"><div class="stat-label">% comercializado</div><div class="stat-value" style="font-size:16px;">${pctComercializado.toFixed(1)}%</div><div class="stat-note">sobre vendido + estoque atual</div></div>
-    <div class="stat-card"><div class="stat-label">Cobertura de estoque</div><div class="stat-value" style="font-size:16px;">${coberturaDias!=null?coberturaDias.toFixed(1)+' dias':'—'}</div></div>
     <div class="stat-card"><div class="stat-label">Valor em estoque</div><div class="stat-value" style="font-size:16px;">${fmtMoney(valorEstoque)}</div></div>
-    <div class="stat-card"><div class="stat-label">Pacotes de 3kg</div><div class="stat-value" style="font-size:16px;color:${stockLevelColor(pacotes3kg*3)}">${pacotes3kg}</div></div>
   `;
   document.getElementById('producaoVendasWarnBox').innerHTML = unconvertible>0
     ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${unconvertible} item(ns) vendido(s) não puderam ser convertidos pra kg (produto sem peso definido em Estoque) e ficaram fora do total de vendas.</div>`
