@@ -78,6 +78,10 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s;}
 .stat-card.clickable:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--accent-2);}
 .stat-card.clickable:active{transform:translateY(0);}
+.chart-hover-wrap{position:relative;}
+.chart-hover-tooltip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:11px;line-height:1.4;padding:5px 9px;border-radius:7px;white-space:nowrap;transform:translate(-50%,-118%);z-index:5;box-shadow:0 3px 10px rgba(0,0,0,.22);opacity:0;transition:opacity .1s;}
+.chart-hover-tooltip.visible{opacity:1;}
+.chart-hover-tooltip strong{font-size:12px;}
 .stat-row .stat-row-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
 .stat-row .stat-row-value{font-size:14.5px;font-weight:700;text-align:right;white-space:nowrap;}
 .panel-soft-blue{background:rgba(79,195,224,.08);border-color:rgba(79,195,224,.25);}
@@ -552,16 +556,16 @@ tr:last-child td{border-bottom:none;}
         <div class="three-col">
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Evolução do estoque (mês)</div></div>
-            <div id="stockEvolutionChart"></div>
+            <div id="stockEvolutionChart" class="chart-hover-wrap"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Entradas x Saídas (acumulado)</div></div>
             <div class="legend" style="margin-bottom:2px;"><span><i style="background:var(--accent-2)"></i>Entradas</span><span><i style="background:#F3C08A"></i>Saídas</span></div>
-            <div id="stockInOutChart"></div>
+            <div id="stockInOutChart" class="chart-hover-wrap"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Valor em estoque (mês)</div></div>
-            <div id="stockValueChart"></div>
+            <div id="stockValueChart" class="chart-hover-wrap"></div>
           </div>
         </div>
       </section>
@@ -2440,12 +2444,15 @@ async function renderStockCharts(items, isFinished){
 
   evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — hoje: ${qtySeries[qtySeries.length-1]??0} un</div>`;
   valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED') + `<div class="hint" style="margin-top:4px;">Valor em estoque hoje: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
+  attachLineChartHover('stockEvolutionChart', qtySeries, dayLabels, v=>fmtKgNum(v)+' un', '#2563EB');
+  attachLineChartHover('stockValueChart', valueSeries, dayLabels, v=>fmtMoney(v), '#7C3AED');
 
   // Entradas x Saídas acumuladas dentro do mês, até cada data-alvo
   const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   const saidaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='saida' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   inOutBox.innerHTML = buildDualBarChartSvg(entradaSeries, saidaSeries, dayLabels, 'var(--accent-2)', '#F3C08A', 'Entradas acumuladas', 'Saídas acumuladas')
     + `<div class="hint" style="margin-top:4px;">Acumulado no mês — entradas: ${entradaSeries[entradaSeries.length-1]||0} · saídas: ${saidaSeries[saidaSeries.length-1]||0}</div>`;
+  attachDualBarHover('stockInOutChart', entradaSeries, saidaSeries, dayLabels, v=>fmtKgNum(v)+' un', 'Entradas', 'Saídas');
 }
 
 // =========================================================
@@ -7443,7 +7450,7 @@ function buildLineChartSvg(values, labels, color){
   const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`).join('');
   const areaPts = `${xOf(0).toFixed(1)},${(h-padB).toFixed(1)} ${points} ${xOf(lastI).toFixed(1)},${(h-padB).toFixed(1)}`;
   const gradId = 'lineGrad'+Math.random().toString(36).slice(2,9);
-  const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;" preserveAspectRatio="none">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
       <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
@@ -7480,12 +7487,104 @@ function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA,
   for(let i=4;i<n;i+=5) labelIdxs.push(i);
   if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${esc(labels[i])}</text>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;">
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;" preserveAspectRatio="none">
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${baseY}" x2="${w-padR}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     ${bars}
     ${axisLabels}
   </svg>`;
+}
+// Cria (se ainda não existir) o par guia-vertical + ponto destacado + tooltip flutuante usado no hover
+// dos gráficos de linha/barra do sistema. Reaproveitado por attachLineChartHover e attachDualBarHover.
+function ensureChartHoverElements(container, svg){
+  let guide = svg.querySelector('.chart-hover-guide');
+  if(!guide){
+    guide = document.createElementNS('http://www.w3.org/2000/svg','line');
+    guide.setAttribute('class','chart-hover-guide');
+    guide.setAttribute('stroke','var(--muted)'); guide.setAttribute('stroke-width','1'); guide.setAttribute('stroke-dasharray','3,3');
+    guide.style.display = 'none'; guide.style.pointerEvents = 'none';
+    svg.appendChild(guide);
+  }
+  let tooltip = container.querySelector('.chart-hover-tooltip');
+  if(!tooltip){
+    tooltip = document.createElement('div');
+    tooltip.className = 'chart-hover-tooltip';
+    container.appendChild(tooltip);
+  }
+  return { guide, tooltip };
+}
+// Ativa o hover interativo num gráfico de linha já renderizado (buildLineChartSvg): ao passar o mouse,
+// mostra uma linha guia vertical, destaca o ponto mais próximo e exibe uma tooltip com o valor do dia.
+// `containerId` é o mesmo id do <div> onde o SVG foi inserido via innerHTML.
+function attachLineChartHover(containerId, values, labels, fmtFn, color){
+  const container = document.getElementById(containerId);
+  const svg = container?.querySelector('svg');
+  if(!container || !svg || !values.length) return;
+  const w=700, h=150, padL=34, padR=10, padT=12, padB=22;
+  const n = values.length;
+  const max = Math.max(...values,0), min = Math.min(...values,0);
+  const range = (max-min) || 1;
+  const xOf = i => n<=1 ? padL : padL + (i/(n-1))*(w-padL-padR);
+  const yOf = v => padT + (h-padT-padB) * (1 - (v-min)/range);
+
+  const { guide, tooltip } = ensureChartHoverElements(container, svg);
+  let dot = svg.querySelector('.chart-hover-dot');
+  if(!dot){
+    dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('class','chart-hover-dot'); dot.setAttribute('r','4.5'); dot.setAttribute('fill',color);
+    dot.setAttribute('stroke','var(--surface)'); dot.setAttribute('stroke-width','2'); dot.style.display='none'; dot.style.pointerEvents='none';
+    svg.appendChild(dot);
+  }
+
+  const move = (e)=>{
+    const rect = svg.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width * w;
+    let idx = Math.round((relX - padL) / (w - padL - padR) * (n-1));
+    idx = Math.max(0, Math.min(n-1, idx));
+    const x = xOf(idx), y = yOf(values[idx]);
+    guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', padT); guide.setAttribute('y2', h-padB);
+    guide.style.display = 'block';
+    dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.style.display = 'block';
+    const containerRect = container.getBoundingClientRect();
+    tooltip.style.left = (containerRect.left + (x/w)*rect.width - containerRect.left) + 'px';
+    tooltip.style.top = (containerRect.top + (y/h)*rect.height - containerRect.top) + 'px';
+    tooltip.innerHTML = `<strong>${esc(fmtFn?fmtFn(values[idx]):String(values[idx]))}</strong><div style="opacity:.75;">Dia ${esc(labels[idx])}</div>`;
+    tooltip.classList.add('visible');
+  };
+  const leave = ()=>{ guide.style.display='none'; dot.style.display='none'; tooltip.classList.remove('visible'); };
+  svg.addEventListener('mousemove', move);
+  svg.addEventListener('mouseleave', leave);
+}
+// Mesma ideia do attachLineChartHover, mas pro gráfico de barras duplas (buildDualBarChartSvg): mostra os
+// dois valores (ex: Entradas e Saídas) do dia mais próximo do cursor numa única tooltip.
+function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legendA, legendB){
+  const container = document.getElementById(containerId);
+  const svg = container?.querySelector('svg');
+  if(!container || !svg || !labels.length) return;
+  const w=700, h=150, padL=34, padR=10, padT=12, padB=22;
+  const n = labels.length;
+  const groupW = (w-padL-padR) / Math.max(1, n);
+  const xOfGroup = i => padL + i*groupW + groupW/2;
+
+  const { guide, tooltip } = ensureChartHoverElements(container, svg);
+
+  const move = (e)=>{
+    const rect = svg.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width * w;
+    let idx = Math.round((relX - padL - groupW/2) / groupW);
+    idx = Math.max(0, Math.min(n-1, idx));
+    const x = xOfGroup(idx);
+    guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', padT); guide.setAttribute('y2', h-padB);
+    guide.style.display = 'block';
+    const containerRect = container.getBoundingClientRect();
+    tooltip.style.left = (containerRect.left + (x/w)*rect.width - containerRect.left) + 'px';
+    tooltip.style.top = (containerRect.top) + 'px';
+    tooltip.innerHTML = `<div style="opacity:.75;margin-bottom:2px;">Dia ${esc(labels[idx])}</div><strong>${esc(legendA||'A')}: ${esc(fmtFn?fmtFn(seriesA[idx]):String(seriesA[idx]))}</strong><div><strong>${esc(legendB||'B')}: ${esc(fmtFn?fmtFn(seriesB[idx]):String(seriesB[idx]))}</strong></div>`;
+    tooltip.classList.add('visible');
+  };
+  const leave = ()=>{ guide.style.display='none'; tooltip.classList.remove('visible'); };
+  svg.addEventListener('mousemove', move);
+  svg.addEventListener('mouseleave', leave);
 }
 // ---- Produção × Vendas (Gráfico 3) ----
 function inferWeightKg(stockItem){
