@@ -93,6 +93,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 @media(max-width:520px){#producaoVendasStats{grid-template-columns:repeat(2,1fr) !important;}}
 
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
+.config-grid{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;}
+.config-grid>.panel{flex:1 1 420px;margin-bottom:0;}
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .section-title{font-size:15px;font-weight:700;}
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
@@ -141,6 +143,7 @@ tr:last-child td{border-bottom:none;}
 .next-visit-pill:hover{opacity:.82;}
 @media(max-width:760px){
   .modal-inner-scroll{max-height:calc(100vh - 260px);}
+  .config-grid>.panel{flex:1 1 100%;max-width:100% !important;}
 }
 .row-actions{display:flex;gap:2px;justify-content:flex-end;}
 .empty-state{text-align:center;padding:36px 20px;color:var(--muted);}
@@ -1324,6 +1327,7 @@ tr:last-child td{border-bottom:none;}
 
       <!-- CONFIGURACOES -->
       <section class="view" id="view-config">
+        <div class="config-grid">
         <div class="panel" style="max-width:520px;">
           <div class="panel-head"><div class="section-title">Minha Conta</div></div>
           <div id="minhaContaInfo" style="font-size:13px;color:var(--muted);"></div>
@@ -1361,6 +1365,7 @@ tr:last-child td{border-bottom:none;}
             Este sistema está conectado a um banco de dados Supabase real. Os dados são compartilhados entre todos os
             usuários da equipe, com login por e-mail/senha e permissões por perfil (Administrador, Operacional, Financeiro).
           </p>
+        </div>
         </div>
       </section>
 
