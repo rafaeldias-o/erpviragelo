@@ -78,6 +78,9 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s;}
 .stat-card.clickable:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--accent-2);}
 .stat-card.clickable:active{transform:translateY(0);}
+.panel.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.panel.clickable:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--accent-2);}
+.panel.clickable:active{transform:translateY(0);}
 .chart-hover-wrap{position:relative;}
 .chart-hover-tooltip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:11px;line-height:1.4;padding:5px 9px;border-radius:7px;white-space:nowrap;transform:translate(-50%,-118%);z-index:5;box-shadow:0 3px 10px rgba(0,0,0,.22);opacity:0;transition:opacity .1s;}
 .chart-hover-tooltip.visible{opacity:1;}
@@ -1906,7 +1909,7 @@ function renderProdutosStats(){
   const precoMedio = all.length ? all.reduce((s,p)=>s+p.salePrice,0)/all.length : 0;
   const margemMedia = all.length ? all.reduce((s,p)=> s + (p.salePrice>0?(p.salePrice-p.costPrice)/p.salePrice*100:0), 0)/all.length : 0;
   const card = (icon, bg, value, label, note, onclick) => `
-    <div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}>
+    <div class="stat-card${onclick?' clickable':''}" ${onclick?`onclick="${onclick}"`:''}>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
         <div style="width:30px;height:30px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">${icon}</div>
         <div class="stat-value" style="margin:0;">${value}</div>
@@ -3844,7 +3847,7 @@ function renderDashBottomCards(){
   const faturamentoMes = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=monthFrom).reduce((s,o)=>s+o.total,0);
   const meta = state.company.revenueGoalMonthly || 50000;
   const pctMeta = meta>0 ? Math.min(100, faturamentoMes/meta*100) : 0;
-  metaBox.style.cursor = 'pointer';
+  metaBox.classList.add('clickable');
   metaBox.onclick = () => setFinTab('metas');
   metaBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -3860,7 +3863,7 @@ function renderDashBottomCards(){
   const mediaVendaDiaria = vendas10dias / 10;
   const estoqueDisponivelValor = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
   const projecao30dias = mediaVendaDiaria * 30;
-  prevBox.style.cursor = 'pointer';
+  prevBox.classList.add('clickable');
   prevBox.onclick = () => openPrevisaoRecebimentosModal();
   prevBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">📈</span><span style="font-size:12.5px;color:var(--muted);">Previsão de vendas</span></div>
@@ -3872,7 +3875,7 @@ function renderDashBottomCards(){
   const contasPagarAbertas = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
   const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
   const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅'} : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️'} : {label:'Crítica', color:'var(--danger)', icon:'🔴'};
-  saudeBox.style.cursor = 'pointer';
+  saudeBox.classList.add('clickable');
   saudeBox.onclick = () => openSaudeFinanceiraModal();
   saudeBox.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">${saude.icon}</span><span style="font-size:12.5px;color:var(--muted);">Saúde financeira</span></div>
@@ -4004,7 +4007,7 @@ function renderMetasEInsights(){
     const meta = state.company[gp.field];
     const pct = meta>0 ? Math.min(100, faturamento/meta*100) : 0;
     const barColor = pct>=100?'var(--success)':pct>=60?'var(--accent)':'var(--warn)';
-    return `<div class="stat-card" style="cursor:pointer;" onclick="openEditGoalModal('${gp.key}')">
+    return `<div class="stat-card clickable" onclick="openEditGoalModal('${gp.key}')">
       <div class="stat-label">${gp.label}</div>
       <div class="stat-value" style="font-size:16px;">${fmtMoney(faturamento)}${meta?' / '+fmtMoney(meta):''}</div>
       ${meta ? `<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:${pct}%;background:${barColor};"></div></div><div class="hint" style="margin-top:3px;">${pct.toFixed(0)}%</div>` : '<div class="hint" style="margin-top:3px;color:var(--accent);">Clique pra definir uma meta</div>'}
@@ -4286,7 +4289,7 @@ function renderFinDashboard(){
   const receitaTotal = receitasPeriodo.reduce((s,t)=>s+t.amount,0);
   const despesaTotal = despesasPeriodo.reduce((s,t)=>s+t.amount,0);
 
-  const card = (label, value, onclick, color) => `<div class="stat-card" ${onclick?`style="cursor:pointer;" onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
+  const card = (label, value, onclick, color) => `<div class="stat-card${onclick?' clickable':''}" ${onclick?`onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
   compactBox.innerHTML = [
     card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
     card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
@@ -4839,7 +4842,7 @@ function renderFinAccountsTable(){
     ${state.financialAccounts.map(a=>{
       const t = accountTypeInfo(a.type);
       const balance = accountBalance(a.id);
-      return `<div class="panel" style="margin-bottom:0;padding:14px;cursor:pointer;" onclick="openFinAccountModal('${a.id}')">
+      return `<div class="panel clickable" style="margin-bottom:0;padding:14px;" onclick="openFinAccountModal('${a.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
           <div style="font-size:22px;">${t.icon}</div>
           <span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span>
@@ -5230,7 +5233,7 @@ function renderDriverFeeBoxes(){
       <div class="hint" style="margin-top:8px;">Base: ${state.company.fuelEfficiencyKmL||10} km/L · ${fmtMoney(state.company.fuelPricePerLiter||6.20)}/L</div>
       <div class="hint" style="margin-top:8px;color:var(--accent-2);font-weight:600;">🔍 Clique pra ver as entregas e conferir a quilometragem</div>
     `;
-    box.style.cursor = 'pointer';
+    box.classList.add('clickable');
     box.title = 'Ver entregas do período e conferir a quilometragem calculada';
     box.onclick = () => openDriverFeeDetail(dr.v);
   });
@@ -8097,7 +8100,7 @@ function renderNeighborhoodsTable(){
     ${list.map(n=>{
       const st = bairroStats(n.id);
       const barPct = st.agendadas>0 ? Math.round(st.realizadas/st.agendadas*100) : 0;
-      return `<div class="panel" style="margin-bottom:0;padding:12px;cursor:pointer;" onclick="openBairroDetail('${n.id}')">
+      return `<div class="panel clickable" style="margin-bottom:0;padding:12px;" onclick="openBairroDetail('${n.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div style="font-weight:700;font-size:13.5px;">${esc(n.name)}</div>
           <button class="icon-btn" onclick="event.stopPropagation(); openNeighborhoodModal('${n.id}')" style="margin:-4px -4px 0 0;">${iconEdit}</button>
@@ -10125,14 +10128,14 @@ function renderNotifSummary(){
   const valorPatrimonio = state.assets.reduce((s,a)=>s+(a.purchaseValue||0),0);
 
   box.innerHTML = `
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('tarefas_vencidas')"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('compromissos_hoje')"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('entregas_dia')"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('estoque_critico')"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('equip_manutencao')"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('manutencoes_vencidas')"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('garantias_proximas')"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
-    <div class="stat-card" style="cursor:pointer;" onclick="openDrilldown('patrimonio_dashboard')"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('tarefas_vencidas')"><div class="stat-label">🔴 Tarefas vencidas</div><div class="stat-value" style="color:${tarefasVencidas?'var(--danger)':'inherit'}">${tarefasVencidas}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('compromissos_hoje')"><div class="stat-label">🟡 Compromissos de hoje</div><div class="stat-value">${compromissosHoje}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('entregas_dia')"><div class="stat-label">🚚 Entregas do dia</div><div class="stat-value">${entregasHoje}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('estoque_critico')"><div class="stat-label">📦 Estoques críticos</div><div class="stat-value" style="color:${estoqueCritico?'var(--danger)':'inherit'}">${estoqueCritico}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('equip_manutencao')"><div class="stat-label">🧊 Equip. aguardando manutenção</div><div class="stat-value">${equipAguardando}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('manutencoes_vencidas')"><div class="stat-label">🛠 Manutenções vencidas</div><div class="stat-value" style="color:${manutencoesVencidas?'var(--danger)':'inherit'}">${manutencoesVencidas}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('garantias_proximas')"><div class="stat-label">📋 Garantias próximas do vencimento</div><div class="stat-value">${garantiasProximas}</div></div>
+    <div class="stat-card clickable" onclick="openDrilldown('patrimonio_dashboard')"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
   `;
 }
 let notifTasksShowCount = 7;
