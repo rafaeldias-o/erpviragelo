@@ -571,6 +571,15 @@ tr:last-child td{border-bottom:none;}
             <div id="stockValueChart" class="chart-hover-wrap"></div>
           </div>
         </div>
+        <div class="panel" id="stockGiroPanel" style="display:none;">
+          <div class="panel-head">
+            <div>
+              <div class="section-title">📊 Giro de produto / Curva ABC</div>
+              <div class="hint" style="margin:2px 0 0 0;">Quais produtos vendem mais rápido e quais representam a maior parte do faturamento — últimos 30 dias.</div>
+            </div>
+          </div>
+          <div id="stockGiroWrap" class="table-scroll"></div>
+        </div>
       </section>
 
       <!-- PRODUTOS -->
@@ -1006,6 +1015,10 @@ tr:last-child td{border-bottom:none;}
       <!-- CRM -->
       <section class="view" id="view-crm">
         <div class="stat-grid" id="crmStats"></div>
+        <div class="panel" id="crmLostReasonsPanel" style="display:none;">
+          <div class="panel-head"><div class="section-title">📉 Por que estamos perdendo leads?</div></div>
+          <div id="crmLostReasonsWrap"></div>
+        </div>
         <div class="panel-head" style="margin-bottom:10px;">
           <div class="section-title">Funil de vendas</div>
           <button class="btn btn-primary" onclick="openLeadModal()">+ Novo lead</button>
@@ -1347,6 +1360,7 @@ tr:last-child td{border-bottom:none;}
             </div>
             <div class="field"><label>E-mail</label><input id="cfg-email"></div>
             <div class="field"><label>Endereço</label><input id="cfg-address"></div>
+            <div class="field" style="max-width:280px;"><label>Alertar cliente recorrente sem pedido há quantos dias?</label><input id="cfg-cliente-inativo-dias" type="number" min="1" step="1"></div>
             <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
           </div>
           <div style="display:flex;flex-direction:column;gap:16px;">
@@ -1797,6 +1811,7 @@ async function loadAll(){
     machineMaxCapacityKgDay: co.machine_max_capacity_kg_day!=null ? Number(co.machine_max_capacity_kg_day) : 150,
     nextMachineCost: co.next_machine_cost!=null ? Number(co.next_machine_cost) : 18100,
     routeCalcMode: co.route_calc_mode || 'ida',
+    clienteInativoDias: co.cliente_inativo_dias!=null ? Number(co.cliente_inativo_dias) : 60,
     betoHomeAddress: co.beto_home_address || null, betoHomeLat: co.beto_home_lat!=null?Number(co.beto_home_lat):null, betoHomeLng: co.beto_home_lng!=null?Number(co.beto_home_lng):null,
     guiHomeAddress: co.gui_home_address || null, guiHomeLat: co.gui_home_lat!=null?Number(co.gui_home_lat):null, guiHomeLng: co.gui_home_lng!=null?Number(co.gui_home_lng):null,
   } : {};
@@ -1881,6 +1896,7 @@ function setStockTab(cat){
   document.getElementById('stockAddBtn').setAttribute('onclick', `openStockModal('${cat}')`);
   document.getElementById('stockAddBtn').style.display = cat==='produto_acabado' ? 'none' : 'inline-flex';
   document.getElementById('stockHint').style.display = cat==='produto_acabado' ? 'block' : 'none';
+  document.getElementById('stockGiroPanel').style.display = cat==='produto_acabado' ? 'block' : 'none';
   movementsShowCount = 6;
   renderEstoque();
 }
@@ -2348,6 +2364,8 @@ function renderEstoque(){
   document.getElementById('stockAddBtn').setAttribute('onclick', `openStockModal('${currentStockTab}')`);
   document.getElementById('stockAddBtn').style.display = currentStockTab==='produto_acabado' ? 'none' : 'inline-flex';
   document.getElementById('stockHint').style.display = currentStockTab==='produto_acabado' ? 'block' : 'none';
+  const giroPanel = document.getElementById('stockGiroPanel');
+  if(giroPanel) giroPanel.style.display = currentStockTab==='produto_acabado' ? 'block' : 'none';
   const items = state.stockItems.filter(p=>p.category===currentStockTab)
     .sort((a,b)=> (a.weightKg??999) - (b.weightKg??999) || a.name.localeCompare(b.name));
   const wrap = document.getElementById('stockTableWrap');
@@ -2457,6 +2475,55 @@ async function renderStockCharts(items, isFinished){
   inOutBox.innerHTML = buildDualBarChartSvg(entradaSeries, saidaSeries, dayLabels, 'var(--accent-2)', '#F3C08A', 'Entradas acumuladas', 'Saídas acumuladas')
     + `<div class="hint" style="margin-top:4px;">Acumulado no mês — entradas: ${entradaSeries[entradaSeries.length-1]||0} · saídas: ${saidaSeries[saidaSeries.length-1]||0}</div>`;
   attachDualBarHover('stockInOutChart', entradaSeries, saidaSeries, dayLabels, v=>fmtKgNum(v)+' un', 'Entradas', 'Saídas');
+
+  if(isFinished) renderStockGiro(items);
+}
+// Giro de produto + Curva ABC — só faz sentido pra produtos acabados (é o que se vende). Últimos 30 dias:
+// soma quantidade vendida e faturamento por produto (pedidos entregues), ordena por faturamento
+// decrescente, e classifica em A/B/C pela participação acumulada no faturamento (regra clássica 80/15/5).
+// "Cobertura" estima em quantos dias o estoque atual acaba, no ritmo de vendas do período.
+function renderStockGiro(items){
+  const wrap = document.getElementById('stockGiroWrap');
+  if(!wrap) return;
+  const from = addDays(todayStr(), -30);
+  const itemIds = new Set(items.map(i=>i.id));
+  const vendas = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=from);
+  const statsById = {};
+  items.forEach(i=> statsById[i.id] = { item:i, qty:0, faturamento:0 });
+  vendas.forEach(o=> o.items.forEach(it=>{
+    if(!itemIds.has(it.productId) || !statsById[it.productId]) return;
+    statsById[it.productId].qty += it.qty;
+    statsById[it.productId].faturamento += it.qty*it.unitPrice;
+  }));
+  const rows = Object.values(statsById).sort((a,b)=> b.faturamento - a.faturamento);
+  const totalFaturamento = rows.reduce((s,r)=>s+r.faturamento,0);
+  let acumulado = 0;
+  rows.forEach(r=>{
+    acumulado += r.faturamento;
+    const pctAcumulado = totalFaturamento>0 ? (acumulado/totalFaturamento*100) : 0;
+    r.pctAcumulado = pctAcumulado;
+    r.classe = totalFaturamento===0 ? '—' : pctAcumulado<=80 ? 'A' : pctAcumulado<=95 ? 'B' : 'C';
+    r.mediaDia = r.qty/30;
+    r.coberturaDias = r.mediaDia>0 ? Math.round(r.item.qty/r.mediaDia) : null;
+  });
+  if(rows.length===0 || totalFaturamento===0){
+    wrap.innerHTML = emptyState('Nenhuma venda de produto acabado nos últimos 30 dias ainda.');
+    return;
+  }
+  const classeColor = { A:'var(--success)', B:'var(--warn)', C:'var(--muted)' };
+  const classeBg = { A:'var(--success-bg,var(--surface-2))', B:'var(--warn-bg,var(--surface-2))', C:'var(--surface-2)' };
+  wrap.innerHTML = `<table><thead><tr><th>Produto</th><th>Vendido (30d)</th><th>Faturamento</th><th>% do total</th><th>Classe</th><th>Estoque atual</th><th>Cobertura</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td>${esc(r.item.name)}</td>
+      <td>${r.qty} un</td>
+      <td>${fmtMoney(r.faturamento)}</td>
+      <td>${totalFaturamento>0?(r.faturamento/totalFaturamento*100).toFixed(1):'0'}%</td>
+      <td><span class="badge" style="background:${classeBg[r.classe]||'var(--surface-2)'};color:${classeColor[r.classe]||'inherit'};font-weight:700;">${r.classe}</span></td>
+      <td style="color:${stockLevelColor(r.item.qty)};font-weight:600;">${r.item.qty} un</td>
+      <td>${r.coberturaDias!=null ? `~${r.coberturaDias} dia${r.coberturaDias!==1?'s':''}` : (r.qty===0?'sem vendas':'—')}</td>
+    </tr>`).join('')}
+  </tbody></table>
+  <div class="hint" style="margin-top:8px;">Classe A = produtos que juntos somam até 80% do faturamento (foco de reposição) · B = até 95% · C = os 5% restantes (giro mais lento).</div>`;
 }
 
 // =========================================================
@@ -2779,7 +2846,7 @@ function openOrderReadOnlyModal(o){
   openModal(`
     <div class="modal-head"><h3>Pedido ${esc(o.orderNumber||('#'+o.id.slice(-6)))}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--warn,var(--accent));border-radius:8px;padding:10px 12px;margin-bottom:14px;">
-      🔒 Pedido entregue não pode ser alterado, pois sua movimentação já foi registrada no estoque e no financeiro. Só é possível conferir os dados ou excluir o pedido inteiro.
+      🔒 Pedido entregue não pode ser alterado, pois sua movimentação já foi registrada no estoque e no financeiro. Pra corrigir um pedido entregue por engano, use "Estornar" abaixo.
     </div>
     <div class="stat-row-list" style="margin-bottom:14px;">
       <div class="stat-row"><span class="stat-row-label">Cliente</span><span class="stat-row-value">${esc(client?client.name:'—')}</span></div>
@@ -2797,9 +2864,36 @@ function openOrderReadOnlyModal(o){
     </div>
     <div class="modal-foot">
       <button class="btn btn-danger-ghost" onclick="deleteOrder('${o.id}')">Excluir pedido</button>
+      <button class="btn btn-ghost" style="color:var(--warn,var(--accent));border-color:var(--warn,var(--accent));" onclick="estornarPedido('${o.id}')">↩ Estornar</button>
       <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
     </div>
   `, 'wide');
+}
+// Estorno controlado de um pedido entregue por engano: devolve as quantidades ao estoque (com movimento
+// rastreável, mesmo padrão já usado na exclusão de produção), cancela a receita gerada no Financeiro
+// (mantém o registro, só marca como cancelada — não some o histórico), e volta o pedido pro status
+// "Confirmado" com stock_applied=false, liberando pra corrigir os itens e reenviar como entregue depois.
+async function estornarPedido(orderId){
+  if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para estornar pedidos', true); return; }
+  const order = state.orders.find(o=>o.id===orderId);
+  if(!order) return;
+  const totalUn = order.items.reduce((s,it)=>s+it.qty,0);
+  if(!confirm(`Estornar o pedido ${order.orderNumber||('#'+order.id.slice(-6))}?\n\nIsso vai:\n• devolver ${totalUn} unidade(s) ao estoque\n• cancelar a receita gerada no Financeiro\n• voltar o pedido pro status "Confirmado" pra você corrigir e reenviar\n\nEsta ação fica registrada no histórico de movimentações.`)) return;
+  const _btn = lockButton();
+  for(const it of order.items){
+    const stockItem = state.stockItems.find(s=>s.id===it.productId);
+    if(stockItem){
+      await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+      await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} devolvido pra correção`, date: todayStr() });
+    }
+  }
+  const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado');
+  if(revenueTx){
+    await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ' [Cancelada automaticamente — pedido estornado]').trim() }).eq('id', revenueTx.id);
+  }
+  const { error } = await sb.from('orders').update({ status:'confirmado', stock_applied:false, delivered_at:null }).eq('id', orderId);
+  if(error){ dbErr(error, 'Erro ao estornar pedido'); unlockButton(_btn); return; }
+  closeModal(); toast('Pedido estornado — estoque devolvido, receita cancelada e pedido liberado pra correção'); await loadAll(); renderAll();
 }
 // Chamado pelo botão "+ Cadastrar cliente" dentro do modal de pedido — guarda o rascunho atual (itens,
 // desconto, pagamento, status) e abre o cadastro completo de cliente (recorrente/pontual, freezer etc.)
@@ -5416,10 +5510,10 @@ function computeSystemAlerts(){
   pendentes.filter(t=>t.dueDate > today && t.dueDate <= soon.toISOString().slice(0,10)).forEach(t=>
     alerts.push({type:'conta_em_breve', icon:'💰', color:'var(--info)', priority:'baixa', text:`Conta vence em breve: ${t.description} — ${fmtMoney(t.amount)} (${fmtDate(t.dueDate)})`, date: t.dueDate, entityId:t.id}));
 
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-(state.company.clienteInativoDias||60));
   state.clients.filter(c=>c.status==='ativo' && (c.clientType||'recorrente')==='recorrente').forEach(c=>{
     const st = clientStats(c.id);
-    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de 60 dias`, date: today, entityId:c.id});
+    if(st.count>0 && st.last && new Date(st.last+'T00:00:00') < cutoff) alerts.push({type:'cliente_inativo', icon:'👤', color:'var(--info)', priority:'baixa', text:`${c.name} não compra há mais de ${state.company.clienteInativoDias||60} dias`, date: today, entityId:c.id});
   });
   // Visita esperada de cliente recorrente — mesma lógica de "dias restantes" já usada em manutenção e
   // garantia: mostra sempre que estiver vencida ou a até 3 dias de vencer, com prioridade que sobe
@@ -6028,6 +6122,32 @@ function renderCrmStats(){
     <div class="stat-card clickable" onclick="openCrmDetail('negociacao')"><div class="stat-label">Valor em negociação</div><div class="stat-value">${fmtMoney(potencial)}</div></div>
     <div class="stat-card clickable" onclick="openCrmDetail('tarefas')"><div class="stat-label">Tarefas atrasadas</div><div class="stat-value" style="color:${overdueTasks?'var(--danger)':'inherit'}">${overdueTasks}</div></div>
     <div class="stat-card clickable" onclick="openCrmDetail('pedidos')"><div class="stat-label">Pedidos originados do CRM</div><div class="stat-value">${ordersFromCRM}</div></div>
+  `;
+  renderCrmLostReasons(perdidos);
+}
+// Painel "por que estamos perdendo leads" — agrega o motivo de perda coletado (obrigatório desde a
+// última atualização) por categoria. Só aparece quando já existe pelo menos 1 lead perdido COM motivo
+// registrado (leads perdidos antes dessa mudança não têm motivo, e não force ele a aparecer vazio).
+function renderCrmLostReasons(perdidos){
+  const panel = document.getElementById('crmLostReasonsPanel');
+  const wrap = document.getElementById('crmLostReasonsWrap');
+  if(!panel || !wrap) return;
+  const comMotivo = perdidos.filter(l=>l.lostReason);
+  if(comMotivo.length===0){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const counts = {};
+  comMotivo.forEach(l=> counts[l.lostReason] = (counts[l.lostReason]||0)+1);
+  const rows = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const max = Math.max(...rows.map(r=>r[1]));
+  wrap.innerHTML = `
+    <div class="hint" style="margin-bottom:10px;">${comMotivo.length} de ${perdidos.length} lead(s) perdido(s) têm motivo registrado.</div>
+    ${rows.map(([reason,count])=>`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div style="width:160px;font-size:12.5px;flex-shrink:0;">${esc(reason)}</div>
+        <div style="flex:1;height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;"><div style="height:100%;width:${(count/max*100)}%;background:var(--accent-2);"></div></div>
+        <div style="width:28px;text-align:right;font-size:12.5px;font-weight:700;flex-shrink:0;">${count}</div>
+      </div>
+    `).join('')}
   `;
 }
 // Detalhe por trás de cada quadrante do CRM — reconsulta os leads/tarefas/pedidos na hora do clique
@@ -7939,6 +8059,23 @@ function renderProducaoVendas(){
     if(saldo<0) insights.push({icon:'🔴',color:'var(--danger)',title:'Produção abaixo das vendas',text:`Déficit de ${fmtKgNum(Math.abs(saldo))} kg no mês.`});
     else if(saldo>0) insights.push({icon:'📈',color:'var(--accent)',title:'Produção acima das vendas',text:`Superávit de ${fmtKgNum(saldo)} kg no mês — estoque crescendo.`});
 
+    // Sugestão automática de quanto produzir hoje: baseada no ritmo de vendas dos últimos 30 dias e no
+    // estoque atual, calcula quanto falta pra chegar numa cobertura saudável (15 dias — mesmo limiar já
+    // usado no insight de "Estoque saudável" acima), sem passar da capacidade diária somada das máquinas
+    // ativas (não sugere mais do que realmente dá pra produzir num dia).
+    const mediaDiariaKg = consumo30/30;
+    if(mediaDiariaKg > 0){
+      const targetKg = mediaDiariaKg * 15;
+      let sugestaoKg = Math.max(0, targetKg - estoqueTotalKg);
+      const capacidadeDia = (state.productionMachines||[]).filter(m=>m.active).reduce((s,m)=>s+(m.capacityKgDay||0),0);
+      if(capacidadeDia>0) sugestaoKg = Math.min(sugestaoKg, capacidadeDia);
+      if(sugestaoKg >= 5){
+        insights.push({icon:'🎯',color:'var(--accent)',title:'Sugestão de produção hoje',text:`~${fmtKgNum(sugestaoKg)} kg, pra chegar numa cobertura saudável de ~15 dias no ritmo atual de vendas${capacidadeDia>0&&sugestaoKg>=capacidadeDia?' (limitado pela capacidade diária das máquinas)':''}.`});
+      } else {
+        insights.push({icon:'✅',color:'var(--success)',title:'Não precisa produzir hoje',text:'O estoque já está numa cobertura saudável no ritmo atual de vendas.'});
+      }
+    }
+
     const prodPorItem = {};
     const monthKey2 = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     state.production.filter(p=>p.date.slice(0,7)===monthKey2).forEach(p=>p.packs.forEach(pk=>{ prodPorItem[pk.finishedName]=(prodPorItem[pk.finishedName]||0)+pk.qty; }));
@@ -9411,6 +9548,7 @@ function renderConfig(){
   document.getElementById('cfg-phone').value = state.company.phone || '';
   document.getElementById('cfg-email').value = state.company.email || '';
   document.getElementById('cfg-address').value = state.company.address || '';
+  document.getElementById('cfg-cliente-inativo-dias').value = state.company.clienteInativoDias || 60;
   renderNotificationSettingsUI();
   renderFreightTiers();
 }
@@ -9553,6 +9691,7 @@ async function saveCompany(){
     phone: document.getElementById('cfg-phone').value.trim(),
     email: document.getElementById('cfg-email').value.trim(),
     address: document.getElementById('cfg-address').value.trim(),
+    cliente_inativo_dias: parseInt(document.getElementById('cfg-cliente-inativo-dias').value) || 60,
   };
   if(data.address && data.address !== state.company.geocodedAddress){
     const coords = await geocodeAddress(data.address + ', Brasil', 'Tubarão');
