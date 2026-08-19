@@ -1766,6 +1766,7 @@ async function loadAll(){
     clientId: l.client_id, closedAt: l.closed_at ? l.closed_at.slice(0,10) : null,
     cep: l.cep, address: l.address, number: l.number, complement: l.complement, neighborhood: l.neighborhood, state: l.state,
     clientType: l.client_type || 'recorrente', orderFrequencyType: l.order_frequency_type, orderFrequencyDays: l.order_frequency_days,
+    lostReason: l.lost_reason || null, lostReasonDetail: l.lost_reason_detail || null,
     createdAt: (l.created_at||'').slice(0,10), history: historyByLead[l.id] || []
   }));
 
@@ -2726,6 +2727,10 @@ function openOrderModal(id, presetClientId){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
   try{
     const o = id ? state.orders.find(x=>x.id===id) : null;
+    // Pedido entregue é um registro CONGELADO: estoque e financeiro já foram gerados a partir dos itens
+    // originais, então itens/cliente/desconto não podem mais mudar (evita desincronizar o que já foi
+    // contabilizado). Mostra uma tela só de leitura em vez do formulário editável.
+    if(o && o.status==='entregue'){ openOrderReadOnlyModal(o); return; }
     const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
     currentOrderModalId = id || null;
     orderDraftItems = o ? JSON.parse(JSON.stringify(o.items)) : [];
@@ -2750,11 +2755,11 @@ function openOrderModal(id, presetClientId){
       <div id="orderItemsWrap"></div>
       <button class="btn btn-ghost btn-sm" onclick="addOrderItemRow()">+ Adicionar item</button>
       <div class="field-row" style="margin-top:12px;">
-        <div class="field"><label>Desconto (R$)</label><input id="o-discount" type="number" step="0.01" value="${o?o.discount:0}" oninput="refreshOrderTotals()"></div>
+        <div class="field"><label>Desconto (R$)</label><input id="o-discount" type="number" step="0.01" min="0" value="${o?o.discount:0}" oninput="refreshOrderTotals()"></div>
         <div class="field"><label>Forma de pagamento</label><select id="o-payment">${PAYMENT_METHODS.map(m=>`<option ${o&&o.paymentMethod===m?'selected':''}>${m}</option>`).join('')}</select></div>
       </div>
       <div class="field"><label>Status</label><select id="o-status">${ORDER_STATUSES.map(s=>`<option value="${s.v}" ${o&&o.status===s.v?'selected':(!o&&s.v==='orcamento'?'selected':'')}>${s.label}</option>`).join('')}</select></div>
-      <div class="hint">Quando o status for definido como "Entregue", o estoque é baixado e a receita é criada automaticamente no Financeiro.</div>
+      <div class="hint">Quando o status for definido como "Entregue", o estoque é baixado e a receita é criada automaticamente no Financeiro. Depois disso, o pedido não pode mais ser alterado.</div>
       <div id="orderTotalLine" style="margin-top:8px;"></div>
       <div class="modal-foot">
         ${o?`<button class="btn btn-danger-ghost" onclick="deleteOrder('${o.id}')">Excluir</button>`:''}
@@ -2764,6 +2769,37 @@ function openOrderModal(id, presetClientId){
     `, 'wide');
     if(orderDraftItems.length===0) addOrderItemRow(); else renderOrderItems();
   }catch(err){ console.error(err); toast('Ocorreu um erro ao abrir o pedido. Veja o console para detalhes.'); }
+}
+// Tela somente-leitura de um pedido já entregue — sem inputs de itens/cliente/desconto, pra deixar claro
+// (não só bloquear em silêncio) que esse registro está congelado. A única ação comercial que continua
+// disponível é excluir o pedido inteiro (já existente, fora do escopo desta trava).
+function openOrderReadOnlyModal(o){
+  const client = state.clients.find(c=>c.id===o.clientId);
+  const subtotal = o.items.reduce((s,it)=>s+it.qty*it.unitPrice,0);
+  openModal(`
+    <div class="modal-head"><h3>Pedido ${esc(o.orderNumber||('#'+o.id.slice(-6)))}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--warn,var(--accent));border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+      🔒 Pedido entregue não pode ser alterado, pois sua movimentação já foi registrada no estoque e no financeiro. Só é possível conferir os dados ou excluir o pedido inteiro.
+    </div>
+    <div class="stat-row-list" style="margin-bottom:14px;">
+      <div class="stat-row"><span class="stat-row-label">Cliente</span><span class="stat-row-value">${esc(client?client.name:'—')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(o.paymentMethod||'—')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Entregue em</span><span class="stat-row-value">${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</span></div>
+    </div>
+    <table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th></tr></thead><tbody>
+      ${o.items.map(it=>`<tr><td>${esc(it.name)}</td><td>${it.qty}</td><td>${fmtMoney(it.unitPrice)}</td><td>${fmtMoney(it.qty*it.unitPrice)}</td></tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Produtos</span><span>${fmtMoney(subtotal)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Desconto</span><span>−${fmtMoney(o.discount||0)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>🚚 Frete</span><span>${fmtMoney(o.freightAmount||0)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);"><span>Total</span><span>${fmtMoney(o.total)}</span></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger-ghost" onclick="deleteOrder('${o.id}')">Excluir pedido</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+    </div>
+  `, 'wide');
 }
 // Chamado pelo botão "+ Cadastrar cliente" dentro do modal de pedido — guarda o rascunho atual (itens,
 // desconto, pagamento, status) e abre o cadastro completo de cliente (recorrente/pontual, freezer etc.)
@@ -2832,6 +2868,7 @@ function refreshOrderTotals(){
   const clientEl = document.getElementById('o-client');
   const client = clientEl ? state.clients.find(c=>c.id===clientEl.value) : null;
   const freight = client && client.freightValue!=null ? client.freightValue : 0;
+  const discountInvalid = discount < 0 || discount > subtotal;
   const total = Math.max(0, subtotal - discount) + freight;
   const totalLine = document.getElementById('orderTotalLine');
   if(totalLine){
@@ -2839,8 +2876,10 @@ function refreshOrderTotals(){
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Produtos</span><span>${fmtMoney(Math.max(0,subtotal-discount))}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>🚚 Frete${client&&client.freightValue==null?' (não calculado)':''}</span><span>${fmtMoney(freight)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);"><span>Total</span><span>${fmtMoney(total)}</span></div>
+      ${discountInvalid ? `<div class="hint" style="color:var(--danger);margin-top:4px;">⚠️ Desconto inválido — não pode ser negativo nem maior que o subtotal (${fmtMoney(subtotal)}). Corrija antes de salvar.</div>` : ''}
     `;
   }
+  if(discountEl) discountEl.style.borderColor = discountInvalid ? 'var(--danger)' : '';
 }
 // Chamado sempre que um pedido é marcado como "entregue" pela primeira vez (seja pelo status rápido na
 // lista de Pedidos, seja salvando o pedido com status Entregue) — esse é o ÚNICO lugar do sistema onde
@@ -3010,23 +3049,37 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
   }
 }
 async function saveOrder(id){
+  const existing = id ? state.orders.find(o=>o.id===id) : null;
+  // Pedido entregue é um registro CONGELADO: bloqueia a gravação aqui também (não só escondendo o
+  // formulário) — garante que não existe um caminho alternativo que ainda consiga editar um pedido cujo
+  // estoque/financeiro já foi contabilizado.
+  if(existing && existing.status === 'entregue'){
+    toast('Este pedido já foi entregue e não pode mais ser alterado.', true);
+    return;
+  }
   const clientId = document.getElementById('o-client').value;
   if(!clientId){ toast('Selecione um cliente', true); return; }
   if(orderDraftItems.length===0){ toast('Adicione pelo menos um item', true); return; }
-  const discount = parseFloat(document.getElementById('o-discount').value)||0;
+
+  // Valida o desconto no salvamento (não só no campo) — evita subtotal negativo por arredondamento
+  // usando centavos inteiros pra toda a matemática monetária.
+  const discountRaw = parseFloat(document.getElementById('o-discount').value);
+  const discount = Math.round((isNaN(discountRaw)?0:discountRaw) * 100) / 100;
+  const subtotal = Math.round(orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0) * 100) / 100;
+  if(discount < 0){ toast('O desconto não pode ser negativo.', true); return; }
+  if(discount > subtotal){ toast(`O desconto (${fmtMoney(discount)}) não pode ser maior que o subtotal dos produtos (${fmtMoney(subtotal)}).`, true); return; }
+
   const paymentMethod = document.getElementById('o-payment').value;
   const desiredStatus = document.getElementById('o-status').value;
-  const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
   const client = state.clients.find(c=>c.id===clientId);
   const freightAmount = client && client.freightValue!=null ? client.freightValue : 0;
-  const total = Math.max(0, subtotal-discount) + freightAmount;
+  const total = Math.max(0, Math.round((subtotal-discount) * 100) / 100) + freightAmount;
   const needsFulfillStep = desiredStatus === 'entregue'; // a baixa de estoque e a receita só disparam numa transição real de status (trigger do banco)
   let orderId;
   let justFulfilled = false;
   const _btn = lockButton(); // evita clique duplo criando pedido/receita repetidos
 
   if(id){
-    const existing = state.orders.find(o=>o.id===id);
     const alreadyDelivered = existing.stockApplied;
     const statusToSet = (needsFulfillStep && !alreadyDelivered) ? existing.status : desiredStatus;
     const { error: upErr } = await sb.from('orders').update({
@@ -5528,6 +5581,36 @@ function openLeadModal(id){
   `, 'xwide');
   if(l){ renderLeadTasks(l.id); renderLeadTimeline(l.id); }
 }
+// Motivos padrão de perda de lead — o motivo escolhido fica registrado em `lead_history` (mesma tabela
+// de timeline já usada pra outros eventos do lead, sem precisar criar tabela nova) e também gravado nos
+// campos lost_reason/lost_reason_detail do próprio lead, pra dar pra agregar depois ("por que estamos
+// perdendo leads?") sem precisar reprocessar texto livre.
+const LEAD_LOST_REASONS = ['Preço','Concorrente','Sem interesse','Momento inadequado','Sem retorno','Produto/serviço inadequado','Outro'];
+let pendingLeadLostAction = null;
+function promptLeadLostReason(onConfirm){
+  pendingLeadLostAction = onConfirm;
+  openModal(`
+    <div class="modal-head"><h3>Por que esse lead foi perdido?</h3><button class="icon-btn" onclick="cancelLeadLostPrompt()">✕</button></div>
+    <div class="hint" style="margin-bottom:12px;">O motivo fica registrado no histórico do lead — ajuda a entender depois onde estamos perdendo mais vendas.</div>
+    <div class="field"><label>Motivo</label><select id="lead-lost-reason" onchange="document.getElementById('lead-lost-detail-wrap').style.display=this.value==='Outro'?'block':'none';">
+      ${LEAD_LOST_REASONS.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('')}
+    </select></div>
+    <div class="field" id="lead-lost-detail-wrap" style="display:none;"><label>Descreva o motivo</label><input id="lead-lost-detail" placeholder="Ex: preferiu comprar direto de outro fornecedor local"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="cancelLeadLostPrompt()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmLeadLostReason()">Confirmar</button>
+    </div>
+  `);
+}
+function cancelLeadLostPrompt(){ pendingLeadLostAction = null; closeModal(); renderKanban(); }
+function confirmLeadLostReason(){
+  const reason = document.getElementById('lead-lost-reason').value;
+  const detail = reason==='Outro' ? document.getElementById('lead-lost-detail').value.trim() : '';
+  if(reason==='Outro' && !detail){ toast('Descreva o motivo', true); return; }
+  const action = pendingLeadLostAction;
+  pendingLeadLostAction = null;
+  if(action) action(reason, detail);
+}
 async function saveLead(id){
   const name = document.getElementById('l-name').value.trim();
   if(!name){ toast('Informe o nome do lead', true); return; }
@@ -5545,18 +5628,33 @@ async function saveLead(id){
     client_type: clientType, order_frequency_type: freqType, order_frequency_days: freqDays,
   };
   const newStage = document.getElementById('l-stage').value;
+  const currentStage = id ? state.leads.find(l=>l.id===id)?.stage : null;
+  // IMPORTANTE: os valores do formulário já foram capturados acima (em `data`/`newStage`) antes de abrir
+  // o prompt de motivo — o prompt troca o conteúdo do modal (mesmo <div> é reaproveitado), o que destrói
+  // os campos do formulário original. Ler os campos de novo dentro do callback pegaria tudo vazio/errado.
+  if(newStage==='perdido' && currentStage!=='perdido'){
+    promptLeadLostReason((reason, detail) => doSaveLead(id, data, newStage, reason, detail));
+    return;
+  }
+  await doSaveLead(id, data, newStage, null, null);
+}
+async function doSaveLead(id, data, newStage, lostReason, lostReasonDetail){
+  const clientType = data.client_type, freqType = data.order_frequency_type, freqDays = data.order_frequency_days;
+  if(lostReason){ data = { ...data, lost_reason: lostReason, lost_reason_detail: lostReasonDetail || null }; }
   let convertedLeadId = null;
   if(id){
     const wasFechado = state.leads.find(l=>l.id===id)?.stage === 'fechado';
     // a trigger no banco cuida do registro na timeline e da conversão automática em cliente quando a etapa muda
     const { error } = await sb.from('leads').update({ ...data, stage: newStage }).eq('id', id);
     if(error){ dbErr(error, 'Erro ao salvar lead'); return; }
+    if(lostReason) await sb.from('lead_history').insert({ lead_id: id, type:'perdido', text: lostReasonDetail ? `Lead perdido — motivo: ${lostReason} (${lostReasonDetail})` : `Lead perdido — motivo: ${lostReason}` });
     if(newStage==='fechado' && !wasFechado) convertedLeadId = id;
   } else {
     const needsConvertStep = newStage === 'fechado'; // trigger só dispara em UPDATE, então inserimos e, se preciso, atualizamos em seguida
     const { data: created, error } = await sb.from('leads').insert({ ...data, stage: needsConvertStep ? 'lead' : newStage }).select().single();
     if(error){ dbErr(error, 'Erro ao criar lead'); return; }
     await sb.from('lead_history').insert({ lead_id: created.id, type:'criacao', text:'Lead cadastrado' });
+    if(lostReason) await sb.from('lead_history').insert({ lead_id: created.id, type:'perdido', text: lostReasonDetail ? `Lead perdido — motivo: ${lostReason} (${lostReasonDetail})` : `Lead perdido — motivo: ${lostReason}` });
     if(needsConvertStep){
       const { error: stErr } = await sb.from('leads').update({ stage:'fechado' }).eq('id', created.id);
       if(stErr){ dbErr(stErr, 'Erro ao converter lead em cliente'); return; }
@@ -5588,11 +5686,25 @@ async function moveLeadStage(id, newStage){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para mover leads', true); return; }
   const lead = state.leads.find(l=>l.id===id);
   if(!lead || lead.stage===newStage) return;
+  if(newStage==='perdido'){
+    promptLeadLostReason((reason, detail) => applyLeadLostStage(id, reason, detail));
+    return;
+  }
+  await applyLeadStageChange(id, newStage);
+}
+async function applyLeadStageChange(id, newStage){
+  const lead = state.leads.find(l=>l.id===id);
   const wasFechado = lead.stage === 'fechado';
   const { error } = await sb.from('leads').update({ stage: newStage }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao mover lead'); return; }
   toast('Etapa atualizada'); await loadAll(); renderAll();
   if(newStage==='fechado' && !wasFechado) await maybeOpenFirstOrderWizard(id);
+}
+async function applyLeadLostStage(id, reason, detail){
+  const { error } = await sb.from('leads').update({ stage:'perdido', lost_reason: reason, lost_reason_detail: detail||null }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao mover lead'); closeModal(); return; }
+  await sb.from('lead_history').insert({ lead_id: id, type:'perdido', text: detail ? `Lead perdido — motivo: ${reason} (${detail})` : `Lead perdido — motivo: ${reason}` });
+  closeModal(); toast('Lead marcado como perdido — motivo registrado'); await loadAll(); renderAll();
 }
 
 // =========================================================
@@ -5739,7 +5851,12 @@ function renderWizardDeliveryItems(){
 }
 function wizardNextStep(){
   if(orderDraftItems.length===0){ toast('Adicione ao menos um item ao pedido', true); return; }
-  wizardOrderMeta.discount = parseFloat(document.getElementById('wz-discount').value)||0;
+  const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
+  const discountRaw = parseFloat(document.getElementById('wz-discount').value);
+  const discount = Math.round((isNaN(discountRaw)?0:discountRaw) * 100) / 100;
+  if(discount < 0){ toast('O desconto não pode ser negativo.', true); return; }
+  if(discount > subtotal){ toast(`O desconto (${fmtMoney(discount)}) não pode ser maior que o subtotal dos produtos (${fmtMoney(subtotal)}).`, true); return; }
+  wizardOrderMeta.discount = discount;
   wizardOrderMeta.paymentMethod = document.getElementById('wz-payment').value;
   wizardStep = 2;
   renderWizard();
@@ -5750,6 +5867,12 @@ async function finishWizard(){
   const dstatus = document.getElementById('wz-dstatus').value;
   const notes = document.getElementById('wz-notes').value.trim();
   const subtotal = orderDraftItems.reduce((s,r)=>s+r.qty*r.unitPrice,0);
+  // Revalida o desconto aqui também (defesa extra): itens podem ter sido removidos depois do passo 1,
+  // deixando o subtotal menor que o desconto já definido.
+  if(wizardOrderMeta.discount < 0 || wizardOrderMeta.discount > subtotal){
+    toast('O desconto ficou inválido em relação ao subtotal atual — volte e ajuste.', true);
+    return;
+  }
   const client = state.clients.find(c=>c.id===wizardClientId);
   const freightAmount = client && client.freightValue!=null ? client.freightValue : 0;
   const total = Math.max(0, subtotal - wizardOrderMeta.discount) + freightAmount;
@@ -6420,6 +6543,7 @@ function openClientDetailModal(id){
   openModal(`
     <div class="modal-head"><h3>${c?esc(c.name):'Novo cliente'}${c?clientBadge(c):''}</h3><button class="icon-btn" onclick="${closeAction}">✕</button></div>
     ${fromOrder?`<div class="hint" style="margin-bottom:10px;">🛒 Cadastrando cliente pra usar no pedido em andamento — ao salvar, você volta direto pro pedido com esse cliente selecionado.</div>`:''}
+    ${c?`<div id="clientCommercialSummaryWrap" style="margin-bottom:16px;"></div>`:''}
     <div class="subhead" style="border-top:none;padding-top:0;">Dados do cliente</div>
     <div class="field-row">
       <div class="field"><label>Nome</label><input id="c-name" value="${c?esc(c.name):''}"></div>
@@ -6497,7 +6621,7 @@ function openClientDetailModal(id){
     <div id="clientOrdersWrap"></div>
     ` : ''}
   `, 'xwide');
-  if(c){ renderClientDeliveries(c.id); renderClientOrders(c.id); renderClientFreight(c.id); }
+  if(c){ renderClientDeliveries(c.id); renderClientOrders(c.id); renderClientFreight(c.id); renderClientCommercialSummary(c.id); }
 }
 function setHasFreezer(v){
   document.getElementById('c-hasfreezer').value = v?'true':'false';
@@ -6780,6 +6904,50 @@ async function deleteClient(id){
   const { error } = await sb.from('clients').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao excluir cliente'); return; }
   closeModal(); toast('Cliente excluído'); await loadAll(); renderAll();
+}
+// Resumo comercial no topo da ficha do cliente — só conta pedidos com status "entregue" como faturamento
+// válido (mesma convenção já usada no Financeiro/Relatórios: é isso que efetivamente vira receita).
+// Objetivo é responder em ~5 segundos: quanto esse cliente compra, quando comprou pela última vez, e
+// qual o comportamento dele — sem virar um dashboard grande dentro do modal.
+function renderClientCommercialSummary(clientId){
+  const wrap = document.getElementById('clientCommercialSummaryWrap');
+  if(!wrap) return;
+  const validOrders = state.orders.filter(o=>o.clientId===clientId && o.status==='entregue' && o.deliveredAt)
+    .sort((a,b)=> a.deliveredAt.localeCompare(b.deliveredAt));
+  if(validOrders.length===0){
+    wrap.innerHTML = `<div class="stat-card" style="background:var(--surface-2);"><div class="hint" style="margin:0;">📊 Esse cliente ainda não tem nenhum pedido entregue — o resumo comercial aparece aqui assim que a primeira compra for concluída.</div></div>`;
+    return;
+  }
+  const faturamentoTotal = validOrders.reduce((s,o)=>s+o.total,0);
+  const ticketMedio = faturamentoTotal / validOrders.length;
+  const ultimaCompra = validOrders[validOrders.length-1].deliveredAt;
+  const diasSemComprar = daysSince(ultimaCompra);
+
+  // Produto mais comprado: soma a quantidade de cada produto em todos os pedidos válidos.
+  const qtyByProduct = {};
+  validOrders.forEach(o=> o.items.forEach(it=>{ qtyByProduct[it.name] = (qtyByProduct[it.name]||0) + it.qty; }));
+  const topProduct = Object.entries(qtyByProduct).sort((a,b)=>b[1]-a[1])[0];
+
+  // Frequência de compra: intervalo médio (em dias) entre pedidos consecutivos — só faz sentido com 2+ pedidos.
+  let freqLabel = '—';
+  if(validOrders.length>=2){
+    const first = new Date(validOrders[0].deliveredAt+'T00:00:00');
+    const last = new Date(validOrders[validOrders.length-1].deliveredAt+'T00:00:00');
+    const totalDays = Math.max(1, Math.round((last-first)/86400000));
+    const avgGapDays = Math.round(totalDays / (validOrders.length-1));
+    freqLabel = avgGapDays===0 ? 'Menos de 1 dia' : `A cada ~${avgGapDays} dia${avgGapDays!==1?'s':''}`;
+  }
+
+  wrap.innerHTML = `
+    <div class="stat-grid" style="margin-bottom:0;">
+      <div class="stat-card"><div class="stat-label">Faturamento total</div><div class="stat-value" style="font-size:16px;">${fmtMoney(faturamentoTotal)}</div></div>
+      <div class="stat-card"><div class="stat-label">Pedidos</div><div class="stat-value" style="font-size:16px;">${validOrders.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value" style="font-size:16px;">${fmtMoney(ticketMedio)}</div></div>
+      <div class="stat-card"><div class="stat-label">Última compra</div><div class="stat-value" style="font-size:16px;">${fmtDate(ultimaCompra)}</div><div class="hint" style="margin:2px 0 0;color:${diasSemComprar>30?'var(--danger)':'var(--muted)'};">${diasSemComprar} dia${diasSemComprar!==1?'s':''} sem comprar</div></div>
+      <div class="stat-card"><div class="stat-label">Produto mais comprado</div><div class="stat-value" style="font-size:14px;">${topProduct?esc(topProduct[0]):'—'}</div>${topProduct?`<div class="hint" style="margin:2px 0 0;">${topProduct[1]} un. no total</div>`:''}</div>
+      <div class="stat-card"><div class="stat-label">Frequência de compra</div><div class="stat-value" style="font-size:14px;">${freqLabel}</div></div>
+    </div>
+  `;
 }
 function renderClientOrders(clientId){
   const wrap = document.getElementById('clientOrdersWrap');
