@@ -93,8 +93,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 @media(max-width:520px){#producaoVendasStats{grid-template-columns:repeat(2,1fr) !important;}}
 
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
-.config-grid{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;}
-.config-grid>.panel{flex:1 1 420px;margin-bottom:0;}
+.config-grid{display:flex;flex-direction:column;gap:16px;}
+.config-grid>.panel{margin-bottom:0;}
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .section-title{font-size:15px;font-weight:700;}
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
@@ -143,7 +143,6 @@ tr:last-child td{border-bottom:none;}
 .next-visit-pill:hover{opacity:.82;}
 @media(max-width:760px){
   .modal-inner-scroll{max-height:calc(100vh - 260px);}
-  .config-grid>.panel{flex:1 1 100%;max-width:100% !important;}
 }
 .row-actions{display:flex;gap:2px;justify-content:flex-end;}
 .empty-state{text-align:center;padding:36px 20px;color:var(--muted);}
@@ -1328,43 +1327,49 @@ tr:last-child td{border-bottom:none;}
       <!-- CONFIGURACOES -->
       <section class="view" id="view-config">
         <div class="config-grid">
-        <div class="panel" style="max-width:520px;">
-          <div class="panel-head"><div class="section-title">Minha Conta</div></div>
-          <div id="minhaContaInfo" style="font-size:13px;color:var(--muted);"></div>
-        </div>
-        <div class="panel" style="max-width:520px;">
-          <div class="panel-head"><div class="section-title">Dados da empresa</div></div>
-          <div class="field"><label>Nome / Razão social</label><input id="cfg-name"></div>
-          <div class="field-row">
-            <div class="field"><label>CNPJ</label><input id="cfg-cnpj"></div>
-            <div class="field"><label>Telefone</label><input id="cfg-phone"></div>
+        <div class="two-col">
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head"><div class="section-title">Dados da empresa</div></div>
+            <div class="field"><label>Nome / Razão social</label><input id="cfg-name"></div>
+            <div class="field-row">
+              <div class="field"><label>CNPJ</label><input id="cfg-cnpj"></div>
+              <div class="field"><label>Telefone</label><input id="cfg-phone"></div>
+            </div>
+            <div class="field"><label>E-mail</label><input id="cfg-email"></div>
+            <div class="field"><label>Endereço</label><input id="cfg-address"></div>
+            <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
           </div>
-          <div class="field"><label>E-mail</label><input id="cfg-email"></div>
-          <div class="field"><label>Endereço</label><input id="cfg-address"></div>
-          <button class="btn btn-primary" onclick="saveCompany()">Salvar</button>
-        </div>
-        <div class="panel" style="max-width:640px;">
-          <div class="panel-head"><div class="section-title">🔔 Notificações do navegador</div></div>
-          <div class="hint" style="margin-bottom:10px;">Manda um aviso na hora pra alertas urgentes (contas vencidas, visitas atrasadas) direto na tela do computador ou celular — funciona mesmo com o app fechado (o navegador entrega a notificação em segundo plano). No iPhone, precisa instalar o app na tela inicial primeiro (Safari não entrega push pra sites comuns).</div>
-          <div class="hint" id="pushDebugStatus" style="margin-bottom:10px;font-size:11px;"></div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <span id="notifSettingsStatus" style="font-size:13px;font-weight:600;"></span>
-            <button class="btn btn-primary btn-sm" id="notifSettingsBtn" onclick="toggleBrowserNotifications()">Ativar notificações</button>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="panel" style="margin-bottom:0;">
+              <div class="panel-head"><div class="section-title">Minha Conta</div></div>
+              <div id="minhaContaInfo" style="font-size:13px;color:var(--muted);"></div>
+            </div>
+            <div class="panel" style="margin-bottom:0;">
+              <div class="panel-head"><div class="section-title">🔔 Notificações do navegador</div></div>
+              <div class="hint" style="margin-bottom:10px;">Manda um aviso na hora pra alertas urgentes (contas vencidas, visitas atrasadas) direto na tela do computador ou celular — funciona mesmo com o app fechado (o navegador entrega a notificação em segundo plano). No iPhone, precisa instalar o app na tela inicial primeiro (Safari não entrega push pra sites comuns).</div>
+              <div class="hint" id="pushDebugStatus" style="margin-bottom:10px;font-size:11px;"></div>
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span id="notifSettingsStatus" style="font-size:13px;font-weight:600;"></span>
+                <button class="btn btn-primary btn-sm" id="notifSettingsBtn" onclick="toggleBrowserNotifications()">Ativar notificações</button>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="panel" style="max-width:640px;">
-          <div class="panel-head"><div class="section-title">Política de Frete</div></div>
-          <div class="hint" style="margin-bottom:12px;">Faixas de distância (km) e o valor de frete correspondente. Ordenadas automaticamente pela distância mínima. Sempre que você salvar ou excluir uma faixa, o frete de todos os clientes já calculados é atualizado sozinho.</div>
-          <div id="freightTiersWrap" class="table-scroll"></div>
-          <div id="freightTierFormWrap"></div>
-          <button class="btn btn-ghost btn-sm" onclick="showFreightTierForm()">+ Nova faixa</button>
-        </div>
-        <div class="panel" style="max-width:520px;">
-          <div class="panel-head"><div class="section-title">Sobre esta versão</div></div>
-          <p style="font-size:12.5px;color:var(--muted);line-height:1.6;">
-            Este sistema está conectado a um banco de dados Supabase real. Os dados são compartilhados entre todos os
-            usuários da equipe, com login por e-mail/senha e permissões por perfil (Administrador, Operacional, Financeiro).
-          </p>
+        <div class="two-col">
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head"><div class="section-title">Política de Frete</div></div>
+            <div class="hint" style="margin-bottom:12px;">Faixas de distância (km) e o valor de frete correspondente. Ordenadas automaticamente pela distância mínima. Sempre que você salvar ou excluir uma faixa, o frete de todos os clientes já calculados é atualizado sozinho.</div>
+            <div id="freightTiersWrap" class="table-scroll"></div>
+            <div id="freightTierFormWrap"></div>
+            <button class="btn btn-ghost btn-sm" id="freightTierAddBtn" onclick="showFreightTierForm()">+ Nova faixa</button>
+          </div>
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head"><div class="section-title">Sobre esta versão</div></div>
+            <p style="font-size:12.5px;color:var(--muted);line-height:1.6;">
+              Este sistema está conectado a um banco de dados Supabase real. Os dados são compartilhados entre todos os
+              usuários da equipe, com login por e-mail/senha e permissões por perfil (Administrador, Operacional, Financeiro).
+            </p>
+          </div>
         </div>
         </div>
       </section>
@@ -1521,7 +1526,12 @@ async function afterLogin(session){
   document.getElementById('appRoot').classList.add('ready');
   document.getElementById('splashScreen').classList.add('hidden');
   const minhaContaEl = document.getElementById('minhaContaInfo');
-  if(minhaContaEl) minhaContaEl.textContent = `${profile.name} · ${myUser.email||''} · ${roleLabel(profile.role)}`;
+  if(minhaContaEl){
+    // Evita mostrar o e-mail duas vezes: em algumas contas o campo "nome" foi preenchido com o próprio
+    // e-mail no cadastro inicial (não tem um nome de exibição separado ainda) — nesse caso, mostra só uma vez.
+    const displayName = (profile.name && profile.name.trim().toLowerCase() !== (myUser.email||'').trim().toLowerCase()) ? profile.name : null;
+    minhaContaEl.textContent = [displayName, myUser.email||'', roleLabel(profile.role)].filter(Boolean).join(' · ');
+  }
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   document.documentElement.setAttribute('data-theme','light');
@@ -9120,8 +9130,16 @@ async function saveCompany(){
 function renderFreightTiers(){
   const wrap = document.getElementById('freightTiersWrap');
   if(!wrap) return;
-  if(!canWrite('config') && myProfile?.role!=='admin'){ wrap.innerHTML = '<div class="hint">Somente administradores podem gerenciar a política de frete.</div>'; return; }
-  if(state.freightTiers.length===0){ wrap.innerHTML = emptyState('Nenhuma faixa de frete cadastrada ainda.', 'Nova faixa', 'showFreightTierForm()'); return; }
+  const addBtn = document.getElementById('freightTierAddBtn');
+  if(!canWrite('config') && myProfile?.role!=='admin'){ wrap.innerHTML = '<div class="hint">Somente administradores podem gerenciar a política de frete.</div>'; if(addBtn) addBtn.style.display='none'; return; }
+  if(state.freightTiers.length===0){
+    // O empty-state já tem seu próprio botão "Nova faixa" — esconde o botão fixo aqui embaixo pra não
+    // duplicar a mesma ação duas vezes na tela.
+    wrap.innerHTML = emptyState('Nenhuma faixa de frete cadastrada ainda.', 'Nova faixa', 'showFreightTierForm()');
+    if(addBtn) addBtn.style.display = 'none';
+    return;
+  }
+  if(addBtn) addBtn.style.display = '';
   wrap.innerHTML = `<table><thead><tr><th>De (km)</th><th>Até (km)</th><th>Valor</th><th></th></tr></thead><tbody>
     ${state.freightTiers.map(t=>`<tr>
       <td>${t.minKm}</td><td>${t.maxKm}</td><td>${fmtMoney(t.price)}</td>
