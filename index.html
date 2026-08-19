@@ -75,6 +75,9 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .stat-row:last-child{border-bottom:none;}
 .stat-row.clickable{cursor:pointer;margin:0 -8px;padding:8px;border-radius:6px;transition:background .12s;}
 .stat-row.clickable:hover{background:var(--info-bg);}
+.stat-card.clickable{cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.stat-card.clickable:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:var(--accent-2);}
+.stat-card.clickable:active{transform:translateY(0);}
 .stat-row .stat-row-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
 .stat-row .stat-row-value{font-size:14.5px;font-weight:700;text-align:right;white-space:nowrap;}
 .panel-soft-blue{background:rgba(79,195,224,.08);border-color:rgba(79,195,224,.25);}
@@ -1202,10 +1205,10 @@ tr:last-child td{border-bottom:none;}
           </div>
           <div class="panel">
             <div class="stat-grid">
-              <div class="stat-card"><div class="stat-label">Clientes com freezer</div><div class="stat-value" id="fr-total"></div></div>
-              <div class="stat-card"><div class="stat-label">Atingiram a meta</div><div class="stat-value" id="fr-atingiram"></div><div class="stat-note" id="fr-atingiram-pct"></div></div>
-              <div class="stat-card"><div class="stat-label">Abaixo da meta</div><div class="stat-value" id="fr-abaixo"></div></div>
-              <div class="stat-card"><div class="stat-label">Meta mensal</div><div class="stat-value" id="fr-metamensal"></div></div>
+              <div class="stat-card clickable" onclick="openFreezerReportDetail('todos')"><div class="stat-label">Clientes com freezer</div><div class="stat-value" id="fr-total"></div></div>
+              <div class="stat-card clickable" onclick="openFreezerReportDetail('atingiram')"><div class="stat-label">Atingiram a meta</div><div class="stat-value" id="fr-atingiram"></div><div class="stat-note" id="fr-atingiram-pct"></div></div>
+              <div class="stat-card clickable" onclick="openFreezerReportDetail('abaixo')"><div class="stat-label">Abaixo da meta</div><div class="stat-value" id="fr-abaixo"></div></div>
+              <div class="stat-card clickable" onclick="openFreezerReportDetail('todos')"><div class="stat-label">Meta mensal</div><div class="stat-value" id="fr-metamensal"></div></div>
             </div>
           </div>
           <div class="panel panel-soft-blue">
@@ -1235,12 +1238,12 @@ tr:last-child td{border-bottom:none;}
             <button class="btn btn-ghost btn-sm" onclick="relSetPreset('mes_anterior')">Mês anterior</button>
           </div>
           <div class="stat-grid">
-            <div class="stat-card"><div class="stat-label">Pacotes vendidos</div><div class="stat-value" id="rel-pacotes"></div></div>
-            <div class="stat-card"><div class="stat-label">Faturamento no período</div><div class="stat-value" id="rel-faturamento"></div></div>
-            <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value" id="rel-ticket"></div><div class="stat-note" id="rel-ticket-note"></div></div>
-            <div class="stat-card"><div class="stat-label">Total arrecadado</div><div class="stat-value" id="rel-arrecadado"></div><div class="stat-note">Dinheiro + Pix</div></div>
-            <div class="stat-card"><div class="stat-label">💵 Dinheiro</div><div class="stat-value" id="rel-dinheiro"></div></div>
-            <div class="stat-card"><div class="stat-label">📲 Pix</div><div class="stat-value" id="rel-pix"></div></div>
+            <div class="stat-card clickable" onclick="openRelPacotesDetail()"><div class="stat-label">Pacotes vendidos</div><div class="stat-value" id="rel-pacotes"></div></div>
+            <div class="stat-card clickable" onclick="openRelPacotesDetail()"><div class="stat-label">Faturamento no período</div><div class="stat-value" id="rel-faturamento"></div></div>
+            <div class="stat-card clickable" onclick="openRelPacotesDetail()"><div class="stat-label">Ticket médio</div><div class="stat-value" id="rel-ticket"></div><div class="stat-note" id="rel-ticket-note"></div></div>
+            <div class="stat-card clickable" onclick="openRelArrecadadoDetail(null)"><div class="stat-label">Total arrecadado</div><div class="stat-value" id="rel-arrecadado"></div><div class="stat-note">Dinheiro + Pix</div></div>
+            <div class="stat-card clickable" onclick="openRelArrecadadoDetail('Dinheiro')"><div class="stat-label">💵 Dinheiro</div><div class="stat-value" id="rel-dinheiro"></div></div>
+            <div class="stat-card clickable" onclick="openRelArrecadadoDetail('Pix')"><div class="stat-label">📲 Pix</div><div class="stat-value" id="rel-pix"></div></div>
           </div>
         </div>
 
@@ -1841,6 +1844,21 @@ document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.targ
 
 function emptyState(msg, btnLabel, onclick){
   return `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17"/></svg><p>${msg}</p>${btnLabel?`<button class="btn btn-primary btn-sm" onclick="${onclick}">${btnLabel}</button>`:''}</div>`;
+}
+// Modal genérico de "detalhe de quadrante" — usado por qualquer stat-card clicável do sistema (Relatórios,
+// Freezers, CRM, Clientes, Pedidos etc.) pra mostrar a lista de registros por trás do número. `columns` são
+// os títulos das colunas; cada item de `rows` é um array de células já formatadas (HTML permitido, ex: pra
+// badges — texto livre já deve vir escapado por quem monta a linha). `summaryHtml` é opcional, um resumo/
+// contexto acima da tabela (ex: período sendo mostrado).
+function openRecordListModal(title, icon, summaryHtml, columns, rows){
+  openModal(`
+    <div class="modal-head"><h3>${icon?icon+' ':''}${esc(title)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    ${summaryHtml?`<div class="hint" style="margin-bottom:12px;">${summaryHtml}</div>`:''}
+    ${rows.length ? `<div class="table-scroll"><table><thead><tr>${columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map(r=>`<tr>${r.map(cell=>`<td>${cell}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div>` : emptyState('Nenhum registro encontrado nesse período.')}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'wide');
 }
 const iconEdit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const iconTrash = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`;
@@ -3108,8 +3126,8 @@ function renderPedidosDashboard(){
     pacotesPrev = entreguesPrevMes.reduce((s,o)=>s+o.items.reduce((a,i)=>a+i.qty,0),0);
   }
 
-  const card = (icon, bg, label, value, pct) => `
-    <div class="stat-card" style="padding:14px;">
+  const card = (icon, bg, label, value, pct, onclick) => `
+    <div class="stat-card${onclick?' clickable':''}" style="padding:14px;"${onclick?` onclick="${onclick}"`:''}>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
         <div style="width:30px;height:30px;border-radius:8px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">${icon}</div>
         <div class="stat-label" style="margin:0;">${label}</div>
@@ -3119,14 +3137,45 @@ function renderPedidosDashboard(){
     </div>`;
 
   box.innerHTML = [
-    card('🧾','#DBEAFE','Pedidos realizados', pedidosMes.length, pctVsPrev(pedidosMes.length, pedidosPrevMes.length)),
-    card('💰','#EDE9FE','Soma total dos pedidos', fmtMoney(totalPedidosMes), null),
-    card('📊','#DCFCE7',pedidosShowAll?'Faturamento total':'Faturamento no mês', fmtMoney(faturamento), pctVsPrev(faturamento, faturamentoPrev)),
-    card('💳','#F3E8FF','Ticket médio', fmtMoney(ticketMedio), pctVsPrev(ticketMedio, ticketMedioPrev)),
-    card('📦','#FEF3C7','Pacotes vendidos', pacotes, pctVsPrev(pacotes, pacotesPrev)),
-    card('🔁','#DBEAFE','Clientes recorrentes que pediram', clientesRecorrentesSet.size, null),
-    card('🎉','#FCE7F3','Clientes pontuais que pediram', clientesPontuaisSet.size, null),
+    card('🧾','#DBEAFE','Pedidos realizados', pedidosMes.length, pctVsPrev(pedidosMes.length, pedidosPrevMes.length), "openPedidosSummaryDetail('todos')"),
+    card('💰','#EDE9FE','Soma total dos pedidos', fmtMoney(totalPedidosMes), null, "openPedidosSummaryDetail('todos')"),
+    card('📊','#DCFCE7',pedidosShowAll?'Faturamento total':'Faturamento no mês', fmtMoney(faturamento), pctVsPrev(faturamento, faturamentoPrev), "openPedidosSummaryDetail('entregues')"),
+    card('💳','#F3E8FF','Ticket médio', fmtMoney(ticketMedio), pctVsPrev(ticketMedio, ticketMedioPrev), "openPedidosSummaryDetail('entregues')"),
+    card('📦','#FEF3C7','Pacotes vendidos', pacotes, pctVsPrev(pacotes, pacotesPrev), "openPedidosSummaryDetail('entregues')"),
+    card('🔁','#DBEAFE','Clientes recorrentes que pediram', clientesRecorrentesSet.size, null, "openPedidosSummaryDetail('recorrentes')"),
+    card('🎉','#FCE7F3','Clientes pontuais que pediram', clientesPontuaisSet.size, null, "openPedidosSummaryDetail('pontuais')"),
   ].join('');
+  pedidosDashRows = { pedidosMes, entreguesMes, clientesRecorrentesSet, clientesPontuaisSet };
+}
+// Detalhe por trás dos quadrantes do Resumo do mês em Pedidos — reaproveita exatamente o mesmo conjunto
+// de pedidos (`pedidosMes`/`entreguesMes`) já calculado acima, respeitando o período/mês sendo navegado.
+let pedidosDashRows = { pedidosMes:[], entreguesMes:[], clientesRecorrentesSet:new Set(), clientesPontuaisSet:new Set() };
+function openPedidosSummaryDetail(filter){
+  const { pedidosMes, entreguesMes, clientesRecorrentesSet, clientesPontuaisSet } = pedidosDashRows;
+  let list = pedidosMes, title = 'Todos os pedidos do período';
+  if(filter==='entregues'){ list = entreguesMes; title = 'Pedidos entregues no período'; }
+  else if(filter==='recorrentes'){
+    const rows = [...clientesRecorrentesSet].map(id=>{
+      const c = state.clients.find(x=>x.id===id);
+      const n = pedidosMes.filter(o=>o.clientId===id).length;
+      return [esc(c?c.name:'—'), n];
+    });
+    openRecordListModal('Clientes recorrentes que pediram', '🔁', `${rows.length} cliente(s)`, ['Cliente','Pedidos no período'], rows);
+    return;
+  } else if(filter==='pontuais'){
+    const rows = [...clientesPontuaisSet].map(id=>{
+      const c = state.clients.find(x=>x.id===id);
+      const n = pedidosMes.filter(o=>o.clientId===id).length;
+      return [esc(c?c.name:'—'), n];
+    });
+    openRecordListModal('Clientes pontuais que pediram', '🎉', `${rows.length} cliente(s)`, ['Cliente','Pedidos no período'], rows);
+    return;
+  }
+  const rows = list.slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).map(o=>{
+    const c = state.clients.find(x=>x.id===o.clientId);
+    return [esc(c?c.name:'—'), fmtMoney(o.total), esc(o.status), o.createdAt?fmtDate(o.createdAt):'—'];
+  });
+  openRecordListModal(title, '🧾', `${list.length} pedido(s)`, ['Cliente','Valor','Status','Criado em'], rows);
 }
 function renderPedidos(){
   renderPedidosDashboard();
@@ -5839,14 +5888,69 @@ function renderCrmStats(){
   const overdueTasks = state.tasks.filter(t=>t.status==='pendente' && t.date < todayStr()).length;
 
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">Total de leads</div><div class="stat-value">${totalLeads}</div><div class="stat-note">${newThisMonth} novo(s) este mês</div></div>
-    <div class="stat-card"><div class="stat-label">Taxa de conversão</div><div class="stat-value">${conversion.toFixed(0)}%</div><div class="stat-note">${fechados.length} fechado(s) / ${perdidos.length} perdido(s)</div></div>
-    <div class="stat-card"><div class="stat-label">Tempo médio p/ fechar</div><div class="stat-value">${avgClose.toFixed(0)} dias</div></div>
-    <div class="stat-card"><div class="stat-label">Leads parados (+3 dias)</div><div class="stat-value" style="color:${stalledCount?'var(--danger)':'inherit'}">${stalledCount}</div><div class="stat-note">média ${avgStalled.toFixed(0)}d sem interação</div></div>
-    <div class="stat-card"><div class="stat-label">Valor em negociação</div><div class="stat-value">${fmtMoney(potencial)}</div></div>
-    <div class="stat-card"><div class="stat-label">Tarefas atrasadas</div><div class="stat-value" style="color:${overdueTasks?'var(--danger)':'inherit'}">${overdueTasks}</div></div>
-    <div class="stat-card"><div class="stat-label">Pedidos originados do CRM</div><div class="stat-value">${ordersFromCRM}</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('total')"><div class="stat-label">Total de leads</div><div class="stat-value">${totalLeads}</div><div class="stat-note">${newThisMonth} novo(s) este mês</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('conversao')"><div class="stat-label">Taxa de conversão</div><div class="stat-value">${conversion.toFixed(0)}%</div><div class="stat-note">${fechados.length} fechado(s) / ${perdidos.length} perdido(s)</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('conversao')"><div class="stat-label">Tempo médio p/ fechar</div><div class="stat-value">${avgClose.toFixed(0)} dias</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('parados')"><div class="stat-label">Leads parados (+3 dias)</div><div class="stat-value" style="color:${stalledCount?'var(--danger)':'inherit'}">${stalledCount}</div><div class="stat-note">média ${avgStalled.toFixed(0)}d sem interação</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('negociacao')"><div class="stat-label">Valor em negociação</div><div class="stat-value">${fmtMoney(potencial)}</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('tarefas')"><div class="stat-label">Tarefas atrasadas</div><div class="stat-value" style="color:${overdueTasks?'var(--danger)':'inherit'}">${overdueTasks}</div></div>
+    <div class="stat-card clickable" onclick="openCrmDetail('pedidos')"><div class="stat-label">Pedidos originados do CRM</div><div class="stat-value">${ordersFromCRM}</div></div>
   `;
+}
+// Detalhe por trás de cada quadrante do CRM — reconsulta os leads/tarefas/pedidos na hora do clique
+// (dados mudam pouco entre um clique e outro, mais simples e seguro que cachear do render acima).
+function openCrmDetail(kind){
+  const now2 = new Date(); const monthKey2 = now2.toISOString().slice(0,7);
+  if(kind==='total'){
+    const rows = state.leads.slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).map(l=>[
+      esc(l.name), esc(l.company||'—'), esc(LEAD_STAGES.find(s=>s.v===l.stage)?.label||l.stage), fmtMoney(l.value||0), l.createdAt?fmtDate(l.createdAt):'—'
+    ]);
+    openRecordListModal('Todos os leads', '📋', `${state.leads.length} lead(s) no total`, ['Nome','Empresa','Etapa','Valor','Criado em'], rows);
+    return;
+  }
+  if(kind==='conversao'){
+    const resolved = state.leads.filter(l=>['fechado','perdido'].includes(l.stage)).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
+    const rows = resolved.map(l=>[
+      esc(l.name), `<span class="badge ${l.stage==='fechado'?'badge-success':'badge-danger'}">${l.stage==='fechado'?'✔ Fechado':'✕ Perdido'}</span>`,
+      fmtMoney(l.value||0), l.closedAt?fmtDate(l.closedAt):'—'
+    ]);
+    openRecordListModal('Leads fechados e perdidos', '📈', `${resolved.length} lead(s) resolvido(s)`, ['Nome','Resultado','Valor','Data'], rows);
+    return;
+  }
+  if(kind==='parados'){
+    const openLeads = state.leads.filter(l=>!['fechado','perdido'].includes(l.stage)).filter(isStalled).sort((a,b)=>daysSince(b.lastInteraction)-daysSince(a.lastInteraction));
+    const rows = openLeads.map(l=>[
+      esc(l.name), esc(LEAD_STAGES.find(s=>s.v===l.stage)?.label||l.stage), fmtMoney(l.value||0), `${daysSince(l.lastInteraction)} dia(s) sem interação`
+    ]);
+    openRecordListModal('Leads parados (+3 dias sem interação)', '⚠️', `${openLeads.length} lead(s)`, ['Nome','Etapa','Valor','Parado há'], rows);
+    return;
+  }
+  if(kind==='negociacao'){
+    const openLeads = state.leads.filter(l=>!['fechado','perdido'].includes(l.stage)).sort((a,b)=>(b.value||0)-(a.value||0));
+    const rows = openLeads.map(l=>[esc(l.name), esc(LEAD_STAGES.find(s=>s.v===l.stage)?.label||l.stage), fmtMoney(l.value||0)]);
+    const total = openLeads.reduce((s,l)=>s+(l.value||0),0);
+    openRecordListModal('Valor em negociação', '💰', `${openLeads.length} lead(s) em aberto — total ${fmtMoney(total)}`, ['Nome','Etapa','Valor'], rows);
+    return;
+  }
+  if(kind==='tarefas'){
+    const overdue = state.tasks.filter(t=>t.status==='pendente' && t.date<todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
+    const rows = overdue.map(t=>{
+      const lead = state.leads.find(l=>l.id===t.leadId);
+      return [esc(t.title||t.description||'—'), esc(lead?lead.name:'—'), fmtDate(t.date)];
+    });
+    openRecordListModal('Tarefas atrasadas', '⏰', `${overdue.length} tarefa(s)`, ['Tarefa','Lead','Prazo'], rows);
+    return;
+  }
+  if(kind==='pedidos'){
+    const clientIds = state.clients.filter(c=>c.fromLeadId).map(c=>c.id);
+    const orders = state.orders.filter(o=>clientIds.includes(o.clientId)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+    const rows = orders.map(o=>{
+      const c = state.clients.find(x=>x.id===o.clientId);
+      return [esc(c?c.name:'—'), fmtMoney(o.total), esc(o.status), o.createdAt?fmtDate(o.createdAt):'—'];
+    });
+    openRecordListModal('Pedidos originados do CRM', '🧾', `${orders.length} pedido(s) de clientes convertidos de leads`, ['Cliente','Valor','Status','Criado em'], rows);
+    return;
+  }
 }
 
 // Clients tab
@@ -5995,6 +6099,23 @@ function renderFreezerRelatorio(){
       <td>${r.ultimaCompra?fmtDate(r.ultimaCompra):'—'}</td>
     </tr>`).join('')}
   </tbody></table>`;
+  freezerReportRows = rows; // guardado pra alimentar o modal de detalhe dos quadrantes acima, sem recalcular tudo de novo
+}
+// Detalhe por trás dos quadrantes do Relatório de Freezers — reaproveita as linhas já calculadas em
+// renderFreezerRelatorio (mesmos números da tabela), só filtrando por Atingiram/Abaixo quando pedido.
+let freezerReportRows = [];
+function openFreezerReportDetail(filter){
+  const rows = filter==='atingiram' ? freezerReportRows.filter(r=>r.pct>=100)
+    : filter==='abaixo' ? freezerReportRows.filter(r=>r.pct<100)
+    : freezerReportRows;
+  const title = filter==='atingiram' ? 'Clientes que atingiram a meta' : filter==='abaixo' ? 'Clientes abaixo da meta' : 'Clientes com freezer em comodato';
+  const tableRows = rows.map(r=>[
+    esc(r.client.name), esc(r.freezerName), r.pacotes, fmtMoney(r.faturamento),
+    `<span class="badge ${r.pct>=100?'badge-success':'badge-danger'}">${r.pct.toFixed(0)}%</span>`,
+    r.ultimaCompra?fmtDate(r.ultimaCompra):'—'
+  ]);
+  openRecordListModal(title, '🧊', `${relFrom&&relTo?fmtDate(relFrom)+' até '+fmtDate(relTo)+' — ':''}${rows.length} cliente(s)`,
+    ['Cliente','Freezer','Pacotes','Faturamento','% da meta','Última compra'], tableRows);
 }
 function clientBadge(c){ return c && c.hasFreezer ? ' <span class="badge badge-info" title="Freezer em comodato">🧊 Freezer em comodato</span>' : ''; }
 let clientTypeTab = 'recorrente';
@@ -6034,12 +6155,36 @@ function renderClientesSummaryStats(byType){
   const idsSet = new Set(byType.map(c=>c.id));
   const pedidosMes = state.orders.filter(o=>idsSet.has(o.clientId) && o.status==='entregue' && o.deliveredAt && o.deliveredAt.slice(0,7)===monthKey).length;
   box.innerHTML = `
-    <div class="stat-card"><div class="stat-label">Total de clientes</div><div class="stat-value">${total}</div></div>
-    <div class="stat-card"><div class="stat-label">Em atendimento</div><div class="stat-value" style="color:var(--success);">${ativos}</div></div>
-    <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" style="color:var(--info);">${prospects}</div></div>
-    <div class="stat-card"><div class="stat-label">Inativos</div><div class="stat-value" style="color:var(--danger);">${inativos}</div></div>
-    <div class="stat-card"><div class="stat-label">Pedidos este mês</div><div class="stat-value">${pedidosMes}</div></div>
+    <div class="stat-card clickable" onclick="openClientesSummaryDetail('todos')"><div class="stat-label">Total de clientes</div><div class="stat-value">${total}</div></div>
+    <div class="stat-card clickable" onclick="openClientesSummaryDetail('ativo')"><div class="stat-label">Em atendimento</div><div class="stat-value" style="color:var(--success);">${ativos}</div></div>
+    <div class="stat-card clickable" onclick="openClientesSummaryDetail('prospect')"><div class="stat-label">Prospects</div><div class="stat-value" style="color:var(--info);">${prospects}</div></div>
+    <div class="stat-card clickable" onclick="openClientesSummaryDetail('inativo')"><div class="stat-label">Inativos</div><div class="stat-value" style="color:var(--danger);">${inativos}</div></div>
+    <div class="stat-card clickable" onclick="openClientesSummaryDetail('pedidosMes')"><div class="stat-label">Pedidos este mês</div><div class="stat-value">${pedidosMes}</div></div>
   `;
+  clientesSummaryRows = byType;
+}
+// Detalhe por trás dos quadrantes de resumo de Clientes — reaproveita o mesmo conjunto `byType` (já
+// filtrado pela aba ativa: Recorrentes/Pontuais/Com Freezer) que alimentou os números acima.
+let clientesSummaryRows = [];
+function openClientesSummaryDetail(filter){
+  const monthKey = todayStr().slice(0,7);
+  let list = clientesSummaryRows;
+  let title = 'Todos os clientes';
+  if(filter==='ativo'){ list = list.filter(c=>c.status==='ativo'); title = 'Clientes em atendimento'; }
+  else if(filter==='prospect'){ list = list.filter(c=>c.status==='prospect'); title = 'Prospects'; }
+  else if(filter==='inativo'){ list = list.filter(c=>c.status==='inativo'); title = 'Clientes inativos'; }
+  else if(filter==='pedidosMes'){
+    const idsSet = new Set(clientesSummaryRows.map(c=>c.id));
+    const orders = state.orders.filter(o=>idsSet.has(o.clientId) && o.status==='entregue' && o.deliveredAt && o.deliveredAt.slice(0,7)===monthKey).sort((a,b)=>b.deliveredAt.localeCompare(a.deliveredAt));
+    const rows = orders.map(o=>{
+      const c = state.clients.find(x=>x.id===o.clientId);
+      return [esc(c?c.name:'—'), fmtDate(o.deliveredAt), fmtMoney(o.total)];
+    });
+    openRecordListModal('Pedidos este mês', '🧾', `${orders.length} pedido(s) entregue(s) este mês`, ['Cliente','Data','Valor'], rows);
+    return;
+  }
+  const rows = list.map(c=>[esc(c.name), esc(c.city||'—'), esc(c.phone||c.whatsapp||'—'), (c.clientType||'recorrente')==='recorrente'?'Recorrente':'Pontual']);
+  openRecordListModal(title, '👥', `${list.length} cliente(s)`, ['Nome','Cidade','Contato','Tipo'], rows);
 }
 function selectClientBairro(bairro){
   document.getElementById('clientBairroFilter').value = bairro;
@@ -8708,6 +8853,29 @@ function renderRelatorios(){
   renderRelClientes(pedidosEntregues);
   renderRelDespesas();
   renderRelDre(pedidosEntregues);
+}
+// Detalhe por trás de Pacotes vendidos / Faturamento no período / Ticket médio — mesma lista de pedidos
+// entregues no período, só muda o que o usuário quer conferir de perto.
+function openRelPacotesDetail(){
+  const pedidos = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=relFrom && o.deliveredAt<=relTo)
+    .sort((a,b)=> b.deliveredAt.localeCompare(a.deliveredAt));
+  const rows = pedidos.map(o=>{
+    const c = state.clients.find(x=>x.id===o.clientId);
+    const pacotes = o.items.reduce((a,i)=>a+i.qty,0);
+    return [fmtDate(o.deliveredAt), esc(c?c.name:'—'), pacotes, fmtMoney(o.total)];
+  });
+  openRecordListModal('Pedidos entregues no período', '📦', `${fmtDate(relFrom)} até ${fmtDate(relTo)} — ${pedidos.length} pedido(s)`, ['Data','Cliente','Pacotes','Valor'], rows);
+}
+// Detalhe por trás de Total arrecadado / Dinheiro / Pix — lista as transações de receita recebidas no
+// período; `method` filtra por forma de pagamento (null = todas).
+function openRelArrecadadoDetail(method){
+  const receitas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=relFrom && t.paymentDate<=relTo && (!method || t.paymentMethod===method))
+    .sort((a,b)=> b.paymentDate.localeCompare(a.paymentDate));
+  const rows = receitas.map(t=>[fmtDate(t.paymentDate), esc(t.description||'—'), esc(t.paymentMethod||'—'), fmtMoney(t.amount)]);
+  const total = receitas.reduce((s,t)=>s+t.amount,0);
+  openRecordListModal(method ? `Recebido via ${method}` : 'Total arrecadado', method==='Dinheiro'?'💵':(method==='Pix'?'📲':'💰'),
+    `${fmtDate(relFrom)} até ${fmtDate(relTo)} — ${receitas.length} recebimento(s), total ${fmtMoney(total)}`,
+    ['Data','Descrição','Forma de pagamento','Valor'], rows);
 }
 function renderRelDiario(pedidosEntregues, receitasPeriodo){
   const wrap = document.getElementById('relDiarioWrap');
