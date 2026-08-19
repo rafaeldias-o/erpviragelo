@@ -1015,10 +1015,6 @@ tr:last-child td{border-bottom:none;}
       <!-- CRM -->
       <section class="view" id="view-crm">
         <div class="stat-grid" id="crmStats"></div>
-        <div class="panel" id="crmLostReasonsPanel" style="display:none;">
-          <div class="panel-head"><div class="section-title">📉 Por que estamos perdendo leads?</div></div>
-          <div id="crmLostReasonsWrap"></div>
-        </div>
         <div class="panel-head" style="margin-bottom:10px;">
           <div class="section-title">Funil de vendas</div>
           <button class="btn btn-primary" onclick="openLeadModal()">+ Novo lead</button>
@@ -3126,10 +3122,22 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return;
   const existingDelivery = state.deliveries.find(d=>d.orderId===orderId);
+  let deliveryId;
   if(existingDelivery){
     await sb.from('deliveries').update({ driver, distance_km: distanceKm, status:'entregue' }).eq('id', existingDelivery.id);
+    deliveryId = existingDelivery.id;
   } else {
-    await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm });
+    const { data: createdDelivery, error: delErr } = await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm }).select().single();
+    if(delErr){ dbErr(delErr, 'Erro ao registrar a entrega'); return; }
+    deliveryId = createdDelivery.id;
+  }
+  // Preenche os itens da entrega com os mesmos itens do pedido — sem isso, confirmar a entrega direto
+  // pela aba Pedidos (em vez de pelo formulário manual em Agenda de Entregas) deixava o cartão na Agenda
+  // sem nenhuma informação do que foi entregue. Só mexe se a entrega ainda não tiver itens próprios (não
+  // sobrescreve uma entrega que já foi editada manualmente com itens diferentes do pedido).
+  if(deliveryId && (!existingDelivery || (existingDelivery.items||[]).length===0) && order.items.length){
+    const rows = order.items.map(it=> ({ delivery_id: deliveryId, stock_item_id: it.productId, qty: it.qty }));
+    await sb.from('delivery_items').insert(rows);
   }
   // Garante que a receita criada automaticamente (pelo gatilho do banco, ao marcar o pedido como
   // entregue) sempre tenha data de pagamento preenchida — sem isso, ela conta certo no Faturamento do
@@ -6111,7 +6119,6 @@ function renderCrmStats(){
   const stalledCount = openLeads.filter(isStalled).length;
   const potencial = openLeads.reduce((s,l)=>s+(l.value||0),0);
   const clientIdsFromCRM = state.clients.filter(c=>c.fromLeadId).map(c=>c.id);
-  const ordersFromCRM = state.orders.filter(o=>clientIdsFromCRM.includes(o.clientId)).length;
   const overdueTasks = state.tasks.filter(t=>t.status==='pendente' && t.date < todayStr()).length;
 
   box.innerHTML = `
@@ -6121,33 +6128,7 @@ function renderCrmStats(){
     <div class="stat-card clickable" onclick="openCrmDetail('parados')"><div class="stat-label">Leads parados (+3 dias)</div><div class="stat-value" style="color:${stalledCount?'var(--danger)':'inherit'}">${stalledCount}</div><div class="stat-note">média ${avgStalled.toFixed(0)}d sem interação</div></div>
     <div class="stat-card clickable" onclick="openCrmDetail('negociacao')"><div class="stat-label">Valor em negociação</div><div class="stat-value">${fmtMoney(potencial)}</div></div>
     <div class="stat-card clickable" onclick="openCrmDetail('tarefas')"><div class="stat-label">Tarefas atrasadas</div><div class="stat-value" style="color:${overdueTasks?'var(--danger)':'inherit'}">${overdueTasks}</div></div>
-    <div class="stat-card clickable" onclick="openCrmDetail('pedidos')"><div class="stat-label">Pedidos originados do CRM</div><div class="stat-value">${ordersFromCRM}</div></div>
-  `;
-  renderCrmLostReasons(perdidos);
-}
-// Painel "por que estamos perdendo leads" — agrega o motivo de perda coletado (obrigatório desde a
-// última atualização) por categoria. Só aparece quando já existe pelo menos 1 lead perdido COM motivo
-// registrado (leads perdidos antes dessa mudança não têm motivo, e não force ele a aparecer vazio).
-function renderCrmLostReasons(perdidos){
-  const panel = document.getElementById('crmLostReasonsPanel');
-  const wrap = document.getElementById('crmLostReasonsWrap');
-  if(!panel || !wrap) return;
-  const comMotivo = perdidos.filter(l=>l.lostReason);
-  if(comMotivo.length===0){ panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  const counts = {};
-  comMotivo.forEach(l=> counts[l.lostReason] = (counts[l.lostReason]||0)+1);
-  const rows = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  const max = Math.max(...rows.map(r=>r[1]));
-  wrap.innerHTML = `
-    <div class="hint" style="margin-bottom:10px;">${comMotivo.length} de ${perdidos.length} lead(s) perdido(s) têm motivo registrado.</div>
-    ${rows.map(([reason,count])=>`
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-        <div style="width:160px;font-size:12.5px;flex-shrink:0;">${esc(reason)}</div>
-        <div style="flex:1;height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;"><div style="height:100%;width:${(count/max*100)}%;background:var(--accent-2);"></div></div>
-        <div style="width:28px;text-align:right;font-size:12.5px;font-weight:700;flex-shrink:0;">${count}</div>
-      </div>
-    `).join('')}
+    <div class="stat-card clickable" onclick="openCrmDetail('motivos_perda')"><div class="stat-label">📉 Motivos de perda</div><div class="stat-value">${perdidos.length}</div><div class="stat-note">${perdidos.filter(l=>l.lostReason).length} com motivo registrado</div></div>
   `;
 }
 // Detalhe por trás de cada quadrante do CRM — reconsulta os leads/tarefas/pedidos na hora do clique
@@ -6194,6 +6175,10 @@ function openCrmDetail(kind){
     openRecordListModal('Tarefas atrasadas', '⏰', `${overdue.length} tarefa(s)`, ['Tarefa','Lead','Prazo'], rows);
     return;
   }
+  if(kind==='motivos_perda'){
+    openLostReasonsDetail();
+    return;
+  }
   if(kind==='pedidos'){
     const clientIds = state.clients.filter(c=>c.fromLeadId).map(c=>c.id);
     const orders = state.orders.filter(o=>clientIds.includes(o.clientId)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
@@ -6204,6 +6189,52 @@ function openCrmDetail(kind){
     openRecordListModal('Pedidos originados do CRM', '🧾', `${orders.length} pedido(s) de clientes convertidos de leads`, ['Cliente','Valor','Status','Criado em'], rows);
     return;
   }
+}
+// Modal do quadrante "Motivos de perda" — mostra as barras de motivo (movidas pra cá em vez de ficarem
+// fixas no topo da tela) e a lista de todos os leads perdidos, com um botão "+ Adicionar motivo" nos que
+// ainda não têm nenhum registrado (leads perdidos antes dessa funcionalidade existir).
+function openLostReasonsDetail(){
+  const perdidos = state.leads.filter(l=>l.stage==='perdido').sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
+  const comMotivo = perdidos.filter(l=>l.lostReason);
+  const counts = {};
+  comMotivo.forEach(l=> counts[l.lostReason] = (counts[l.lostReason]||0)+1);
+  const barRows = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const max = barRows.length ? Math.max(...barRows.map(r=>r[1])) : 1;
+  const barsHtml = barRows.length ? barRows.map(([reason,count])=>`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <div style="width:170px;font-size:12.5px;flex-shrink:0;">${esc(reason)}</div>
+      <div style="flex:1;height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;"><div style="height:100%;width:${(count/max*100)}%;background:var(--accent-2);"></div></div>
+      <div style="width:28px;text-align:right;font-size:12.5px;font-weight:700;flex-shrink:0;">${count}</div>
+    </div>
+  `).join('') : '<div class="hint">Nenhum motivo registrado ainda.</div>';
+  const leadsHtml = perdidos.length ? `<div class="table-scroll"><table><thead><tr><th>Lead</th><th>Motivo</th><th>Perdido em</th><th></th></tr></thead><tbody>
+    ${perdidos.map(l=>`<tr>
+      <td>${esc(l.name)}</td>
+      <td>${l.lostReason ? esc(l.lostReason)+(l.lostReasonDetail?` <span style="color:var(--muted);">(${esc(l.lostReasonDetail)})</span>`:'') : '<span style="color:var(--muted);">— sem motivo —</span>'}</td>
+      <td>${l.closedAt?fmtDate(l.closedAt):'—'}</td>
+      <td>${l.lostReason ? '' : `<button class="btn btn-ghost btn-sm" onclick="addLostReasonToLead('${l.id}')">+ Adicionar motivo</button>`}</td>
+    </tr>`).join('')}
+  </tbody></table></div>` : emptyState('Nenhum lead perdido ainda.');
+  openModal(`
+    <div class="modal-head"><h3>📉 Motivos de perda</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">${comMotivo.length} de ${perdidos.length} lead(s) perdido(s) têm motivo registrado.</div>
+    ${barsHtml}
+    <div style="font-weight:700;font-size:13px;margin:18px 0 8px;">Leads perdidos</div>
+    ${leadsHtml}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'wide');
+}
+// Deixa registrar (ou corrigir) o motivo de um lead que já está perdido, sem precisar mudar de etapa de
+// novo — útil pra preencher retroativamente leads perdidos antes dessa funcionalidade existir.
+function addLostReasonToLead(id){
+  promptLeadLostReason((reason, detail) => saveLostReasonOnly(id, reason, detail));
+}
+async function saveLostReasonOnly(id, reason, detail){
+  const { error } = await sb.from('leads').update({ lost_reason: reason, lost_reason_detail: detail||null }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao salvar motivo'); closeModal(); return; }
+  await sb.from('lead_history').insert({ lead_id: id, type:'perdido', text: detail ? `Motivo de perda registrado — motivo: ${reason} (${detail})` : `Motivo de perda registrado — motivo: ${reason}` });
+  toast('Motivo registrado'); await loadAll(); renderAll();
+  openLostReasonsDetail(); // reabre a lista já atualizada, em vez de fechar de vez
 }
 
 // Clients tab
@@ -7235,13 +7266,18 @@ function renderWeekAgenda(){
       <div class="kanban-cards">
         ${list.length===0 ? '<div class="hint" style="text-align:center;padding:8px 0;">Vazio</div>' : list.map(dl=>{
           const c = state.clients.find(x=>x.id===dl.clientId);
+          const relatedOrder = dl.orderId ? state.orders.find(o=>o.id===dl.orderId) : null;
+          // Confirmar a entrega direto pela aba Pedidos não passava pelos itens (só o formulário manual
+          // de entrega pedia isso) — cai pro pedido vinculado como fonte da verdade quando a entrega em
+          // si não tem itens próprios, então o cartão sempre mostra o que foi entregue.
+          const itemsToShow = dl.items.length ? dl.items : (relatedOrder ? relatedOrder.items : []);
           return `<div class="kanban-card" draggable="true" ondragstart="onDeliveryDragStart(event,'${dl.id}')">
-            <div class="kanban-card-name">${dl.time?dl.time+' · ':''}${esc(c?c.name:'Cliente')}</div>
-            <div class="kanban-card-meta">${dl.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ')||'—'}${dl.notes?'<br>'+esc(dl.notes):''}${c&&c.hasFreezer?'<br>🧊 Freezer':''}</div>
+            <div class="kanban-card-name">${dl.time?dl.time+' · ':''}${esc(c?c.name:'Cliente')}${relatedOrder?` <span style="color:var(--muted);font-weight:500;font-size:10.5px;">${esc(relatedOrder.orderNumber||('#'+relatedOrder.id.slice(-5)))}</span>`:''}</div>
+            <div class="kanban-card-meta">${itemsToShow.length ? itemsToShow.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ') : '—'}${dl.notes?'<br>'+esc(dl.notes):''}${c&&c.hasFreezer?'<br>🧊 Freezer':''}</div>
             <div class="kanban-card-foot">
               <span class="badge ${deliveryStatusInfo(dl.status).cls}">${deliveryStatusInfo(dl.status).label}</span>
               <div style="display:flex;gap:3px;">
-                ${dl.orderId?`<button class="icon-btn" onclick="openOrderModal('${dl.orderId}')" title="Abrir pedido relacionado">🧾</button>`:''}
+                ${dl.orderId?`<button class="icon-btn" onclick="openOrderModal('${dl.orderId}')" title="Ver pedido relacionado">🧾</button>`:''}
                 <button class="icon-btn" onclick="openDeliveryEditModal('${dl.id}')" title="Editar">${iconEdit}</button>
                 <button class="icon-btn" onclick="deleteDelivery('${dl.id}')" title="Excluir">${iconTrash}</button>
               </div>
