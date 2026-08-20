@@ -3136,9 +3136,18 @@ function renderOdpMap(clientCoord, driverHomeCoord){
     routePoints.push([driverHomeCoord.lat, driverHomeCoord.lng]);
   }
 
-  L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(odpLeafletMap);
+  const routeLine = L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(odpLeafletMap);
   odpLeafletMap.fitBounds(bounds, {padding:[30,30]});
   setTimeout(()=>{ if(odpLeafletMap) odpLeafletMap.invalidateSize(); }, 150);
+
+  // Troca a linha reta tracejada pela rota real (seguindo as ruas) assim que a API responder — desenha a
+  // reta na hora pra o mapa não ficar sem nada enquanto isso, e substitui em seguida sem travar a tela.
+  const mapAtRequestTime = odpLeafletMap; // confere se o modal não foi fechado/reaberto nesse meio tempo
+  fetchRouteGeometry(routePoints.map(([lat,lng])=>({lat,lng}))).then(geometry=>{
+    if(!geometry || odpLeafletMap !== mapAtRequestTime) return;
+    routeLine.remove();
+    L.polyline(geometry, { color:'#1C7FA3', weight:4, opacity:0.85 }).addTo(odpLeafletMap);
+  });
 }
 // Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco, Cartão -> Maquininha.
 function suggestedAccountForPaymentMethod(paymentMethod){
@@ -6943,6 +6952,22 @@ async function routeDistanceKm(origin, dest){
     return json.routes[0].distance / 1000;
   }catch(e){ console.warn('Cálculo de distância falhou:', e); return null; }
 }
+// Busca a geometria REAL da rota (seguindo as ruas) via OSRM, pra desenhar no mapa em vez de uma linha
+// reta. `points` é um array de {lat,lng} com 2+ paradas na ordem do trajeto. Retorna um array de pares
+// [lat,lng] prontos pra L.polyline do Leaflet (a API do OSRM devolve em [lng,lat], por isso inverte).
+// Se a rota não for encontrada ou a API falhar, retorna null — quem chama deve manter a linha reta como
+// alternativa nesse caso, sem deixar o mapa sem nenhuma linha.
+async function fetchRouteGeometry(points){
+  if(!points || points.length<2) return null;
+  try{
+    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if(json.code!=='Ok' || !json.routes?.[0]?.geometry?.coordinates) return null;
+    return json.routes[0].geometry.coordinates.map(([lng,lat])=>[lat,lng]);
+  }catch(e){ console.warn('Geometria da rota falhou:', e); return null; }
+}
 function pickFreightTier(distanceKm){
   if(distanceKm==null || !state.freightTiers.length) return null;
   for(let i=0;i<state.freightTiers.length;i++){
@@ -9042,9 +9067,20 @@ function renderCRWizardRouteMap(origin, ordered){
     bounds.push([s.lat, s.lng]);
     routePoints.push([s.lat, s.lng]);
   });
-  L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(crwRouteLeafletMap);
+  const routeLine = L.polyline(routePoints, { color:'#1C7FA3', weight:3, opacity:0.7, dashArray:'6 6' }).addTo(crwRouteLeafletMap);
   if(bounds.length>1) crwRouteLeafletMap.fitBounds(bounds, {padding:[30,30]});
   setTimeout(()=>{ if(crwRouteLeafletMap) crwRouteLeafletMap.invalidateSize(); }, 200);
+
+  // Troca a linha reta tracejada pela rota real (seguindo as ruas) assim que a API responder — mesma
+  // lógica usada no mapa de confirmação de entrega, reaproveitando fetchRouteGeometry().
+  if(routePoints.length>=2){
+    const mapAtRequestTime = crwRouteLeafletMap;
+    fetchRouteGeometry(routePoints.map(([lat,lng])=>({lat,lng}))).then(geometry=>{
+      if(!geometry || crwRouteLeafletMap !== mapAtRequestTime) return;
+      routeLine.remove();
+      L.polyline(geometry, { color:'#1C7FA3', weight:4, opacity:0.85 }).addTo(crwRouteLeafletMap);
+    });
+  }
 }
 
 // ---- Histórico de rotas comerciais ----
