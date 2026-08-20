@@ -3806,7 +3806,7 @@ function buildAreaChartSvg(values, labels, color, fmtFn){
   }).join('');
   const dots = values.map((v,i)=>`<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.8" fill="${color}"><title>Dia ${esc(labels[i])}: ${esc(fmt(v))}</title></circle>`).join('');
   const gradId = 'sparkGrad'+Math.random().toString(36).slice(2,9);
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:280px;display:block;">
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:280px;display:block;" preserveAspectRatio="none">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
       <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
@@ -3844,10 +3844,11 @@ function openSparklineDetail(key){
     ${pctHtml}
     <div style="margin-top:22px;">
       <div class="legend" style="margin-bottom:6px;"><span><i style="background:${d.color}"></i>${esc(d.seriesLabel||'Valor por dia')}</span></div>
-      ${chart}
+      <div id="sparkDetailChart" class="chart-hover-wrap">${chart}</div>
     </div>
     ${monthlyHtml}
   `, 'full');
+  attachLineChartHover('sparkDetailChart', d.series?.values||[], d.series?.labels||[], fmt, d.color, {w:820,h:280,padL:58,padR:16,padT:16,padB:28});
 }
 function buildComboChartSvg(entradas, saidas, saldo, labels){
   const w=700, h=190, padL=58, padR=10, padT=14, padB=24;
@@ -7944,8 +7945,8 @@ function buildLineChartSvg(values, labels, color){
 // Gráfico de barras duplas (ex: Entradas x Saídas) em SVG puro — mesma grade/dimensões do
 // buildLineChartSvg, pra manter a altura consistente entre os 3 gráficos da seção Estoque
 // (evita o espaço vazio que sobrava quando esse gráfico era montado com divs flex de altura fixa).
-function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB){
-  const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
+function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx){
+  const w = 700, h = heightPx || 150, padL = 34, padR = 10, padT = 12, padB = 22;
   const n = labels.length;
   const max = Math.max(1, ...seriesA, ...seriesB);
   const baseY = h - padB;
@@ -7960,11 +7961,20 @@ function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA,
       <rect x="${xB.toFixed(1)}" y="${yOf(seriesB[i]).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hB).toFixed(1)}" rx="1.5" fill="${colorB}"><title>Dia ${esc(l)} — ${esc(legendB||'Série B')}: ${seriesB[i]}</title></rect>`;
   }).join('');
   const lastI = n-1;
-  const labelIdxs = [0];
-  for(let i=4;i<n;i+=5) labelIdxs.push(i);
-  if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
+  // Com poucos pontos (ex: dados já agrupados em "buckets" de 5 em 5 dias, como no gráfico de Produção),
+  // mostra TODOS os rótulos — o corte "de 5 em 5" abaixo só faz sentido quando há muitos pontos (dados
+  // diários soltos), senão acaba pulando rótulos que já eram poucos pra começo (bug real: só "5", "25" e
+  // "31" apareciam de um gráfico com só 7 pontos, porque o corte tratava índice como se fosse dia corrido).
+  let labelIdxs;
+  if(n<=10){
+    labelIdxs = labels.map((_,i)=>i);
+  } else {
+    labelIdxs = [0];
+    for(let i=4;i<n;i+=5) labelIdxs.push(i);
+    if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
+  }
   const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${esc(labels[i])}</text>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;" preserveAspectRatio="none">
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block;" preserveAspectRatio="none">
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${baseY}" x2="${w-padR}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     ${bars}
@@ -7993,11 +8003,11 @@ function ensureChartHoverElements(container, svg){
 // Ativa o hover interativo num gráfico de linha já renderizado (buildLineChartSvg): ao passar o mouse,
 // mostra uma linha guia vertical, destaca o ponto mais próximo e exibe uma tooltip com o valor do dia.
 // `containerId` é o mesmo id do <div> onde o SVG foi inserido via innerHTML.
-function attachLineChartHover(containerId, values, labels, fmtFn, color){
+function attachLineChartHover(containerId, values, labels, fmtFn, color, dims){
   const container = document.getElementById(containerId);
   const svg = container?.querySelector('svg');
   if(!container || !svg || !values.length) return;
-  const w=700, h=150, padL=34, padR=10, padT=12, padB=22;
+  const w=dims?.w||700, h=dims?.h||150, padL=dims?.padL||34, padR=dims?.padR||10, padT=dims?.padT||12, padB=dims?.padB||22;
   const n = values.length;
   const max = Math.max(...values,0), min = Math.min(...values,0);
   const range = (max-min) || 1;
@@ -8033,11 +8043,11 @@ function attachLineChartHover(containerId, values, labels, fmtFn, color){
 }
 // Mesma ideia do attachLineChartHover, mas pro gráfico de barras duplas (buildDualBarChartSvg): mostra os
 // dois valores (ex: Entradas e Saídas) do dia mais próximo do cursor numa única tooltip.
-function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legendA, legendB){
+function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legendA, legendB, heightPx){
   const container = document.getElementById(containerId);
   const svg = container?.querySelector('svg');
   if(!container || !svg || !labels.length) return;
-  const w=700, h=150, padL=34, padR=10, padT=12, padB=22;
+  const w=700, h=heightPx||150, padL=34, padR=10, padT=12, padB=22;
   const n = labels.length;
   const groupW = (w-padL-padR) / Math.max(1, n);
   const xOfGroup = i => padL + i*groupW + groupW/2;
@@ -8255,8 +8265,8 @@ function renderProducaoVendas(){
   const bucketLabels = buckets.map(b=>String(b.label));
   const producaoSeries = buckets.map(b=>b.producao);
   const vendasSeries = buckets.map(b=>b.vendas);
-  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas');
-  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, v=>fmtKgNum(v)+' kg', 'Produção', 'Vendas');
+  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260);
+  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, v=>fmtKgNum(v)+' kg', 'Produção', 'Vendas', 260);
 
   // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
   const insightsBox = document.getElementById('producaoInsightsWrap');
