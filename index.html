@@ -7861,16 +7861,23 @@ function renderDashboard(){
     <div class="stat-card"><div class="stat-label">Entregas de hoje</div><div class="stat-value">${entregasHojeList.length}</div></div>
   `;
 
+  // Janela fixa Julho→Dezembro do ano corrente (em vez de "últimos 6 meses corridos") — evita meses
+  // vazios sem operação real no início do gráfico. Vale revisitar a cada início de ano, já que em
+  // janeiro-junho essa janela fixa estaria mostrando o 2º semestre inteiro no passado.
   const months = [];
-  for(let i=5;i>=0;i--){ const d = new Date(now.getFullYear(), now.getMonth()-i, 1); months.push({key: d.toISOString().slice(0,7), label: d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}); }
+  const rangeYear = now.getFullYear();
+  for(let m=6; m<=11; m++){ // 6 = julho (0-indexado), 11 = dezembro
+    const d = new Date(rangeYear, m, 1);
+    months.push({ key: `${rangeYear}-${String(m+1).padStart(2,'0')}`, label: d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','') });
+  }
   const totals = months.map(m=>{
     const tx = state.transactions.filter(t=>t.dueDate && t.dueDate.slice(0,7)===m.key && t.status==='pago');
     return { rev: tx.filter(t=>t.type==='receita').reduce((s,t)=>s+t.amount,0), exp: tx.filter(t=>t.type==='despesa').reduce((s,t)=>s+t.amount,0) };
   });
   const monthLabelsShort = months.map(m=>m.label);
   const revSeries = totals.map(t=>t.rev), expSeries = totals.map(t=>t.exp);
-  document.getElementById('chartBarsWrap').innerHTML = buildDualBarChartSvg(revSeries, expSeries, monthLabelsShort, 'var(--accent-2)', '#F3C08A', 'Faturamento', 'Despesas', 200);
-  attachDualBarHover('chartBarsWrap', revSeries, expSeries, monthLabelsShort, fmtMoney, 'Faturamento', 'Despesas', 200);
+  document.getElementById('chartBarsWrap').innerHTML = buildDualBarChartSvg(revSeries, expSeries, monthLabelsShort, 'var(--accent-2)', '#F3C08A', 'Faturamento', 'Despesas', 200, fmtMoney);
+  attachDualBarHover('chartBarsWrap', revSeries, expSeries, monthLabelsShort, fmtMoney, 'Faturamento', 'Despesas', 200, true);
 
   renderDashboardAlerts();
 
@@ -7938,8 +7945,8 @@ function buildLineChartSvg(values, labels, color){
 // Gráfico de barras duplas (ex: Entradas x Saídas) em SVG puro — mesma grade/dimensões do
 // buildLineChartSvg, pra manter a altura consistente entre os 3 gráficos da seção Estoque
 // (evita o espaço vazio que sobrava quando esse gráfico era montado com divs flex de altura fixa).
-function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx){
-  const w = 700, h = heightPx || 150, padL = 34, padR = 10, padT = 12, padB = 22;
+function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx, yAxisFmt){
+  const w = 700, h = heightPx || 150, padL = yAxisFmt ? 54 : 34, padR = 10, padT = 12, padB = 22;
   const n = labels.length;
   const max = Math.max(1, ...seriesA, ...seriesB);
   const baseY = h - padB;
@@ -7967,7 +7974,16 @@ function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA,
     if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   }
   const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${esc(labels[i])}</text>`).join('');
+  // Linhas de referência horizontais + valor no eixo Y — opcional (só quando `yAxisFmt` é passado), pra
+  // não mudar a aparência dos gráficos que já usam essa função (Estoque, Produção) sem ter sido pedido.
+  const yAxisHtml = yAxisFmt ? [1, 0.5, 0].map(frac=>{
+    const val = max*frac;
+    const y = padT + (h-padT-padB)*(1-frac);
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-dasharray="${frac===0?'0':'3,3'}" stroke-width="1"/>
+      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end" style="font-size:9px;fill:var(--muted);">${esc(yAxisFmt(val))}</text>`;
+  }).join('') : '';
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block;" preserveAspectRatio="none">
+    ${yAxisHtml}
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${baseY}" x2="${w-padR}" y2="${baseY}" style="stroke:var(--border);stroke-width:1;"/>
     ${bars}
@@ -8036,11 +8052,11 @@ function attachLineChartHover(containerId, values, labels, fmtFn, color, dims){
 }
 // Mesma ideia do attachLineChartHover, mas pro gráfico de barras duplas (buildDualBarChartSvg): mostra os
 // dois valores (ex: Entradas e Saídas) do dia mais próximo do cursor numa única tooltip.
-function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legendA, legendB, heightPx){
+function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legendA, legendB, heightPx, hasYAxis){
   const container = document.getElementById(containerId);
   const svg = container?.querySelector('svg');
   if(!container || !svg || !labels.length) return;
-  const w=700, h=heightPx||150, padL=34, padR=10, padT=12, padB=22;
+  const w=700, h=heightPx||150, padL=hasYAxis?54:34, padR=10, padT=12, padB=22;
   const n = labels.length;
   const groupW = (w-padL-padR) / Math.max(1, n);
   const xOfGroup = i => padL + i*groupW + groupW/2;
