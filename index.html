@@ -649,7 +649,7 @@ tr:last-child td{border-bottom:none;}
             <div style="padding:6px 4px 0 0;">
               <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:28px;grid-template-columns:repeat(6,1fr);gap:8px;"></div>
               <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
-              <div id="producaoVendasChart" style="height:240px;margin-top:10px;"></div>
+              <div id="producaoVendasChart" class="chart-hover-wrap" style="margin-top:10px;"></div>
             </div>
             <div class="panel" style="margin-bottom:0;background:var(--surface-2);display:flex;flex-direction:column;">
               <div style="font-weight:700;font-size:13px;margin-bottom:10px;">💡 Insights do período</div>
@@ -965,7 +965,7 @@ tr:last-child td{border-bottom:none;}
                 </select>
               </div>
               <div class="legend"><span><i style="background:#4FC3E0"></i>Entradas</span><span><i style="background:#F3897A"></i>Saídas</span><span><i style="background:var(--accent)"></i>Saldo</span></div>
-              <div id="fluxoCaixaComboChart"></div>
+              <div id="fluxoCaixaComboChart" class="chart-hover-wrap"></div>
             </div>
             <div class="panel">
               <div class="panel-head"><div class="section-title" style="font-size:14px;">Despesas por categoria</div><span class="hint">Este mês</span></div>
@@ -3875,15 +3875,49 @@ function buildDonutChartSvg(data, formatValue, centerLabel){
     return { label:d.label, value:d.value, pct:(fraction*100).toFixed(1), color:colors[i%colors.length], path };
   });
   const svg = `<svg viewBox="0 0 180 180" style="width:150px;height:150px;flex-shrink:0;">
-    ${slices.map(s=>`<path d="${s.path}" style="fill:${s.color};"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
+    ${slices.map((s,i)=>`<path data-slice-idx="${i}" d="${s.path}" style="fill:${s.color};cursor:pointer;transition:opacity .12s;"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
     <circle cx="${cx}" cy="${cy}" r="${rInner}" style="fill:var(--surface);"/>
     <text x="${cx}" y="${cy-6}" text-anchor="middle" style="font-size:10px;fill:var(--muted);">Total</text>
     <text x="${cx}" y="${cy+10}" text-anchor="middle" style="font-size:10.5px;font-weight:700;fill:var(--ink);">${esc(centerLabel)}</text>
   </svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
-    ${slices.map(s=>`<div style="display:flex;align-items:center;gap:6px;font-size:12px;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
+    ${slices.map((s,i)=>`<div data-legend-idx="${i}" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
   </div>`;
-  return `<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">${svg}${legend}</div>`;
+  return `<div class="pie-chart-wrap" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;position:relative;">${svg}${legend}</div>`;
+}
+// Hover por fatia pros gráficos de rosca/pizza — não precisa de linha-guia (não tem eixo X), só uma
+// tooltip seguindo o cursor quando passa em cima da fatia OU do item correspondente na legenda.
+function attachPieHover(containerId, data, formatValue){
+  const container = document.getElementById(containerId);
+  const wrap = container?.querySelector('.pie-chart-wrap');
+  if(!container || !wrap) return;
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if(total<=0) return;
+  let tooltip = wrap.querySelector('.chart-hover-tooltip');
+  if(!tooltip){ tooltip = document.createElement('div'); tooltip.className = 'chart-hover-tooltip'; wrap.appendChild(tooltip); }
+
+  const showFor = (idx, clientX, clientY)=>{
+    const d = data[idx];
+    if(!d) return;
+    const pct = (d.value/total*100).toFixed(1);
+    const wrapRect = wrap.getBoundingClientRect();
+    tooltip.style.left = (clientX - wrapRect.left) + 'px';
+    tooltip.style.top = (clientY - wrapRect.top) + 'px';
+    tooltip.innerHTML = `<strong>${esc(d.label)}</strong><div>${esc(formatValue(d.value))} (${pct}%)</div>`;
+    tooltip.classList.add('visible');
+  };
+  const hide = ()=> tooltip.classList.remove('visible');
+
+  wrap.querySelectorAll('[data-slice-idx]').forEach(path=>{
+    const idx = parseInt(path.dataset.sliceIdx);
+    path.addEventListener('mousemove', e=> showFor(idx, e.clientX, e.clientY));
+    path.addEventListener('mouseleave', hide);
+  });
+  wrap.querySelectorAll('[data-legend-idx]').forEach(row=>{
+    const idx = parseInt(row.dataset.legendIdx);
+    row.addEventListener('mousemove', e=> showFor(idx, e.clientX, e.clientY));
+    row.addEventListener('mouseleave', hide);
+  });
 }
 function lastNMonths(n){
   const months = [];
@@ -3968,6 +4002,7 @@ function renderFluxoCaixaCombo(){
   const saidas = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const saldo = entradas.map((e,i)=>e-saidas[i]);
   box.innerHTML = buildComboChartSvg(entradas, saidas, saldo, months.map(m=>m.label));
+  attachComboChartHover('fluxoCaixaComboChart', entradas, saidas, saldo, months.map(m=>m.label), fmtMoney);
 }
 function renderDespesasDonut(){
   const box = document.getElementById('despesasDonutChart');
@@ -3981,6 +4016,7 @@ function renderDespesasDonut(){
   despesas.forEach(t=>{ const cat = t.category||'Sem categoria'; porCategoria[cat] = (porCategoria[cat]||0)+t.amount; });
   const data = Object.entries(porCategoria).sort((a,b)=>b[1]-a[1]).map(([label,value])=>({label,value}));
   box.innerHTML = buildDonutChartSvg(data, fmtMoney, fmtMoney(total).replace('R$','').trim());
+  attachPieHover('despesasDonutChart', data, fmtMoney);
 }
 let dashContasTab = 'pagar';
 function setDashContasTab(tab){
@@ -4526,12 +4562,12 @@ function buildPieChartSvg(data, formatValue){
     return { label:d.label, value:d.value, pct:(fraction*100).toFixed(1), color:colors[i%colors.length], path };
   });
   const svg = `<svg viewBox="0 0 180 180" style="width:150px;height:150px;flex-shrink:0;">
-    ${slices.map(s=>`<path d="${s.path}" style="fill:${s.color};"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
+    ${slices.map((s,i)=>`<path data-slice-idx="${i}" d="${s.path}" style="fill:${s.color};cursor:pointer;"><title>${esc(s.label)}: ${formatValue(s.value)} (${s.pct}%)</title></path>`).join('')}
   </svg>`;
   const legend = `<div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
-    ${slices.map(s=>`<div style="display:flex;align-items:center;gap:6px;font-size:12px;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
+    ${slices.map((s,i)=>`<div data-legend-idx="${i}" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><span style="width:10px;height:10px;border-radius:2px;background:${s.color};flex-shrink:0;"></span><span>${esc(s.label)}</span><span style="color:var(--muted);margin-left:auto;">${s.pct}%</span></div>`).join('')}
   </div>`;
-  return `<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">${svg}${legend}</div>`;
+  return `<div class="pie-chart-wrap" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;position:relative;">${svg}${legend}</div>`;
 }
 function renderCashFlowDaily(range){
   const box = document.getElementById('cashFlowDailyChart');
@@ -4599,6 +4635,7 @@ function renderCategoryPies(range){
     return Object.entries(totals).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value);
   };
   despesaBox.innerHTML = buildPieChartSvg(byCategory('despesa'), fmtMoney);
+  attachPieHover('pieDespesasChart', byCategory('despesa'), fmtMoney);
 }
 function renderCashEvolution(){
   const box = document.getElementById('cashEvolutionChart');
@@ -7977,6 +8014,37 @@ function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legend
   svg.addEventListener('mousemove', move);
   svg.addEventListener('mouseleave', leave);
 }
+// Hover pro gráfico combo (barras de entrada/saída + linha de saldo) — mesmo padrão dos outros, mostrando
+// os 3 valores do mês/dia mais próximo do cursor numa tooltip só.
+function attachComboChartHover(containerId, entradas, saidas, saldo, labels, fmtFn){
+  const container = document.getElementById(containerId);
+  const svg = container?.querySelector('svg');
+  if(!container || !svg || !labels.length) return;
+  const w=700, h=190, padL=58, padR=10, padT=14, padB=24;
+  const n = labels.length;
+  const groupW = (w-padL-padR)/n;
+  const xOfGroup = i => padL + i*groupW + groupW/2;
+
+  const { guide, tooltip } = ensureChartHoverElements(container, svg);
+
+  const move = (e)=>{
+    const rect = svg.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width * w;
+    let idx = Math.round((relX - padL - groupW/2) / groupW);
+    idx = Math.max(0, Math.min(n-1, idx));
+    const x = xOfGroup(idx);
+    guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', padT); guide.setAttribute('y2', h-padB);
+    guide.style.display = 'block';
+    tooltip.style.left = ((x/w)*rect.width) + 'px';
+    tooltip.style.top = ((padT/h)*rect.height) + 'px';
+    const fmt = fmtFn || (v=>v);
+    tooltip.innerHTML = `<div style="opacity:.75;margin-bottom:2px;">${esc(labels[idx])}</div><strong>Entradas: ${esc(fmt(entradas[idx]))}</strong><div><strong>Saídas: ${esc(fmt(saidas[idx]))}</strong></div><div style="margin-top:2px;border-top:1px solid rgba(255,255,255,.25);padding-top:2px;"><strong>Saldo: ${esc(fmt(saldo[idx]))}</strong></div>`;
+    tooltip.classList.add('visible');
+  };
+  const leave = ()=>{ guide.style.display='none'; tooltip.classList.remove('visible'); };
+  svg.addEventListener('mousemove', move);
+  svg.addEventListener('mouseleave', leave);
+}
 // ---- Produção × Vendas (Gráfico 3) ----
 function inferWeightKg(stockItem){
   if(!stockItem) return null;
@@ -8134,29 +8202,11 @@ function renderProducaoVendas(){
     buckets.push({ label: end, producao: bucketDays.reduce((s,d)=>s+d.producao,0), vendas: bucketDays.reduce((s,d)=>s+d.vendas,0) });
   }
   const maxBucket = Math.max(1, ...buckets.map(b=>Math.max(b.producao,b.vendas)));
-  document.getElementById('producaoVendasChart').innerHTML = `
-    <div style="display:flex;align-items:stretch;gap:8px;height:100%;">
-      <div style="display:flex;flex-direction:column;justify-content:space-between;height:190px;padding-top:10px;padding-bottom:22px;font-size:9px;color:var(--muted);text-align:right;white-space:nowrap;">
-        <span>${fmtKgNum(maxBucket)} kg</span>
-        <span>${fmtKgNum(maxBucket/2)} kg</span>
-        <span>0 kg</span>
-      </div>
-      <div class="bars" style="flex:1;position:relative;height:190px;">
-        <div style="position:absolute;left:0;right:0;top:10px;border-top:1px dashed var(--border);pointer-events:none;"></div>
-        <div style="position:absolute;left:0;right:0;top:100px;border-top:1px dashed var(--border);pointer-events:none;"></div>
-        <div style="position:absolute;left:0;right:0;top:190px;border-top:1px solid var(--border);pointer-events:none;"></div>
-        ${buckets.map(b=>`
-          <div class="bar-group">
-            <div class="bar-pair">
-              <div class="bar rev" style="width:14px;height:${Math.round(b.producao/maxBucket*100)}%" title="Até o dia ${b.label} — Produção: ${fmtKgNum(b.producao)}kg"></div>
-              <div class="bar exp" style="width:14px;height:${Math.round(b.vendas/maxBucket*100)}%" title="Até o dia ${b.label} — Vendas: ${fmtKgNum(b.vendas)}kg"></div>
-            </div>
-            <div class="bar-label" style="font-size:9px;">${b.label}</div>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
+  const bucketLabels = buckets.map(b=>String(b.label));
+  const producaoSeries = buckets.map(b=>b.producao);
+  const vendasSeries = buckets.map(b=>b.vendas);
+  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas');
+  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, v=>fmtKgNum(v)+' kg', 'Produção', 'Vendas');
 
   // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
   const insightsBox = document.getElementById('producaoInsightsWrap');
