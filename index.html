@@ -2536,9 +2536,10 @@ async function renderStockCharts(items, isFinished){
   // Entradas x Saídas acumuladas dentro do mês, até cada data-alvo
   const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
   const saidaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='saida' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
-  inOutBox.innerHTML = buildDualBarChartSvg(entradaSeries, saidaSeries, dayLabels, 'var(--accent-2)', '#F3C08A', 'Entradas acumuladas', 'Saídas acumuladas')
+  const fmtUnCompact = v => Math.round(v).toLocaleString('pt-BR')+' un';
+  inOutBox.innerHTML = buildDualBarChartSvg(entradaSeries, saidaSeries, dayLabels, 'var(--accent-2)', '#F3C08A', 'Entradas acumuladas', 'Saídas acumuladas', 150, fmtUnCompact)
     + `<div class="hint" style="margin-top:4px;">Acumulado no mês — entradas: ${entradaSeries[entradaSeries.length-1]||0} · saídas: ${saidaSeries[saidaSeries.length-1]||0}</div>`;
-  attachDualBarHover('stockInOutChart', entradaSeries, saidaSeries, dayLabels, v=>fmtKgNum(v)+' un', 'Entradas', 'Saídas');
+  attachDualBarHover('stockInOutChart', entradaSeries, saidaSeries, dayLabels, v=>fmtKgNum(v)+' un', 'Entradas', 'Saídas', 150, true);
 
   if(isFinished) renderStockGiro(items);
 }
@@ -3853,7 +3854,7 @@ function openSparklineDetail(key){
   attachLineChartHover('sparkDetailChart', d.series?.values||[], d.series?.labels||[], fmt, d.color, {w:820,h:280,padL:58,padR:16,padT:16,padB:28});
 }
 function buildComboChartSvg(entradas, saidas, saldo, labels){
-  const w=700, h=190, padL=58, padR=10, padT=14, padB=24;
+  const w=700, h=190, padL=66, padR=10, padT=14, padB=24;
   const maxBar = Math.max(1, ...entradas, ...saidas);
   const minSaldo = Math.min(0, ...saldo), maxSaldo = Math.max(1, ...saldo);
   const rangeSaldo = (maxSaldo-minSaldo)||1;
@@ -3871,15 +3872,18 @@ function buildComboChartSvg(entradas, saidas, saldo, labels){
   }).join('');
   const linePoints = labels.map((l,i)=> `${xOfGroup(i).toFixed(1)},${yOfLine(saldo[i]).toFixed(1)}`).join(' ');
   const dots = labels.map((l,i)=> `<circle cx="${xOfGroup(i).toFixed(1)}" cy="${yOfLine(saldo[i]).toFixed(1)}" r="3" style="fill:var(--accent);"><title>${esc(l)} — Saldo: ${fmtMoney(saldo[i])}</title></circle>`).join('');
-  const axisLabels = labels.map((l,i)=> `<text x="${xOfGroup(i)}" y="${h-6}" style="fill:var(--muted);font-size:9.5px;" text-anchor="middle">${esc(l)}</text>`).join('');
-  const yAxisLabels = [1, 0.5, 0].map(frac => {
+  const axisLabels = labels.map((l,i)=> `<text x="${xOfGroup(i)}" y="${h-6}" style="fill:var(--ink);font-size:10px;font-weight:700;" text-anchor="middle">${esc(l)}</text>`).join('');
+  // 5 níveis (0/25/50/75/100%) com linha tracejada de verdade + valor em negrito — mesmo padrão já
+  // aplicado nos outros gráficos de barra do sistema (antes só tinha o texto do valor, sem linha nenhuma).
+  const yAxisHtml = [1, 0.75, 0.5, 0.25, 0].map(frac => {
     const val = maxBar * frac;
     const y = yOfBar(val);
     const label = val.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:0});
-    return `<text x="${padL-6}" y="${(y+3).toFixed(1)}" style="fill:var(--muted);font-size:9px;" text-anchor="end">${label}</text>`;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-dasharray="${frac===0?'0':'3,3'}" stroke-width="1"/>
+      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" style="fill:var(--ink);font-size:10px;font-weight:700;" text-anchor="end">${esc(label)}</text>`;
   }).join('');
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:190px;">
-    ${yAxisLabels}
+    ${yAxisHtml}
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     ${barsHtml}
@@ -8091,7 +8095,7 @@ function attachComboChartHover(containerId, entradas, saidas, saldo, labels, fmt
   const container = document.getElementById(containerId);
   const svg = container?.querySelector('svg');
   if(!container || !svg || !labels.length) return;
-  const w=700, h=190, padL=58, padR=10, padT=14, padB=24;
+  const w=700, h=190, padL=66, padR=10, padT=14, padB=24;
   const n = labels.length;
   const groupW = (w-padL-padR)/n;
   const xOfGroup = i => padL + i*groupW + groupW/2;
@@ -8276,8 +8280,9 @@ function renderProducaoVendas(){
   const bucketLabels = buckets.map(b=>String(b.label));
   const producaoSeries = buckets.map(b=>b.producao);
   const vendasSeries = buckets.map(b=>b.vendas);
-  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260);
-  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, v=>fmtKgNum(v)+' kg', 'Produção', 'Vendas', 260);
+  const fmtKgCompact = v => fmtKgNum(v)+' kg';
+  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260, fmtKgCompact);
+  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, fmtKgCompact, 'Produção', 'Vendas', 260, true);
 
   // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
   const insightsBox = document.getElementById('producaoInsightsWrap');
