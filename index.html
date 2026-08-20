@@ -605,6 +605,7 @@ tr:last-child td{border-bottom:none;}
                 <option value="">Todas as categorias</option>
               </select>
               <select id="produtosSort" onchange="renderProdutos()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="peso_asc">Ordenar: Peso (3kg → 15kg)</option>
                 <option value="nome_asc">Ordenar: Nome A-Z</option>
                 <option value="nome_desc">Ordenar: Nome Z-A</option>
                 <option value="preco_asc">Ordenar: Menor preço</option>
@@ -2021,14 +2022,18 @@ function renderProdutos(){
   const q = (document.getElementById('produtosSearch')?.value||'').toLowerCase();
   const statusFilter = document.getElementById('produtosStatusFilter')?.value || '';
   const catFilter = document.getElementById('produtosCategoryFilter')?.value || '';
-  const sortMode = document.getElementById('produtosSort')?.value || 'nome_asc';
+  const sortMode = document.getElementById('produtosSort')?.value || 'peso_asc';
 
   let list = all.filter(p=>p.name.toLowerCase().includes(q));
   if(statusFilter==='ativo') list = list.filter(p=>p.active!==false);
   if(statusFilter==='inativo') list = list.filter(p=>p.active===false);
   if(catFilter) list = list.filter(p=>p.categoryLabel===catFilter);
 
-  if(sortMode==='nome_asc') list.sort((a,b)=>a.name.localeCompare(b.name));
+  // "Peso" é o padrão: mais natural pra um catálogo com poucas variações de tamanho (3kg, 5kg, 15kg...)
+  // do que ordem alfabética, que colocava "15kg" antes de "3kg" (compara texto, não número). Produtos
+  // sem peso cadastrado ficam no final, e desempata por nome quando o peso é igual ou ausente nos dois.
+  if(sortMode==='peso_asc') list.sort((a,b)=> (a.weightKg??Infinity)-(b.weightKg??Infinity) || a.name.localeCompare(b.name));
+  else if(sortMode==='nome_asc') list.sort((a,b)=>a.name.localeCompare(b.name));
   else if(sortMode==='nome_desc') list.sort((a,b)=>b.name.localeCompare(a.name));
   else if(sortMode==='preco_asc') list.sort((a,b)=>a.salePrice-b.salePrice);
   else if(sortMode==='preco_desc') list.sort((a,b)=>b.salePrice-a.salePrice);
