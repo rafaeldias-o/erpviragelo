@@ -1446,7 +1446,15 @@ const fmtMoney = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',cu
 const fmtKgNum = n => (Number(n)||0).toLocaleString('pt-BR',{maximumFractionDigits:1});
 const fmtDate = d => { if(!d) return '—'; const dt = new Date(d+'T00:00:00'); return dt.toLocaleDateString('pt-BR'); };
 const fmtDateTime = iso => { if(!iso) return '—'; return new Date(iso).toLocaleString('pt-BR'); };
-const todayStr = () => new Date().toISOString().slice(0,10);
+// IMPORTANTE: nunca usar .toISOString() pra pegar "a data de hoje" — toISOString() converte pra UTC, e
+// como o Brasil é UTC-3, qualquer ação feita entre ~21h e 23h59 (horário local) já "vira o dia seguinte"
+// em UTC, fazendo o sistema registrar/filtrar tudo com a data errada (bug real: entrega das 19h aparecendo
+// como "de ontem" no dia seguinte). Usamos os getters locais (getFullYear/getMonth/getDate), que sempre
+// refletem o fuso horário do navegador de quem está usando o sistema — o correto pra esse tipo de data.
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 const esc = s => String(s??'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const daysSince = dateStr => { if(!dateStr) return 9999; const d = new Date(dateStr+'T00:00:00'); const diff = (new Date(todayStr()+'T00:00:00') - d) / 86400000; return Math.floor(diff); };
 
@@ -6105,7 +6113,7 @@ function onKanbanDrop(e, stage){
 // CRM dashboard stats
 function renderCrmStats(){
   const box = document.getElementById('crmStats');
-  const now = new Date(); const monthKey = now.toISOString().slice(0,7);
+  const now = new Date(); const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const totalLeads = state.leads.length;
   const newThisMonth = state.leads.filter(l=>l.createdAt && l.createdAt.slice(0,7)===monthKey).length;
   const fechados = state.leads.filter(l=>l.stage==='fechado');
@@ -6134,7 +6142,6 @@ function renderCrmStats(){
 // Detalhe por trás de cada quadrante do CRM — reconsulta os leads/tarefas/pedidos na hora do clique
 // (dados mudam pouco entre um clique e outro, mais simples e seguro que cachear do render acima).
 function openCrmDetail(kind){
-  const now2 = new Date(); const monthKey2 = now2.toISOString().slice(0,7);
   if(kind==='total'){
     const rows = state.leads.slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).map(l=>[
       esc(l.name), esc(l.company||'—'), esc(LEAD_STAGES.find(s=>s.v===l.stage)?.label||l.stage), fmtMoney(l.value||0), l.createdAt?fmtDate(l.createdAt):'—'
@@ -7649,7 +7656,7 @@ function renderDashboardAlerts(){
 function renderDashboard(){
   renderCoberturaEstoque();
   const now = new Date();
-  const monthKey = now.toISOString().slice(0,7);
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const yearKey = String(now.getFullYear());
   const today = todayStr();
   const stockValue = state.stockItems.filter(p=>p.category==='produto_acabado').reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
