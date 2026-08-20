@@ -1715,6 +1715,7 @@ async function loadAll(){
     qty: Number(s.qty), minQty: Number(s.min_qty), costPrice: Number(s.cost_price),
     salePrice: s.sale_price!=null ? Number(s.sale_price) : 0, supplierId: s.supplier_id,
     weightKg: s.weight_kg!=null ? Number(s.weight_kg) : null,
+    origin: s.origin || 'fabricado',
     active: s.active !== false, categoryLabel: s.category_label || null, imageUrl: s.image_url || null,
     lastIn: null, lastOut: null, createdAt: (s.created_at||'').slice(0,10)
   }));
@@ -1963,6 +1964,7 @@ function produtoCardHtml(p){
     <div style="width:105px;flex-shrink:0;position:relative;background:var(--surface-2);min-height:105px;">
       ${imgHtml}
       <span class="badge ${isActive?'badge-success':'badge-muted'}" style="position:absolute;top:6px;left:6px;font-size:10px;">${isActive?'Ativo':'Inativo'}</span>
+      ${p.origin==='revenda'?`<span class="badge badge-info" style="position:absolute;top:6px;right:6px;font-size:10px;">📦 Revenda</span>`:''}
       ${p.weightKg!=null?`<span class="badge" style="position:absolute;bottom:6px;right:6px;background:rgba(14,36,56,.75);color:#fff;font-size:10px;">❄️ ${p.weightKg}kg</span>`:''}
     </div>
     <div style="flex:1;padding:12px;display:flex;flex-direction:column;gap:7px;min-width:200px;">
@@ -2001,7 +2003,7 @@ async function duplicateProduct(id){
   if(!p) return;
   const { error } = await sb.from('stock_items').insert({
     category:'produto_acabado', name: p.name+' (cópia)', unit:p.unit, qty:0, min_qty:p.minQty,
-    cost_price:p.costPrice, sale_price:p.salePrice, weight_kg:p.weightKg, category_label:p.categoryLabel, active:true,
+    cost_price:p.costPrice, sale_price:p.salePrice, weight_kg:p.weightKg, category_label:p.categoryLabel, active:true, origin:p.origin||'fabricado',
   });
   if(error){ dbErr(error, 'Erro ao duplicar produto'); return; }
   toast('Produto duplicado'); await loadAll(); renderAll();
@@ -2057,7 +2059,7 @@ function renderProdutos(){
         const margem = p.salePrice>0 ? ((p.salePrice-p.costPrice)/p.salePrice*100) : 0;
         const isActive = p.active!==false;
         return `<tr>
-          <td><strong>${esc(p.name)}</strong></td>
+          <td><strong>${esc(p.name)}</strong>${p.origin==='revenda'?' <span class="badge badge-info" style="font-size:9.5px;">📦 Revenda</span>':''}</td>
           <td style="color:var(--muted);">${esc(p.categoryLabel||'—')}</td>
           <td>${p.weightKg!=null?p.weightKg+' kg':'—'}</td>
           <td>${p.qty} un</td>
@@ -2108,8 +2110,17 @@ function openStockModal(category, id){
       <div class="field"><label>Qtd. atual</label><input id="s-qty" type="number" step="0.01" value="${it?it.qty:0}"></div>
       <div class="field"><label>Estoque mínimo</label><input id="s-minqty" type="number" step="0.01" value="${it?it.minQty:0}"></div>
     </div>
+    ${isFinished ? `
+    <div class="field">
+      <label>Origem</label>
+      <select id="s-origin" onchange="onProductOriginChange()">
+        <option value="fabricado" ${(!it||it.origin!=='revenda')?'selected':''}>🏭 Fabricado (produzido na fábrica)</option>
+        <option value="revenda" ${it&&it.origin==='revenda'?'selected':''}>📦 Revenda (comprado pronto de terceiros)</option>
+      </select>
+    </div>
+    <div class="hint" id="originHint" style="margin-top:-8px;margin-bottom:10px;"></div>` : ''}
     <div class="field-row">
-      <div class="field"><label>Custo unitário (R$)</label><input id="s-cost" type="number" step="0.01" value="${it?it.costPrice:''}" oninput="updateMarginPreview()" placeholder="0,00"></div>
+      <div class="field"><label id="s-cost-label">Custo unitário (R$)</label><input id="s-cost" type="number" step="0.01" value="${it?it.costPrice:''}" oninput="updateMarginPreview()" placeholder="0,00"></div>
       <div class="field"><label>Fornecedor</label>
         <select id="s-supplierid" onchange="document.getElementById('newSupplierWrap').style.display=(this.value==='__new__'?'block':'none')">
           <option value="">—</option>
@@ -2139,6 +2150,20 @@ function openStockModal(category, id){
     </div>
   `);
   updateMarginPreview();
+  onProductOriginChange();
+}
+// Atualiza o texto de ajuda conforme a Origem escolhida — deixa claro que "revenda" reaproveita o mesmo
+// campo de custo (agora como custo de compra) em vez de criar um campo duplicado só pra isso.
+function onProductOriginChange(){
+  const sel = document.getElementById('s-origin');
+  const hint = document.getElementById('originHint');
+  const costLabel = document.getElementById('s-cost-label');
+  if(!sel || !hint) return;
+  const isRevenda = sel.value==='revenda';
+  hint.textContent = isRevenda
+    ? 'Produto comprado pronto pra revenda — não aparece na tela de Produção nem na sugestão de produção do dia.'
+    : 'Produto fabricado na fábrica — aparece normalmente na Produção, consumindo matéria-prima/embalagem.';
+  if(costLabel) costLabel.textContent = isRevenda ? 'Custo de compra (R$)' : 'Custo unitário (R$)';
 }
 function updateMarginPreview(){
   const priceEl = document.getElementById('s-price');
@@ -2181,6 +2206,7 @@ async function saveStockItem(id){
     data.category_label = document.getElementById('s-categorylabel').value.trim() || null;
     data.active = document.getElementById('s-active').value === 'true';
     data.image_url = document.getElementById('s-imageurl').value.trim() || null;
+    data.origin = document.getElementById('s-origin')?.value || 'fabricado';
   }
   const { error } = id
     ? await sb.from('stock_items').update(data).eq('id', id)
@@ -2566,14 +2592,14 @@ function openProductionModal(){
   renderPackRows();
 }
 function addPackRow(){
-  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado' && p.origin!=='revenda');
   const raw = state.stockItems.filter(p=>p.category==='materia_prima');
   if(raw.length===0){ toast('Cadastre uma matéria-prima (embalagem) no estoque primeiro', true); return; }
   productionDraftPacks.push({finishedId: finished.length?finished[0].id:'__new__', packagingId: raw[0].id, qty: 0, newName:'', newUnit:'un', newCost:0, newPrice:0});
   renderPackRows();
 }
 function renderPackRows(){
-  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado' && p.origin!=='revenda');
   const raw = state.stockItems.filter(p=>p.category==='materia_prima');
   document.getElementById('packRows').innerHTML = productionDraftPacks.map((row,i)=>`
     <div style="border:1px solid var(--border);border-radius:9px;padding:8px;margin-bottom:8px;">
@@ -2606,7 +2632,7 @@ async function saveProduction(){
       if(!p.newName || !p.newName.trim()){ toast('Informe o nome do novo produto acabado', true); return; }
       const { data: created, error: cErr } = await sb.from('stock_items').insert({
         name: p.newName.trim(), category:'produto_acabado', unit: p.newUnit||'un', qty:0, min_qty:0,
-        cost_price: p.newCost||0, sale_price: p.newPrice||0
+        cost_price: p.newCost||0, sale_price: p.newPrice||0, origin:'fabricado'
       }).select().single();
       if(cErr){ dbErr(cErr, 'Erro ao criar produto acabado'); return; }
       p.finishedId = created.id;
@@ -8029,7 +8055,10 @@ function renderProducaoVendas(){
   const saldo = totalProdMes - totalVend;
 
   // Estoque total (geral, não só o produzido no mês) — mesma base de cálculo usada na Cobertura de Estoque.
-  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  // Exclui produtos de revenda: essa tela é sobre o que a fábrica produz, e misturar itens comprados
+  // prontos aqui distorceria tanto a cobertura quanto a sugestão de produção do dia (ela iria "sugerir
+  // produzir" algo que a fábrica nunca fabrica).
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado' && p.origin!=='revenda');
   let estoqueTotalKg = 0;
   finished.forEach(p=>{ const w = inferWeightKg(p); if(w!=null) estoqueTotalKg += p.qty*w; });
   const valorEstoque = finished.reduce((s,p)=>s+p.qty*(p.salePrice||0),0);
@@ -8041,12 +8070,19 @@ function renderProducaoVendas(){
   const disponivel = totalVend + estoqueTotalKg;
   const pctComercializado = disponivel>0 ? (totalVend/disponivel*100) : 0;
   // Cobertura de estoque em dias (mesma lógica da Cobertura de Estoque, refeita aqui de forma simplificada
-  // só pra esse card — usa a mesma janela de referência de até 30 dias de consumo real)
+  // só pra esse card — usa a mesma janela de referência de até 30 dias de consumo real). Usa getters locais
+  // em vez de toISOString() pra não "virar o dia" cedo demais perto da meia-noite (mesmo bug corrigido no
+  // todayStr() global). Só conta consumo de produtos FABRICADOS — senão a cobertura fica errada dividindo
+  // estoque fabricado por consumo que inclui produtos de revenda (que não desconta do que a fábrica produz).
   const d30 = new Date(); d30.setDate(d30.getDate()-30);
-  const d30str = d30.toISOString().slice(0,10);
+  const d30str = `${d30.getFullYear()}-${String(d30.getMonth()+1).padStart(2,'0')}-${String(d30.getDate()).padStart(2,'0')}`;
   let consumo30 = 0;
   state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=d30str).forEach(o=>{
-    o.items.forEach(it=>{ const w = inferWeightKg(state.stockItems.find(s=>s.id===it.productId)); if(w!=null) consumo30 += it.qty*w; });
+    o.items.forEach(it=>{
+      const stockItem = state.stockItems.find(s=>s.id===it.productId);
+      if(stockItem && stockItem.origin==='revenda') return;
+      const w = inferWeightKg(stockItem); if(w!=null) consumo30 += it.qty*w;
+    });
   });
   const coberturaDias = consumo30>0 ? estoqueTotalKg/(consumo30/30) : null;
 
