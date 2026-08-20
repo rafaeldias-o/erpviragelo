@@ -7910,9 +7910,8 @@ function attachLineChartHover(containerId, values, labels, fmtFn, color){
     guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', padT); guide.setAttribute('y2', h-padB);
     guide.style.display = 'block';
     dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.style.display = 'block';
-    const containerRect = container.getBoundingClientRect();
-    tooltip.style.left = (containerRect.left + (x/w)*rect.width - containerRect.left) + 'px';
-    tooltip.style.top = (containerRect.top + (y/h)*rect.height - containerRect.top) + 'px';
+    tooltip.style.left = ((x/w)*rect.width) + 'px';
+    tooltip.style.top = ((y/h)*rect.height) + 'px';
     tooltip.innerHTML = `<strong>${esc(fmtFn?fmtFn(values[idx]):String(values[idx]))}</strong><div style="opacity:.75;">Dia ${esc(labels[idx])}</div>`;
     tooltip.classList.add('visible');
   };
@@ -7941,9 +7940,11 @@ function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legend
     const x = xOfGroup(idx);
     guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', padT); guide.setAttribute('y2', h-padB);
     guide.style.display = 'block';
-    const containerRect = container.getBoundingClientRect();
-    tooltip.style.left = (containerRect.left + (x/w)*rect.width - containerRect.left) + 'px';
-    tooltip.style.top = (containerRect.top) + 'px';
+    // top/left calculados como % da área desenhada do gráfico (0 a w/h), convertidos pro tamanho real
+    // renderizado na tela — nunca usar a posição absoluta da página aqui (containerRect.top/left), senão
+    // a tooltip aparece longe do gráfico, em qualquer lugar da tela (era exatamente esse o bug).
+    tooltip.style.left = ((x/w)*rect.width) + 'px';
+    tooltip.style.top = ((padT/h)*rect.height) + 'px';
     tooltip.innerHTML = `<div style="opacity:.75;margin-bottom:2px;">Dia ${esc(labels[idx])}</div><strong>${esc(legendA||'A')}: ${esc(fmtFn?fmtFn(seriesA[idx]):String(seriesA[idx]))}</strong><div><strong>${esc(legendB||'B')}: ${esc(fmtFn?fmtFn(seriesB[idx]):String(seriesB[idx]))}</strong></div>`;
     tooltip.classList.add('visible');
   };
