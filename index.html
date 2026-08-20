@@ -405,10 +405,12 @@ tr:last-child td{border-bottom:none;}
             <div id="alertsBox"></div>
           </div>
           <div class="panel">
-            <div class="panel-head"><div class="section-title" style="font-size:13px;">Faturamento x Despesas (6m)</div></div>
+            <div class="panel-head">
+              <div class="section-title" style="font-size:13px;">Faturamento x Despesas (6m)</div>
+              <button class="btn btn-ghost btn-sm" id="dashMoreToggle" onclick="toggleDashMore()" style="font-size:11px;padding:4px 8px;">📊 Ver mais indicadores</button>
+            </div>
             <div class="legend" style="margin-bottom:2px;"><span><i style="background:var(--accent-2)"></i>Faturamento</span><span><i style="background:#F3C08A"></i>Despesas</span></div>
-            <div id="chartBarsWrap" style="height:130px;"></div>
-            <button class="btn btn-ghost btn-sm" id="dashMoreToggle" onclick="toggleDashMore()" style="margin-top:16px;width:100%;justify-content:center;">📊 Ver mais indicadores</button>
+            <div id="chartBarsWrap" class="chart-hover-wrap"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><div class="section-title">🚚 Entregas de hoje</div></div>
@@ -7865,19 +7867,10 @@ function renderDashboard(){
     const tx = state.transactions.filter(t=>t.dueDate && t.dueDate.slice(0,7)===m.key && t.status==='pago');
     return { rev: tx.filter(t=>t.type==='receita').reduce((s,t)=>s+t.amount,0), exp: tx.filter(t=>t.type==='despesa').reduce((s,t)=>s+t.amount,0) };
   });
-  const max = Math.max(1, ...totals.map(t=>Math.max(t.rev,t.exp)));
-  document.getElementById('chartBarsWrap').innerHTML = `
-    <div style="display:flex;gap:10px;height:100%;">
-      <div style="display:flex;flex-direction:column;justify-content:space-between;height:110px;padding-bottom:22px;font-size:10px;color:var(--muted);text-align:right;white-space:nowrap;flex-shrink:0;">
-        <span>${fmtMoney(max)}</span>
-        <span>R$ 0</span>
-      </div>
-      <div class="bars" style="flex:1;height:110px;">
-        ${months.map((m,i)=>`
-          <div class="bar-group"><div class="bar-pair"><div class="bar rev" style="width:10px;height:${Math.round(totals[i].rev/max*100)}%" title="${fmtMoney(totals[i].rev)}"></div><div class="bar exp" style="width:10px;height:${Math.round(totals[i].exp/max*100)}%" title="${fmtMoney(totals[i].exp)}"></div></div><div class="bar-label" style="font-size:10px;">${m.label}</div></div>
-        `).join('')}
-      </div>
-    </div>`;
+  const monthLabelsShort = months.map(m=>m.label);
+  const revSeries = totals.map(t=>t.rev), expSeries = totals.map(t=>t.exp);
+  document.getElementById('chartBarsWrap').innerHTML = buildDualBarChartSvg(revSeries, expSeries, monthLabelsShort, 'var(--accent-2)', '#F3C08A', 'Faturamento', 'Despesas', 200);
+  attachDualBarHover('chartBarsWrap', revSeries, expSeries, monthLabelsShort, fmtMoney, 'Faturamento', 'Despesas', 200);
 
   renderDashboardAlerts();
 
