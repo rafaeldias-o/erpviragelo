@@ -7876,7 +7876,8 @@ function renderDashboard(){
   });
   const monthLabelsShort = months.map(m=>m.label);
   const revSeries = totals.map(t=>t.rev), expSeries = totals.map(t=>t.exp);
-  document.getElementById('chartBarsWrap').innerHTML = buildDualBarChartSvg(revSeries, expSeries, monthLabelsShort, 'var(--accent-2)', '#F3C08A', 'Faturamento', 'Despesas', 200, fmtMoney);
+  const fmtMoneyCompact = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR'); // sem centavos, só pro eixo — mais curto, cabe melhor em negrito
+  document.getElementById('chartBarsWrap').innerHTML = buildDualBarChartSvg(revSeries, expSeries, monthLabelsShort, 'var(--accent-2)', '#F3C08A', 'Faturamento', 'Despesas', 200, fmtMoneyCompact);
   attachDualBarHover('chartBarsWrap', revSeries, expSeries, monthLabelsShort, fmtMoney, 'Faturamento', 'Despesas', 200, true);
 
   renderDashboardAlerts();
@@ -7946,7 +7947,7 @@ function buildLineChartSvg(values, labels, color){
 // buildLineChartSvg, pra manter a altura consistente entre os 3 gráficos da seção Estoque
 // (evita o espaço vazio que sobrava quando esse gráfico era montado com divs flex de altura fixa).
 function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx, yAxisFmt){
-  const w = 700, h = heightPx || 150, padL = yAxisFmt ? 54 : 34, padR = 10, padT = 12, padB = 22;
+  const w = 700, h = heightPx || 150, padL = yAxisFmt ? 74 : 34, padR = 10, padT = 12, padB = 22;
   const n = labels.length;
   const max = Math.max(1, ...seriesA, ...seriesB);
   const baseY = h - padB;
@@ -7973,14 +7974,15 @@ function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA,
     for(let i=4;i<n;i+=5) labelIdxs.push(i);
     if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   }
-  const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${esc(labels[i])}</text>`).join('');
+  const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:${yAxisFmt?'var(--ink)':'var(--muted)'};font-size:${yAxisFmt?'10px':'9px'};font-weight:${yAxisFmt?'700':'400'};" text-anchor="middle">${esc(labels[i])}</text>`).join('');
   // Linhas de referência horizontais + valor no eixo Y — opcional (só quando `yAxisFmt` é passado), pra
   // não mudar a aparência dos gráficos que já usam essa função (Estoque, Produção) sem ter sido pedido.
-  const yAxisHtml = yAxisFmt ? [1, 0.5, 0].map(frac=>{
+  // 5 níveis (0/25/50/75/100%) em vez de 3, pra dar mais referência de escala olhando o gráfico.
+  const yAxisHtml = yAxisFmt ? [1, 0.75, 0.5, 0.25, 0].map(frac=>{
     const val = max*frac;
     const y = padT + (h-padT-padB)*(1-frac);
     return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-dasharray="${frac===0?'0':'3,3'}" stroke-width="1"/>
-      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end" style="font-size:9px;fill:var(--muted);">${esc(yAxisFmt(val))}</text>`;
+      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end" style="font-size:10px;font-weight:700;fill:var(--ink);">${esc(yAxisFmt(val))}</text>`;
   }).join('') : '';
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block;" preserveAspectRatio="none">
     ${yAxisHtml}
@@ -8056,7 +8058,7 @@ function attachDualBarHover(containerId, seriesA, seriesB, labels, fmtFn, legend
   const container = document.getElementById(containerId);
   const svg = container?.querySelector('svg');
   if(!container || !svg || !labels.length) return;
-  const w=700, h=heightPx||150, padL=hasYAxis?54:34, padR=10, padT=12, padB=22;
+  const w=700, h=heightPx||150, padL=hasYAxis?74:34, padR=10, padT=12, padB=22;
   const n = labels.length;
   const groupW = (w-padL-padR) / Math.max(1, n);
   const xOfGroup = i => padL + i*groupW + groupW/2;
