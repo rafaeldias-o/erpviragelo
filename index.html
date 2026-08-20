@@ -464,12 +464,14 @@ tr:last-child td{border-bottom:none;}
             <div class="panel">
               <div class="panel-head"><div class="section-title">🚚 Entregas</div></div>
               <div id="notifDeliveriesWrap"></div>
+              <div id="notifDeliveriesPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:10px;"></div>
             </div>
           </div>
           <div class="two-col">
             <div class="panel">
               <div class="panel-head"><div class="section-title">✅ Tarefas</div></div>
               <div id="notifTasksWrap"></div>
+              <div id="notifTasksPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:10px;"></div>
             </div>
             <div class="panel">
               <div class="panel-head">
@@ -555,6 +557,7 @@ tr:last-child td{border-bottom:none;}
             <div class="tab" data-movtab="saida" onclick="setMovementTab('saida')">Saídas</div>
           </div>
           <div id="movementsTableWrap" class="table-scroll"></div>
+          <div id="movementsPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
         </div>
         <div class="three-col">
           <div class="panel">
@@ -771,6 +774,7 @@ tr:last-child td{border-bottom:none;}
               <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()" style="margin-left:auto;">Limpar seleção</button>
             </div>
             <div id="transactionsTableWrap" class="table-scroll"></div>
+            <div id="lancamentosPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
           </div>
         </div>
 
@@ -1874,6 +1878,26 @@ document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.targ
 function emptyState(msg, btnLabel, onclick){
   return `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 L12 22 M4 7 L20 17 M20 7 L4 17"/></svg><p>${msg}</p>${btnLabel?`<button class="btn btn-primary btn-sm" onclick="${onclick}">${btnLabel}</button>`:''}</div>`;
 }
+// Controle de paginação padrão do sistema (mesmo visual já usado em Produtos/Produção), reaproveitado em
+// qualquer lista que precise trocar o "Ver mais" incremental por páginas numeradas de verdade. `goToPageFn`
+// é o NOME (string) de uma função global — precisa ser string porque o HTML é montado e injetado via
+// innerHTML, então os botões chamam a função pelo nome no próprio onclick.
+function renderPaginationControls(wrapId, page, perPage, total, goToPageFn, itemLabel, extraArgPrefix){
+  const wrap = document.getElementById(wrapId);
+  if(!wrap) return;
+  if(total===0){ wrap.innerHTML = ''; return; }
+  const totalPages = Math.max(1, Math.ceil(total/perPage));
+  const startIdx = (page-1)*perPage;
+  const prefix = extraArgPrefix || '';
+  wrap.innerHTML = `
+    <div class="hint" style="margin:0;">Mostrando ${startIdx+1} a ${Math.min(startIdx+perPage,total)} de ${total} ${itemLabel||'registro(s)'}</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-ghost btn-sm" onclick="${goToPageFn}(${prefix}${page-1})" ${page<=1?'disabled':''}>«</button>
+      ${Array.from({length:totalPages},(_,i)=>i+1).map(p=>`<button class="btn ${p===page?'btn-primary':'btn-ghost'} btn-sm" onclick="${goToPageFn}(${prefix}${p})">${p}</button>`).join('')}
+      <button class="btn btn-ghost btn-sm" onclick="${goToPageFn}(${prefix}${page+1})" ${page>=totalPages?'disabled':''}>»</button>
+    </div>
+  `;
+}
 // Modal genérico de "detalhe de quadrante" — usado por qualquer stat-card clicável do sistema (Relatórios,
 // Freezers, CRM, Clientes, Pedidos etc.) pra mostrar a lista de registros por trás do número. `columns` são
 // os títulos das colunas; cada item de `rows` é um array de células já formatadas (HTML permitido, ex: pra
@@ -1903,7 +1927,7 @@ function setStockTab(cat){
   document.getElementById('stockAddBtn').style.display = cat==='produto_acabado' ? 'none' : 'inline-flex';
   document.getElementById('stockHint').style.display = cat==='produto_acabado' ? 'block' : 'none';
   document.getElementById('stockGiroPanel').style.display = cat==='produto_acabado' ? 'block' : 'none';
-  movementsShowCount = 6;
+  movementsPage = 1;
   renderEstoque();
 }
 
@@ -2435,30 +2459,33 @@ function renderEstoque(){
   // filtra pela categoria da aba selecionada.
   let movFiltered = state.movements.filter(m => itemIdsInTab.has(m.stockItemId));
   if(movementTab!=='todos') movFiltered = movFiltered.filter(m=>m.type===movementTab);
-  if(movFiltered.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação ${movementTab==='todos'?'registrada ainda':movementTab==='entrada'?'de entrada':'de saída'} nessa categoria.</p></div>`; }
+  if(movFiltered.length===0){ mwrap.innerHTML = `<div class="empty-state"><p>Nenhuma movimentação ${movementTab==='todos'?'registrada ainda':movementTab==='entrada'?'de entrada':'de saída'} nessa categoria.</p></div>`; document.getElementById('movementsPaginationWrap').innerHTML=''; }
   else {
-    const visible = movFiltered.slice(0, movementsShowCount);
-    const temMais = movFiltered.length > movementsShowCount;
+    const totalPages = Math.max(1, Math.ceil(movFiltered.length/movementsPerPage));
+    if(movementsPage>totalPages) movementsPage = totalPages;
+    const startIdx = (movementsPage-1)*movementsPerPage;
+    const visible = movFiltered.slice(startIdx, startIdx+movementsPerPage);
     mwrap.innerHTML = `<table><thead><tr><th>Data</th><th>Item</th><th>Tipo</th><th>Qtd.</th><th>Origem</th><th>Observação</th></tr></thead><tbody>
     ${visible.map(m=>`<tr>
       <td>${fmtDate(m.date)}</td><td>${esc(m.itemName)}</td>
       <td>${m.type==='entrada'?'<span class="badge badge-success">Entrada</span>':'<span class="badge badge-danger">Saída</span>'}</td>
       <td>${m.qty}</td><td style="color:var(--muted)">${({manual:'Manual',producao:'Produção',pedido:'Pedido'})[m.source]||'—'}</td>
       <td style="color:var(--muted)">${esc(m.note||'—')}</td>
-    </tr>`).join('')}</tbody></table>
-    ${temMais?`<div style="text-align:center;margin-top:12px;"><button class="btn btn-ghost btn-sm" onclick="movementsShowMore()">Ver mais</button></div>`:''}`;
+    </tr>`).join('')}</tbody></table>`;
+    renderPaginationControls('movementsPaginationWrap', movementsPage, movementsPerPage, movFiltered.length, 'movementsGoToPage', 'movimentação(ões)');
   }
   renderStockCharts(items, isFinished);
 }
 let movementTab = 'todos';
-let movementsShowCount = 6;
+let movementsPage = 1;
+let movementsPerPage = 10;
+function movementsGoToPage(p){ movementsPage = p; renderEstoque(); }
 function setMovementTab(tab){
   movementTab = tab;
   document.querySelectorAll('[data-movtab]').forEach(t=>t.classList.toggle('active', t.dataset.movtab===tab));
-  movementsShowCount = 6;
+  movementsPage = 1;
   renderEstoque();
 }
-function movementsShowMore(){ movementsShowCount += 6; renderEstoque(); }
 
 // ---- Gráficos de evolução do estoque (mês atual) — reconstrói o total de cada dia "desfazendo" as
 // movimentações a partir do saldo de hoje, em vez de precisar de uma tabela de histórico diário à parte. ----
@@ -4655,17 +4682,18 @@ function renderCashEvolution(){
 
 let lancamentosMonthOffset = 0;
 let lancamentosShowAll = false;
-let lancamentosShowCount = 6;
-function lancamentosShowMore(){ lancamentosShowCount += 6; renderFinanceiro(); }
+let lancamentosPage = 1;
+let lancamentosPerPage = 10;
+function lancamentosGoToPage(p){ lancamentosPage = p; renderFinanceiro(); }
 function lancamentosChangeMonth(delta){
   lancamentosMonthOffset += delta;
   lancamentosShowAll = false;
-  lancamentosShowCount = 6;
+  lancamentosPage = 1;
   renderFinanceiro();
 }
 function lancamentosToggleShowAll(){
   lancamentosShowAll = !lancamentosShowAll;
-  lancamentosShowCount = 6;
+  lancamentosPage = 1;
   renderFinanceiro();
 }
 function lancamentosMonthRange(){
@@ -4706,7 +4734,7 @@ function renderFinanceiro(){
   }
 
   const wrap = document.getElementById('transactionsTableWrap');
-  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); updateBulkBar(); return; }
+  if(list.length===0){ wrap.innerHTML = emptyState('Nenhum lançamento encontrado.','Nova despesa','openTransactionModal()'); document.getElementById('lancamentosPaginationWrap').innerHTML=''; updateBulkBar(); return; }
   const statusInfo = (t, overdue) => {
     if(t.status==='cancelado') return {label:'Cancelado', cls:'badge-muted'};
     if(overdue) return {label:'Vencido', cls:'badge-danger'};
@@ -4714,8 +4742,10 @@ function renderFinanceiro(){
     if(t.status==='parcial') return {label:'Parcial', cls:'badge-warn'};
     return {label:'Aberto', cls:'badge-warn'};
   };
-  const visible = list.slice(0, lancamentosShowCount);
-  const temMaisLanc = list.length > lancamentosShowCount;
+  const totalPages = Math.max(1, Math.ceil(list.length/lancamentosPerPage));
+  if(lancamentosPage>totalPages) lancamentosPage = totalPages;
+  const startIdx = (lancamentosPage-1)*lancamentosPerPage;
+  const visible = list.slice(startIdx, startIdx+lancamentosPerPage);
   wrap.innerHTML = `<table><thead><tr><th style="width:28px;"><input type="checkbox" onchange="toggleSelectAllTx(this.checked)"></th><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
     ${visible.map(t=>{
       const overdue = t.status==='pendente' && t.dueDate < today;
@@ -4729,8 +4759,8 @@ function renderFinanceiro(){
       <td><span class="badge ${si.cls}" style="cursor:${t.type==='receita'||t.status==='cancelado'?'default':'pointer'}" onclick="event.stopPropagation(); ${t.type!=='receita'&&t.status!=='cancelado'?`toggleTxStatus('${t.id}')`:''}">${si.label}</span></td>
       <td class="row-actions" onclick="event.stopPropagation();">${t.type==='receita'?`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button>`:`<button class="icon-btn" onclick="openTransactionModal('${t.id}')" title="Editar">${iconEdit}</button><button class="icon-btn" onclick="deleteTransaction('${t.id}')" title="Excluir">${iconTrash}</button>`}</td>
     </tr>`;
-    }).join('')}</tbody></table>
-  ${temMaisLanc?`<div style="text-align:center;margin-top:12px;"><button class="btn btn-ghost btn-sm" onclick="lancamentosShowMore()">Ver mais</button></div>`:''}`;
+    }).join('')}</tbody></table>`;
+  renderPaginationControls('lancamentosPaginationWrap', lancamentosPage, lancamentosPerPage, list.length, 'lancamentosGoToPage', 'lançamento(s)');
   updateBulkBar();
 }
 
@@ -6500,8 +6530,9 @@ function setClientTypeTab(tab){
   document.getElementById('clientesTabHint').textContent = hints[tab];
   const bairroFilter = document.getElementById('clientBairroFilter');
   if(bairroFilter) bairroFilter.value = '';
-  clientBairroShowCounts = {};
-  clientListShowCount = 8;
+  clientBairroPages = {};
+  clientGradePage = 1;
+  clientListPage = 1;
   renderClientsTable();
 }
 function clientMonthlyPackageAvg(clientId){
@@ -6558,11 +6589,6 @@ function selectClientBairro(bairro){
   document.getElementById('clientBairroFilter').value = bairro;
   renderClientsTable();
 }
-let clientBairroShowCounts = {};
-function clientBairroShowMore(bairro){
-  clientBairroShowCounts[bairro] = (clientBairroShowCounts[bairro]||6) + 6;
-  renderClientsTable();
-}
 function clientCardHtml(c){
   const st = clientStats(c.id);
   const monthly = clientMonthlyPackageAvg(c.id);
@@ -6596,12 +6622,20 @@ let clientViewMode = 'grade';
 function setClientViewMode(mode){
   clientViewMode = mode;
   document.querySelectorAll('[data-clientview]').forEach(t=>t.classList.toggle('active', t.dataset.clientview===mode));
-  clientBairroShowCounts = {};
-  clientListShowCount = 8;
+  clientBairroPages = {};
+  clientGradePage = 1;
+  clientListPage = 1;
   renderClientsTable();
 }
-let clientListShowCount = 8;
-function clientListShowMore(){ clientListShowCount += 8; renderClientsTable(); }
+let clientListPage = 1;
+const clientListPerPage = 10;
+function clientListGoToPage(p){ clientListPage = p; renderClientsTable(); }
+let clientGradePage = 1;
+const clientGradePerPage = 12;
+function clientGradeGoToPage(p){ clientGradePage = p; renderClientsTable(); }
+let clientBairroPages = {};
+const clientBairroPerPage = 6;
+function clientBairroGoToPage(bairroKey, p){ clientBairroPages[bairroKey] = p; renderClientsTable(); }
 function renderClientsTable(){
   const q = (document.getElementById('clientSearch').value||'').toLowerCase();
   const bairroSel = document.getElementById('clientBairroFilter');
@@ -6641,8 +6675,10 @@ function renderClientsTable(){
   if(list.length===0){ wrap.innerHTML = `<div class="empty-state"><p>Nenhum cliente encontrado.</p></div>`; return; }
 
   if(clientViewMode==='lista'){
-    const visible = list.slice(0, clientListShowCount);
-    const temMais = list.length > clientListShowCount;
+    const totalPages = Math.max(1, Math.ceil(list.length/clientListPerPage));
+    if(clientListPage>totalPages) clientListPage = totalPages;
+    const startIdx = (clientListPage-1)*clientListPerPage;
+    const visible = list.slice(startIdx, startIdx+clientListPerPage);
     const statusBadge = c => c.status==='ativo' ? '<span class="badge badge-success">Ativo</span>' : c.status==='prospect' ? '<span class="badge badge-info">Prospect</span>' : '<span class="badge badge-muted">Inativo</span>';
     wrap.innerHTML = `<div class="panel"><table><thead><tr><th>Cliente</th><th>Contato</th><th>Bairro</th><th>Próxima visita</th><th>Última compra</th><th>Status</th><th></th></tr></thead><tbody>
       ${visible.map(c=>{
@@ -6658,48 +6694,62 @@ function renderClientsTable(){
           <td class="row-actions"><button class="icon-btn" onclick="openClientDetailModal('${c.id}')">${iconEdit}</button><button class="icon-btn" onclick="deleteClient('${c.id}')">${iconTrash}</button></td>
         </tr>`;
       }).join('')}</tbody></table>
-      ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientListShowMore()">Ver mais</button></div>`:''}
+      <div id="clientListPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;"></div>
     </div>`;
+    renderPaginationControls('clientListPaginationWrap', clientListPage, clientListPerPage, list.length, 'clientListGoToPage', 'cliente(s)');
     return;
   }
 
   if(clientViewMode==='grade'){
     // Todos os clientes filtrados juntos, lado a lado, sem separar por bairro — mais compacto pra visão geral.
-    const showCount = clientBairroShowCounts['__grade__'] || 12;
-    const visible = list.slice(0, showCount);
-    const temMais = list.length > showCount;
+    const totalPages = Math.max(1, Math.ceil(list.length/clientGradePerPage));
+    if(clientGradePage>totalPages) clientGradePage = totalPages;
+    const startIdx = (clientGradePage-1)*clientGradePerPage;
+    const visible = list.slice(startIdx, startIdx+clientGradePerPage);
     wrap.innerHTML = `<div class="panel">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
         ${visible.map(clientCardHtml).join('')}
       </div>
-      ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientBairroShowMore('__grade__')">Mostrar mais</button></div>`:''}
-      <div class="hint" style="margin-top:10px;margin-bottom:0;">Mostrando ${visible.length} de ${list.length} cliente(s)</div>
+      <div id="clientGradePaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;"></div>
     </div>`;
+    renderPaginationControls('clientGradePaginationWrap', clientGradePage, clientGradePerPage, list.length, 'clientGradeGoToPage', 'cliente(s)');
     return;
   }
 
-  // 'bairro' — agrupado por bairro, cada um em seu próprio painel. Cada grupo mostra até 6 cards,
-  // com "Mostrar mais" pra ver o resto.
+  // 'bairro' — agrupado por bairro, cada um em seu próprio painel, com paginação própria por grupo.
   const groups = {};
   list.forEach(c => { const key = c.neighborhood || 'Sem bairro cadastrado'; (groups[key]=groups[key]||[]).push(c); });
   const sortedKeys = Object.keys(groups).sort((a,b)=> a==='Sem bairro cadastrado'?1:b==='Sem bairro cadastrado'?-1:a.localeCompare(b));
+  // "Sem bairro cadastrado" usa chave vazia no state (mesma convenção já usada antes pro "Mostrar mais"),
+  // pra não precisar escapar acentos/espaços na hora de montar o onclick.
+  const stateKeyOf = bairro => bairro==='Sem bairro cadastrado' ? '' : bairro;
+  const domIdOf = bairro => 'clientBairroPagination-' + (bairro==='Sem bairro cadastrado' ? 'semBairro' : bairro.replace(/[^a-zA-Z0-9]/g,'_'));
 
   wrap.innerHTML = sortedKeys.map(bairro=>{
     const clientsInBairro = groups[bairro];
-    const showCount = clientBairroShowCounts[bairro] || 6;
-    const visible = clientsInBairro.slice(0, showCount);
-    const temMais = clientsInBairro.length > showCount;
+    const stateKey = stateKeyOf(bairro);
+    const totalPages = Math.max(1, Math.ceil(clientsInBairro.length/clientBairroPerPage));
+    let page = clientBairroPages[stateKey] || 1;
+    if(page>totalPages) page = totalPages;
+    clientBairroPages[stateKey] = page;
+    const startIdx = (page-1)*clientBairroPerPage;
+    const visible = clientsInBairro.slice(startIdx, startIdx+clientBairroPerPage);
     return `
       <div class="panel">
         <div class="panel-head"><div class="section-title" style="font-size:14px;">📍 ${esc(bairro)} <span style="color:var(--muted);font-weight:400;">(${clientsInBairro.length} cliente${clientsInBairro.length>1?'s':''})</span></div></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
           ${visible.map(clientCardHtml).join('')}
         </div>
-        ${temMais?`<div style="text-align:center;margin-top:14px;"><button class="btn btn-ghost btn-sm" onclick="clientBairroShowMore('${bairro==='Sem bairro cadastrado'?'':esc(bairro).replace(/'/g,"\\'")}')">Mostrar mais</button></div>`:''}
-        <div class="hint" style="margin-top:10px;margin-bottom:0;">Mostrando ${visible.length} de ${clientsInBairro.length} cliente(s) do bairro ${esc(bairro)}</div>
+        <div id="${domIdOf(bairro)}" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;"></div>
       </div>
     `;
   }).join('');
+
+  sortedKeys.forEach(bairro=>{
+    const clientsInBairro = groups[bairro];
+    const stateKey = stateKeyOf(bairro);
+    renderPaginationControls(domIdOf(bairro), clientBairroPages[stateKey]||1, clientBairroPerPage, clientsInBairro.length, 'clientBairroGoToPage', 'cliente(s)', `'${stateKey.replace(/'/g,"\\'")}',`);
+  });
 }
 
 // ---- Client detail modal: cadastro + freezer + entregas + pedidos vinculados ----
@@ -10284,7 +10334,7 @@ let notifPeriod = 'hoje';
 function setNotifPeriod(p){
   notifPeriod = p;
   document.querySelectorAll('[data-notifperiod]').forEach(t=>t.classList.toggle('active', t.dataset.notifperiod===p));
-  notifAlertsShowCount = 7; notifTasksShowCount = 7; notifDeliveriesShowCount = 7;
+  notifAlertsShowCount = 7; notifTasksPage = 1; notifDeliveriesPage = 1;
   renderNotifications();
 }
 function notifPeriodLimit(){
@@ -10616,8 +10666,9 @@ function renderNotifSummary(){
     <div class="stat-card clickable" onclick="openDrilldown('patrimonio_dashboard')"><div class="stat-label">💰 Valor total do patrimônio</div><div class="stat-value">${fmtMoney(valorPatrimonio)}</div></div>
   `;
 }
-let notifTasksShowCount = 7;
-function notifTasksShowMore(){ notifTasksShowCount += 7; renderNotifTasks(); }
+let notifTasksPage = 1;
+const notifTasksPerPage = 10;
+function notifTasksGoToPage(p){ notifTasksPage = p; renderNotifTasks(); }
 function renderNotifTasks(){
   const wrap = document.getElementById('notifTasksWrap');
   if(!wrap) return;
@@ -10628,8 +10679,10 @@ function renderNotifTasks(){
   tasks = tasks.filter(t=> t.date < today || limit===null || t.date <= limit); // vencidas sempre aparecem, futuras respeitam o período
   if(q) tasks = tasks.filter(t=>t.title.toLowerCase().includes(q));
   tasks.sort((a,b)=> a.date.localeCompare(b.date));
-  const visible = tasks.slice(0, notifTasksShowCount);
-  const temMais = tasks.length > notifTasksShowCount;
+  const totalPages = Math.max(1, Math.ceil(tasks.length/notifTasksPerPage));
+  if(notifTasksPage>totalPages) notifTasksPage = totalPages;
+  const startIdx = (notifTasksPage-1)*notifTasksPerPage;
+  const visible = tasks.slice(startIdx, startIdx+notifTasksPerPage);
   wrap.innerHTML = tasks.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhuma tarefa nesse período.</div>' : visible.map(t=>{
     const overdue = t.date < today;
     const dayLabel = overdue ? 'Vencida' : t.date===today ? 'Hoje' : 'Futura';
@@ -10642,7 +10695,8 @@ function renderNotifTasks(){
         <button class="icon-btn" onclick="openLeadModal('${t.leadId}')" title="Ver lead">👁️</button>
       </div>
     </div>`;
-  }).join('') + (temMais ? `<div style="text-align:center;margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="notifTasksShowMore()">Ver mais</button></div>` : '');
+  }).join('');
+  renderPaginationControls('notifTasksPaginationWrap', notifTasksPage, notifTasksPerPage, tasks.length, 'notifTasksGoToPage', 'tarefa(s)');
 }
 async function rescheduleTask(taskId, newDate){
   const { error } = await sb.from('tasks').update({ date: newDate }).eq('id', taskId);
@@ -10650,8 +10704,9 @@ async function rescheduleTask(taskId, newDate){
   toast('Tarefa reagendada');
   await loadAll(); renderNotifications();
 }
-let notifDeliveriesShowCount = 7;
-function notifDeliveriesShowMore(){ notifDeliveriesShowCount += 7; renderNotifDeliveries(); }
+let notifDeliveriesPage = 1;
+const notifDeliveriesPerPage = 10;
+function notifDeliveriesGoToPage(p){ notifDeliveriesPage = p; renderNotifDeliveries(); }
 function renderNotifDeliveries(){
   const wrap = document.getElementById('notifDeliveriesWrap');
   if(!wrap) return;
@@ -10665,8 +10720,10 @@ function renderNotifDeliveries(){
     return (c?c.name:'').toLowerCase().includes(q);
   });
   list.sort((a,b)=> (b.date+(b.time||'')).localeCompare(a.date+(a.time||'')));
-  const visible = list.slice(0, notifDeliveriesShowCount);
-  const temMais = list.length > notifDeliveriesShowCount;
+  const totalPages = Math.max(1, Math.ceil(list.length/notifDeliveriesPerPage));
+  if(notifDeliveriesPage>totalPages) notifDeliveriesPage = totalPages;
+  const startIdx = (notifDeliveriesPage-1)*notifDeliveriesPerPage;
+  const visible = list.slice(startIdx, startIdx+notifDeliveriesPerPage);
   wrap.innerHTML = list.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhuma entrega nesse período.</div>' : visible.map(d=>{
     const c = state.clients.find(x=>x.id===d.clientId);
     const late = d.date<today && d.status!=='entregue';
@@ -10678,7 +10735,8 @@ function renderNotifDeliveries(){
         ${d.orderId?`<button class="icon-btn" onclick="openOrderModal('${d.orderId}')" title="Abrir pedido">🧾</button>`:''}
       </div>
     </div>`;
-  }).join('') + (temMais ? `<div style="text-align:center;margin-top:10px;"><button class="btn btn-ghost btn-sm" onclick="notifDeliveriesShowMore()">Ver mais</button></div>` : '');
+  }).join('');
+  renderPaginationControls('notifDeliveriesPaginationWrap', notifDeliveriesPage, notifDeliveriesPerPage, list.length, 'notifDeliveriesGoToPage', 'entrega(s)');
 }
 const COMMITMENT_CATEGORIES = [
   {v:'reuniao', label:'Reunião', icon:'👥'}, {v:'visita', label:'Visita', icon:'📍'},
