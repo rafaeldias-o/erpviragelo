@@ -2528,10 +2528,10 @@ async function renderStockCharts(items, isFinished){
   const valueSeries = targetDates.map(t => items.reduce((s,i)=> s + (perDateQty[t][i.id]||0) * (isFinished?(i.salePrice||0):(i.costPrice||0)), 0));
   const dayLabels = targetDays.map(d=>String(d));
 
-  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — hoje: ${qtySeries[qtySeries.length-1]??0} un</div>`;
-  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED') + `<div class="hint" style="margin-top:4px;">Valor em estoque hoje: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
-  attachLineChartHover('stockEvolutionChart', qtySeries, dayLabels, v=>fmtKgNum(v)+' un', '#2563EB');
-  attachLineChartHover('stockValueChart', valueSeries, dayLabels, v=>fmtMoney(v), '#7C3AED');
+  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB', v=>Math.round(v).toLocaleString('pt-BR')+' un') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — hoje: ${qtySeries[qtySeries.length-1]??0} un</div>`;
+  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED', v=>'R$ '+Math.round(v).toLocaleString('pt-BR')) + `<div class="hint" style="margin-top:4px;">Valor em estoque hoje: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
+  attachLineChartHover('stockEvolutionChart', qtySeries, dayLabels, v=>fmtKgNum(v)+' un', '#2563EB', {padL:66});
+  attachLineChartHover('stockValueChart', valueSeries, dayLabels, v=>fmtMoney(v), '#7C3AED', {padL:66});
 
   // Entradas x Saídas acumuladas dentro do mês, até cada data-alvo
   const entradaSeries = targetDates.map(t => monthMovements.filter(m=>m.type==='entrada' && m.date<=t).reduce((s,m)=>s+Number(m.qty),0));
@@ -7907,9 +7907,9 @@ function renderDashboard(){
     state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('estoque')"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
 }
 
-function buildLineChartSvg(values, labels, color){
+function buildLineChartSvg(values, labels, color, yAxisFmt){
   color = color || 'var(--accent-2)';
-  const w = 700, h = 150, padL = 34, padR = 10, padT = 12, padB = 22;
+  const w = 700, h = 150, padL = yAxisFmt ? 66 : 34, padR = 10, padT = 12, padB = 22;
   // Mesma lógica de "zoom inteligente" usada nos gráficos de barra: se os valores variam pouco entre si
   // e nunca chegam perto de zero (caso comum de saldo de caixa), forçar o eixo a incluir o zero espreme
   // a linha toda numa faixinha do gráfico e esconde a variação real. Só usa zero como base quando os
@@ -7930,14 +7930,24 @@ function buildLineChartSvg(values, labels, color){
   const labelIdxs = [0];
   for(let i=4;i<values.length;i+=5) labelIdxs.push(i);
   if(!labelIdxs.includes(lastI)) labelIdxs.push(lastI);
-  const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:var(--muted);font-size:9px;" text-anchor="middle">${labels[i]}</text>`).join('');
+  const axisLabels = labelIdxs.map(i=> `<text x="${xOf(i)}" y="${h-6}" style="fill:${yAxisFmt?'var(--ink)':'var(--muted)'};font-size:${yAxisFmt?'10px':'9px'};font-weight:${yAxisFmt?'700':'400'};" text-anchor="middle">${labels[i]}</text>`).join('');
   const areaPts = `${xOf(0).toFixed(1)},${(h-padB).toFixed(1)} ${points} ${xOf(lastI).toFixed(1)},${(h-padB).toFixed(1)}`;
   const gradId = 'lineGrad'+Math.random().toString(36).slice(2,9);
+  // Linhas de referência horizontais + valor no eixo Y — opcional (só quando `yAxisFmt` é passado), pra
+  // não mudar a aparência dos gráficos que já usam essa função sem ter sido pedido. 5 níveis, mesmo
+  // padrão já aplicado nos gráficos de barra do sistema.
+  const yAxisHtml = yAxisFmt ? [1, 0.75, 0.5, 0.25, 0].map(frac=>{
+    const val = min + range*frac;
+    const y = padT + (h-padT-padB)*(1-frac);
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-dasharray="${frac===0?'0':'3,3'}" stroke-width="1"/>
+      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" style="font-size:10px;font-weight:700;fill:var(--ink);" text-anchor="end">${esc(yAxisFmt(val))}</text>`;
+  }).join('') : '';
   const svg = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;" preserveAspectRatio="none">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
       <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
     </linearGradient></defs>
+    ${yAxisHtml}
     <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" style="stroke:var(--border);stroke-width:1;"/>
     <polygon points="${areaPts}" fill="url(#${gradId})" stroke="none"/>
@@ -7950,7 +7960,8 @@ function buildLineChartSvg(values, labels, color){
 // Gráfico de barras duplas (ex: Entradas x Saídas) em SVG puro — mesma grade/dimensões do
 // buildLineChartSvg, pra manter a altura consistente entre os 3 gráficos da seção Estoque
 // (evita o espaço vazio que sobrava quando esse gráfico era montado com divs flex de altura fixa).
-function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx, yAxisFmt){
+function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA, legendB, heightPx, yAxisFmt, boldAxis){
+  const bold = boldAxis!==undefined ? boldAxis : !!yAxisFmt;
   const w = 700, h = heightPx || 150, padL = yAxisFmt ? 74 : 34, padR = 10, padT = 12, padB = 22;
   const n = labels.length;
   const max = Math.max(1, ...seriesA, ...seriesB);
@@ -7978,15 +7989,17 @@ function buildDualBarChartSvg(seriesA, seriesB, labels, colorA, colorB, legendA,
     for(let i=4;i<n;i+=5) labelIdxs.push(i);
     if(lastI>0 && !labelIdxs.includes(lastI)) labelIdxs.push(lastI);
   }
-  const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:${yAxisFmt?'var(--ink)':'var(--muted)'};font-size:${yAxisFmt?'10px':'9px'};font-weight:${yAxisFmt?'700':'400'};" text-anchor="middle">${esc(labels[i])}</text>`).join('');
+  const axisLabels = labelIdxs.map(i=> `<text x="${xOfGroup(i).toFixed(1)}" y="${h-6}" style="fill:${bold?'var(--ink)':'var(--muted)'};font-size:${bold?'10px':'9px'};font-weight:${bold?'700':'400'};" text-anchor="middle">${esc(labels[i])}</text>`).join('');
   // Linhas de referência horizontais + valor no eixo Y — opcional (só quando `yAxisFmt` é passado), pra
   // não mudar a aparência dos gráficos que já usam essa função (Estoque, Produção) sem ter sido pedido.
-  // 5 níveis (0/25/50/75/100%) em vez de 3, pra dar mais referência de escala olhando o gráfico.
+  // 5 níveis (0/25/50/75/100%) em vez de 3, pra dar mais referência de escala olhando o gráfico. O peso
+  // da fonte (`boldAxis`) é independente de ter ou não o eixo Y — dá pra ter linhas de referência sem
+  // negrito, caso um gráfico específico já esteja grande/visível o bastante sem precisar do reforço.
   const yAxisHtml = yAxisFmt ? [1, 0.75, 0.5, 0.25, 0].map(frac=>{
     const val = max*frac;
     const y = padT + (h-padT-padB)*(1-frac);
     return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-dasharray="${frac===0?'0':'3,3'}" stroke-width="1"/>
-      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end" style="font-size:10px;font-weight:700;fill:var(--ink);">${esc(yAxisFmt(val))}</text>`;
+      <text x="${(padL-8).toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="end" style="font-size:${bold?'10px':'9px'};font-weight:${bold?'700':'400'};fill:${bold?'var(--ink)':'var(--muted)'};">${esc(yAxisFmt(val))}</text>`;
   }).join('') : '';
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block;" preserveAspectRatio="none">
     ${yAxisHtml}
@@ -8281,7 +8294,7 @@ function renderProducaoVendas(){
   const producaoSeries = buckets.map(b=>b.producao);
   const vendasSeries = buckets.map(b=>b.vendas);
   const fmtKgCompact = v => fmtKgNum(v)+' kg';
-  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260, fmtKgCompact);
+  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260, fmtKgCompact, false);
   attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, fmtKgCompact, 'Produção', 'Vendas', 260, true);
 
   // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
