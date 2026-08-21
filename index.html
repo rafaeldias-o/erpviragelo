@@ -413,7 +413,10 @@ tr:last-child td{border-bottom:none;}
             <div id="chartBarsWrap" class="chart-hover-wrap"></div>
           </div>
           <div class="panel">
-            <div class="panel-head"><div class="section-title">🚚 Entregas de hoje</div></div>
+            <div class="panel-head">
+              <div class="section-title">🚚 Entregas de hoje</div>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px;" onclick="openRouteConfirmModal(null)">🔗 Confirmar rota</button>
+            </div>
             <div id="entregasHojeBox"></div>
           </div>
         </div>
@@ -3055,6 +3058,118 @@ function refreshOrderTotals(){
   if(discountEl) discountEl.style.borderColor = discountInvalid ? 'var(--danger)' : '';
 }
 // Chamado sempre que um pedido é marcado como "entregue" pela primeira vez (seja pelo status rápido na
+// lista de Pedidos, seja salvando o pedido com status Entregue). Primeiro pergunta se foi uma entrega
+// avulsa ou parte de uma saída com várias entregas — isso evita o bug de contar "fábrica -> cliente" do
+// zero pra cada uma quando na verdade foi uma viagem só (fábrica -> cliente A -> cliente B -> ...).
+function askIfDeliveredAlone(orderId){
+  const order = state.orders.find(o=>o.id===orderId);
+  const client = order ? state.clients.find(c=>c.id===order.clientId) : null;
+  openModal(`
+    <div class="modal-head"><h3>Confirmar entrega</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div style="font-size:14px;margin-bottom:4px;">Pedido de <strong>${esc(client?client.name:'—')}</strong> entregue!</div>
+    <div style="font-size:13.5px;color:var(--muted);margin-bottom:20px;">Essa entrega foi feita sozinha, ou junto com outras entregas na mesma saída do motorista?</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="promptOrderDriver('${orderId}')">Foi sozinha</button>
+      <button class="btn btn-primary" onclick="openRouteConfirmModal('${orderId}')">Foi com outras entregas</button>
+    </div>
+  `);
+}
+// Modal de seleção de rota: marca, na ordem visitada, todas as entregas feitas na mesma saída do
+// motorista. `preselectOrderId`, quando informado, já entra marcado como 1ª parada (caso comum: o pedido
+// que acabou de virar "entregue" e disparou a pergunta "foi sozinha?").
+let routeConfirmSelectedIds = [];
+function openRouteConfirmModal(preselectOrderId){
+  routeConfirmSelectedIds = preselectOrderId ? [preselectOrderId] : [];
+  renderRouteConfirmModal();
+}
+function toggleRouteConfirmOrder(orderId){
+  const idx = routeConfirmSelectedIds.indexOf(orderId);
+  if(idx>=0) routeConfirmSelectedIds.splice(idx,1);
+  else routeConfirmSelectedIds.push(orderId);
+  renderRouteConfirmModal();
+}
+function renderRouteConfirmModal(){
+  // Pool de pedidos elegíveis pra entrar na rota: confirmados ainda não entregues, mais o(s) que já foram
+  // selecionados (o pedido que disparou o fluxo já pode estar com status "entregue" nesse ponto).
+  const pool = state.orders.filter(o => o.status==='confirmado' || routeConfirmSelectedIds.includes(o.id));
+  const rows = pool.map(o=>{
+    const c = state.clients.find(x=>x.id===o.clientId);
+    const selected = routeConfirmSelectedIds.includes(o.id);
+    const orderNum = selected ? routeConfirmSelectedIds.indexOf(o.id)+1 : null;
+    return { o, c, selected, orderNum };
+  }).sort((a,b)=> (a.orderNum||99) - (b.orderNum||99));
+  const selectedCount = routeConfirmSelectedIds.length;
+  openModal(`
+    <div class="modal-head"><h3>🔗 Confirmar rota com múltiplas entregas</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:12px;">Marque, na ordem em que foram visitadas, todas as entregas feitas nessa mesma saída — o número mostra a posição na rota. A distância de cada trecho (fábrica → 1ª parada → 2ª parada → ...) é calculada de uma vez só, sem duplicar o trajeto inicial pra cada entrega.</div>
+    ${rows.length===0 ? emptyState('Nenhum pedido confirmado disponível pra somar nessa rota.') : `<div class="table-scroll" style="max-height:260px;">
+      <table><thead><tr><th></th><th>Ordem</th><th>Cliente</th><th>Endereço</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr style="cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')">
+        <td><input type="checkbox" ${r.selected?'checked':''} onclick="event.stopPropagation(); toggleRouteConfirmOrder('${r.o.id}')"></td>
+        <td>${r.orderNum ? `<span class="badge badge-info">${r.orderNum}ª</span>` : '—'}</td>
+        <td>${esc(r.c?r.c.name:'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(r.c?buildFullAddress(r.c):'')}</td>
+      </tr>`).join('')}
+      </tbody></table>
+    </div>`}
+    <div class="field" style="margin-top:16px;"><label>Será entregue por:</label><select id="route-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
+    <div class="field"><label>Creditar pagamento na conta</label><select id="route-account">
+      <option value="">— Não creditar em nenhuma conta —</option>
+      ${state.financialAccounts.filter(a=>a.status!=='inativo').map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+    </select></div>
+    <div class="hint">Essa conta vale pra todas as entregas selecionadas — se cada uma foi paga de um jeito diferente, confirme e ajuste depois em Financeiro.</div>
+    <div id="route-confirm-status"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmRouteBatch()" ${selectedCount<1?'disabled':''}>Confirmar rota (${selectedCount} entrega${selectedCount!==1?'s':''})</button>
+    </div>
+  `, 'wide');
+}
+// Aplica a rota inteira: calcula a distância real de cada trecho numa chamada só (computeRouteLegs) e
+// confirma cada pedido selecionado com a km do trecho que lhe cabe — não "fábrica -> cliente" isolado
+// pra cada um. Pedidos que ainda não estavam "entregue" (todos exceto, às vezes, o que disparou o fluxo)
+// são transicionados aqui, disparando o mesmo gatilho de baixa de estoque/receita de sempre.
+async function confirmRouteBatch(){
+  if(routeConfirmSelectedIds.length===0) return;
+  const driver = document.getElementById('route-driver').value || null;
+  const accountId = document.getElementById('route-account').value || null;
+  const statusEl = document.getElementById('route-confirm-status');
+  if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
+
+  const orders = routeConfirmSelectedIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  const stopsData = [];
+  for(const o of orders){
+    const client = state.clients.find(c=>c.id===o.clientId);
+    const result = client ? await ensureClientDistance(client.id) : null;
+    stopsData.push((result && result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null);
+  }
+  if(stopsData.some(s=>s===null)){
+    if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não localizei o endereço de um ou mais clientes selecionados no mapa. Confirme essas entregas individualmente (uma por vez) pra poder digitar a distância manualmente.</div>`;
+    return;
+  }
+
+  const mode = state.company.routeCalcMode || 'ida';
+  const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
+  const legsKm = await computeRouteLegs(stopsData, mode, driverHome);
+  if(!legsKm){
+    if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não consegui calcular a rota completa entre essas paradas. Confirme as entregas individualmente.</div>`;
+    return;
+  }
+
+  for(let i=0;i<orders.length;i++){
+    const o = orders[i];
+    if(o.status!=='entregue'){
+      const { error } = await sb.from('orders').update({ status:'entregue' }).eq('id', o.id);
+      if(error){ dbErr(error, `Erro ao marcar o pedido ${i+1} como entregue`); continue; }
+    }
+    await finalizeOrderDelivery(o.id, driver, legsKm[i], accountId);
+  }
+  const totalKm = legsKm.reduce((s,v)=>s+v,0);
+  closeModal();
+  toast(`Rota confirmada — ${orders.length} entrega(s), ${totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km no total`);
+  await loadAll(); renderAll();
+}
+// Chamado sempre que um pedido é marcado como "entregue" pela primeira vez (seja pelo status rápido na
 // lista de Pedidos, seja salvando o pedido com status Entregue) — esse é o ÚNICO lugar do sistema onde
 // se define quem entregou, a distância percorrida, e em qual conta o pagamento entra. Mostra o endereço
 // e tenta calcular a distância sozinho; se não conseguir, oferece um campo pra digitar a km manualmente.
@@ -3324,7 +3439,7 @@ async function saveOrder(id){
     }
   }
   closeModal(); toast('Pedido salvo — estoque, financeiro e dashboard atualizados'); await loadAll(); renderAll();
-  if(justFulfilled) promptOrderDriver(orderId);
+  if(justFulfilled) askIfDeliveredAlone(orderId);
 }
 async function updateOrderStatus(id, newStatus){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
@@ -3333,7 +3448,7 @@ async function updateOrderStatus(id, newStatus){
   if(error){ dbErr(error, 'Erro ao atualizar status'); return; }
   if(newStatus==='entregue' && !wasAlreadyDelivered){
     await loadAll(); renderAll();
-    promptOrderDriver(id);
+    askIfDeliveredAlone(id);
     return;
   }
   toast('Status atualizado'); await loadAll(); renderAll();
@@ -7126,6 +7241,32 @@ async function fetchRouteGeometry(points){
     if(json.code!=='Ok' || !json.routes?.[0]?.geometry?.coordinates) return null;
     return json.routes[0].geometry.coordinates.map(([lng,lat])=>[lat,lng]);
   }catch(e){ console.warn('Geometria da rota falhou:', e); return null; }
+}
+// Quando o motorista sai numa viagem só e visita vários clientes em sequência (fábrica -> cliente A ->
+// cliente B -> ... -> casa), calcular "fábrica -> cliente" isoladamente pra CADA entrega duplica o
+// trecho inicial e ignora o trajeto real entre os clientes. Essa função pede a rota inteira ao OSRM numa
+// chamada só (com todas as paradas em ordem) e devolve a distância de cada TRECHO já atribuída à parada
+// certa — a soma bate com o percurso de verdade, sem duplicar nada. `stops` é um array ordenado de
+// {lat,lng}; retorna um array de distâncias em km na mesma ordem (ou null se a rota não puder ser calculada).
+async function computeRouteLegs(stops, mode, driverHome){
+  const origin = companyOrigin();
+  if(!origin || !stops.length) return null;
+  const points = [origin, ...stops];
+  let hasFinalLeg = false;
+  if(mode==='casa_motorista' && driverHome && driverHome.lat!=null){ points.push(driverHome); hasFinalLeg = true; }
+  else if(mode==='ida_volta'){ points.push(origin); hasFinalLeg = true; }
+  try{
+    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`);
+    const json = await res.json();
+    if(json.code!=='Ok' || !json.routes?.[0]?.legs) return null;
+    const legsKm = json.routes[0].legs.map(l=>l.distance/1000);
+    const perStop = stops.map((_,i)=> legsKm[i]);
+    // O último trecho (volta à fábrica no modo ida e volta, ou até a casa do motorista) inteiro entra na
+    // última parada — é lá que a viagem de fato termina.
+    if(hasFinalLeg) perStop[perStop.length-1] += legsKm[legsKm.length-1];
+    return perStop;
+  }catch(e){ console.warn('Cálculo de rota com múltiplas paradas falhou:', e); return null; }
 }
 function pickFreightTier(distanceKm){
   if(distanceKm==null || !state.freightTiers.length) return null;
