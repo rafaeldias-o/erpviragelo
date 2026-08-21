@@ -3258,7 +3258,7 @@ function promptOrderDriver(orderId){
     </select></div>
     <div class="hint" style="margin-bottom:14px;">${suggested ? `Sugerido automaticamente com base na forma de pagamento (${esc(order?.paymentMethod)}). Pode trocar se precisar.` : 'Não há uma conta padrão pra essa forma de pagamento — escolha manualmente, ou deixe em branco pra ajustar depois em Financeiro.'}</div>
     <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="pendingDeliveryConfirmOrderIds=null; closeModal(); loadAll().then(renderAll);" title="Confirma a entrega mesmo assim, só sem preencher motorista/distância agora">Pular</button>
+      <button class="btn btn-ghost" onclick="skipOrderDriverPrompt('${orderId}')" title="Confirma a entrega mesmo assim, só sem preencher motorista/distância agora">Pular</button>
       <button class="btn btn-primary" onclick="confirmOrderDriver('${orderId}')">Confirmar entrega</button>
     </div>
   `);
@@ -3390,6 +3390,18 @@ function suggestedAccountForPaymentMethod(paymentMethod){
   const type = typeMap[paymentMethod];
   if(!type) return null;
   return state.financialAccounts.find(a=>a.type===type && a.status!=='inativo') || null;
+}
+// Botão "Pular" do Confirmar entrega: a intenção sempre foi só adiar motorista/distância/conta pra
+// depois — mas fechar o modal sem chamar finalizeOrderDelivery() deixava a receita "pendurada" com
+// status Pago porém SEM data de pagamento nem forma de pagamento preenchidas (só finalizeOrderDelivery
+// grava esses dois campos). Essa é a causa raiz dos "Pago sem conta" apontados na Conciliação e dos
+// campos em branco na tela de editar receita — corrigido chamando a mesma finalização, só sem motorista/
+// distância/conta (esses continuam podendo ser preenchidos depois, no pedido ou na Agenda de Entregas).
+async function skipOrderDriverPrompt(orderId){
+  pendingDeliveryConfirmOrderIds = null; // resolvido — antes do closeModal(), mesmo motivo do confirmOrderDriver
+  closeModal();
+  await finalizeOrderDelivery(orderId, null, null, null);
+  await loadAll(); renderAll();
 }
 async function confirmOrderDriver(orderId){
   const driver = document.getElementById('odp-driver').value || null;
