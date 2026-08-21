@@ -5274,6 +5274,53 @@ function accountBalance(accountId){
   }, 0);
   return account.initialBalance + net + transfersNet;
 }
+// Detalhe da conta financeira: mostra a composição do saldo — em especial os PEDIDOS que geraram receita
+// pra essa conta, já que é isso que o usuário mais quer conferir ("de onde veio esse dinheiro"). Também
+// lista despesas e transferências vinculadas, pra dar o quadro completo, e dá acesso à edição da conta.
+function openFinAccountDetail(id){
+  const a = state.financialAccounts.find(x=>x.id===id);
+  if(!a) return;
+  const t = accountTypeInfo(a.type);
+  const balance = accountBalance(id);
+  const txs = state.transactions.filter(tx=>tx.accountId===id && (tx.status==='pago'||tx.status==='parcial'))
+    .sort((x,y)=> (y.paymentDate||'').localeCompare(x.paymentDate||''));
+  const transfersIn = state.accountTransfers.filter(tr=>tr.toAccountId===id);
+  const transfersOut = state.accountTransfers.filter(tr=>tr.fromAccountId===id);
+  const receitasDePedido = txs.filter(tx=>tx.type==='receita' && tx.orderId);
+  const totalPedidos = receitasDePedido.reduce((s,tx)=> s + (tx.status==='pago'?tx.amount:tx.paidAmount), 0);
+
+  const rows = txs.map(tx=>{
+    const effective = tx.status==='pago' ? tx.amount : tx.paidAmount;
+    const order = tx.orderId ? state.orders.find(o=>o.id===tx.orderId) : null;
+    const client = order ? state.clients.find(c=>c.id===order.clientId) : (tx.clientId ? state.clients.find(c=>c.id===tx.clientId) : null);
+    return [
+      fmtDate(tx.paymentDate),
+      order ? `<a href="#" onclick="event.preventDefault(); openOrderModal('${order.id}')">${esc(order.orderNumber||('#'+order.id.slice(-6)))}</a> — ${esc(client?client.name:'—')}` : esc(tx.description||'—'),
+      `<span style="color:${tx.type==='receita'?'var(--success)':'var(--danger)'};font-weight:600;">${tx.type==='receita'?'+ ':'− '}${fmtMoney(effective)}</span>`
+    ];
+  });
+
+  openModal(`
+    <div class="modal-head"><h3>${t.icon} ${esc(a.name)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="stat-row-list" style="margin-bottom:14px;">
+      <div class="stat-row"><span class="stat-row-label">Tipo</span><span class="stat-row-value">${t.label}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Status</span><span class="stat-row-value">${a.status==='ativa'?'Ativa':'Inativa'}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Saldo atual</span><span class="stat-row-value" style="font-weight:700;font-size:15px;color:${balance<0?'var(--danger)':'inherit'};">${fmtMoney(balance)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Recebido de pedidos</span><span class="stat-row-value">${fmtMoney(totalPedidos)} <span style="color:var(--muted);font-weight:400;">(${receitasDePedido.length} pedido${receitasDePedido.length!==1?'s':''})</span></span></div>
+      ${transfersIn.length||transfersOut.length ? `<div class="stat-row"><span class="stat-row-label">Transferências</span><span class="stat-row-value">${transfersIn.length} recebida(s) · ${transfersOut.length} enviada(s)</span></div>` : ''}
+    </div>
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px;">Lançamentos que compõem esse saldo</div>
+    ${rows.length ? `<div class="table-scroll" style="max-height:320px;">
+      <table><thead><tr><th>Data</th><th>Origem</th><th>Valor</th></tr></thead><tbody>
+        ${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
+      </tbody></table>
+    </div>` : emptyState('Nenhum lançamento pago nessa conta ainda.')}
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="openFinAccountModal('${a.id}')">✏️ Editar conta</button>
+      <button class="btn btn-primary" onclick="closeModal()">Fechar</button>
+    </div>
+  `, 'wide');
+}
 function openFinAccountModal(id){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar contas financeiras', true); return; }
   const a = id ? state.financialAccounts.find(x=>x.id===id) : null;
@@ -5325,7 +5372,7 @@ function renderFinAccountsTable(){
     ${state.financialAccounts.map(a=>{
       const t = accountTypeInfo(a.type);
       const balance = accountBalance(a.id);
-      return `<div class="panel clickable" style="margin-bottom:0;padding:14px;" onclick="openFinAccountModal('${a.id}')">
+      return `<div class="panel clickable" style="margin-bottom:0;padding:14px;" onclick="openFinAccountDetail('${a.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
           <div style="font-size:22px;">${t.icon}</div>
           <span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span>
