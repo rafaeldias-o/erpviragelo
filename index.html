@@ -5064,7 +5064,7 @@ function renderConciliacao(){
   });
   // Transações com conta financeira não preenchida (dificulta saber de onde saiu/entrou o dinheiro)
   state.transactions.filter(t=>t.status==='pago' && !t.accountId).forEach(t=>{
-    issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média' });
+    issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média', txId:t.id });
   });
   // Transferências para/de contas inativas
   state.accountTransfers.forEach(tr=>{
@@ -5073,9 +5073,30 @@ function renderConciliacao(){
     if(from?.status==='inativa' || to?.status==='inativa') issues.push({ tipo:'Transferência com conta inativa', detalhe:`Transferência de ${fmtMoney(tr.amount)} em ${fmtDate(tr.date)} envolve uma conta marcada como inativa`, severidade:'baixa' });
   });
   if(issues.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência encontrada.</p></div>'; return; }
-  wrap.innerHTML = `<table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th></tr></thead><tbody>
-    ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td></tr>`).join('')}
+  wrap.innerHTML = `<table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
+    ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
+    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}</td></tr>`).join('')}
   </tbody></table>`;
+}
+// Corrige um lançamento "pago sem conta" apontado pela Conciliação — o dropdown de forma de pagamento em
+// Pedidos só realoca a conta quando o valor É TROCADO; se o lançamento já nasceu sem conta nenhuma (ex:
+// confirmou a entrega e clicou em "Pular" antes de escolher a conta), não tinha como corrigir sem mudar
+// a forma de pagamento pra outra coisa e voltar. Aqui vincula direto pela forma de pagamento já registrada
+// — se não der pra decidir sozinho (forma de pagamento sem conta correspondente configurada), abre o
+// lançamento pra escolher manualmente.
+async function fixPagoSemConta(txId){
+  const t = state.transactions.find(x=>x.id===txId);
+  if(!t) return;
+  const suggested = suggestedAccountForPaymentMethod(t.paymentMethod);
+  if(suggested){
+    const { error } = await sb.from('transactions').update({ account_id: suggested.id }).eq('id', txId);
+    if(error){ dbErr(error, 'Erro ao vincular conta'); return; }
+    toast(`Vinculado à conta ${suggested.name}`);
+    await loadAll(); renderAll(); renderConciliacao();
+  } else {
+    toast('Não consegui decidir a conta automaticamente pra essa forma de pagamento — abrindo o lançamento pra escolher manualmente.');
+    openTransactionModal(txId);
+  }
 }
 
 
