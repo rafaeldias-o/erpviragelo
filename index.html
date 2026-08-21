@@ -5879,38 +5879,39 @@ async function saveDriverFeeDetailDistance(id){
   renderDriverFeeBoxes();
   if(driver) renderDriverFeeDetailModal(driver, DELIVERY_DRIVERS.find(x=>x.v===driver)?.label||driver, pagarMonthRange());
 }
-// Recalcula a km de UMA entrega já registrada, usando as coordenadas ATUAIS da fábrica/cliente/casa do
-// motorista — depois de corrigir um endereço mal geocodificado, as entregas antigas continuam com o
-// valor errado até alguém pedir pra recalcular; é exatamente isso que esse botão faz, sem precisar
-// digitar nada na mão. Assume o modo de cálculo configurado hoje em Agenda de Entregas.
-async function recalcDeliveryDistanceCore(delivery){
-  const client = state.clients.find(c=>c.id===delivery.clientId);
-  if(!client) return null;
-  const result = await ensureClientDistance(client.id, true); // force=true: refaz o geocoding do cliente também, por garantia
-  if(!result || result.lat==null || result.lng==null) return null;
-  let total = result.distanceKm;
-  const mode = state.company.routeCalcMode || 'ida';
-  if(mode==='ida_volta'){
-    total = total * 2;
-  } else if(mode==='casa_motorista' && delivery.driver){
-    const home = delivery.driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
-    if(home.lat!=null && home.lng!=null){
-      const extra = await routeDistanceKm({lat:result.lat,lng:result.lng}, home);
-      if(extra!=null) total += extra;
-    }
+// Recalcula um GRUPO de entregas do MESMO motorista no MESMO dia como uma viagem só (mesma lógica de
+// "rota com múltiplas entregas" já usada na confirmação — fábrica -> 1ª parada -> 2ª parada -> ... ->
+// casa) em vez de repetir "fábrica -> cliente" isolado pra cada uma. Pra um grupo com só 1 entrega, dá
+// exatamente no mesmo resultado do cálculo simples de sempre — não muda nada nesse caso.
+async function recalcDeliveryGroupCore(dels){
+  const stopsData = [];
+  for(const d of dels){
+    const client = state.clients.find(c=>c.id===d.clientId);
+    const result = client ? await ensureClientDistance(client.id, true) : null; // force=true: refaz o geocoding também, por garantia
+    stopsData.push((result && result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null);
   }
-  return total;
+  if(stopsData.some(s=>s===null)) return null;
+  const mode = state.company.routeCalcMode || 'ida';
+  const driver = dels[0].driver;
+  const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
+  const legsKm = await computeRouteLegs(stopsData, mode, driverHome);
+  if(!legsKm) return null;
+  return dels.map((d,i)=>({ id:d.id, distanceKm: legsKm[i] }));
 }
 async function recalculateDeliveryDistance(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
   const delivery = state.deliveries.find(d=>d.id===id);
   if(!delivery) return;
-  toast('Recalculando distância...');
-  const total = await recalcDeliveryDistanceCore(delivery);
-  if(total==null){ toast('Não consegui localizar o endereço do cliente pra recalcular', true); return; }
-  const { error } = await sb.from('deliveries').update({ distance_km: total }).eq('id', id);
-  if(error){ dbErr(error, 'Erro ao salvar distância recalculada'); return; }
-  toast(`Distância recalculada: ${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km`);
+  // Recalcula junto com as outras entregas do mesmo motorista no mesmo dia (se houver) — senão o cálculo
+  // volta a contar "fábrica -> cliente" pra cada uma isoladamente, mesmo tendo sido uma viagem só.
+  const sameDayGroup = state.deliveries.filter(d=>d.driver===delivery.driver && d.date===delivery.date && d.distanceKm!=null && d.status!=='cancelada');
+  toast(sameDayGroup.length>1 ? `Recalculando essa entrega junto com as outras ${sameDayGroup.length-1} da mesma saída...` : 'Recalculando distância...');
+  const results = await recalcDeliveryGroupCore(sameDayGroup);
+  if(!results){ toast('Não consegui localizar o endereço de um dos clientes dessa saída pra recalcular', true); return; }
+  for(const r of results){
+    await sb.from('deliveries').update({ distance_km: r.distanceKm }).eq('id', r.id);
+  }
+  toast('Distância recalculada');
   const driver = delivery.driver;
   await loadAll();
   renderDriverFeeBoxes();
@@ -5918,22 +5919,27 @@ async function recalculateDeliveryDistance(id){
 }
 // Recalcula TODAS as entregas do motorista visíveis no modal de uma vez — útil depois de corrigir o
 // endereço da casa de um motorista, quando várias entregas antigas ficaram com a km errada por causa
-// disso (o caso real que motivou esse botão: endereço do Gui corrigido, entregas antigas precisando
-// refletir a casa nova).
+// disso. Agrupa por dia antes de recalcular: cada dia com 2+ entregas do mesmo motorista vira UMA
+// viagem só, não entregas isoladas.
 async function recalculateAllDriverDeliveries(driver){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
   const range = pagarMonthRange();
   const label = DELIVERY_DRIVERS.find(x=>x.v===driver)?.label || driver;
   const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=range.from && d.date<=range.to);
   if(dels.length===0) return;
-  toast(`Recalculando ${dels.length} entrega(s)...`);
+  const groups = {};
+  dels.forEach(d=>{ (groups[d.date]=groups[d.date]||[]).push(d); });
+  toast(`Recalculando ${dels.length} entrega(s) em ${Object.keys(groups).length} saída(s)...`);
   let okCount = 0, failCount = 0;
-  for(const d of dels){
-    const total = await recalcDeliveryDistanceCore(d);
-    if(total==null){ failCount++; continue; }
-    const { error } = await sb.from('deliveries').update({ distance_km: total }).eq('id', d.id);
-    if(error){ failCount++; continue; }
-    okCount++;
+  for(const date of Object.keys(groups)){
+    const group = groups[date];
+    const results = await recalcDeliveryGroupCore(group);
+    if(!results){ failCount += group.length; continue; }
+    for(const r of results){
+      const { error } = await sb.from('deliveries').update({ distance_km: r.distanceKm }).eq('id', r.id);
+      if(error){ failCount++; continue; }
+      okCount++;
+    }
   }
   toast(failCount>0 ? `${okCount} entrega(s) recalculada(s), ${failCount} não localizada(s) no mapa` : `${okCount} entrega(s) recalculada(s) com sucesso`);
   await loadAll();
