@@ -1071,10 +1071,24 @@ tr:last-child td{border-bottom:none;}
           </div>
           <div id="driverHomesWrap" style="display:none;">
             <div class="field-row">
-              <div class="field"><label>Endereço da casa do Beto</label><input id="cfg-beto-home" placeholder="Ex: Rua Exemplo, 123, Bairro, Tubarão"></div>
-              <div class="field"><label>Endereço da casa do Gui</label><input id="cfg-gui-home" placeholder="Ex: Rua Exemplo, 456, Bairro, Tubarão"></div>
+              <div class="field">
+                <label>Endereço da casa do Beto</label>
+                <div style="display:flex;gap:6px;">
+                  <input id="cfg-beto-home" placeholder="Ex: Rua Exemplo, 123, Bairro, Tubarão" style="flex:1;">
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="regeocodeDriverHome('beto')" title="Recalcular localização no mapa">🔄</button>
+                </div>
+                <div class="hint" id="cfg-beto-home-status" style="margin-top:4px;"></div>
+              </div>
+              <div class="field">
+                <label>Endereço da casa do Gui</label>
+                <div style="display:flex;gap:6px;">
+                  <input id="cfg-gui-home" placeholder="Ex: Rua Exemplo, 456, Bairro, Tubarão" style="flex:1;">
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="regeocodeDriverHome('gui')" title="Recalcular localização no mapa">🔄</button>
+                </div>
+                <div class="hint" id="cfg-gui-home-status" style="margin-top:4px;"></div>
+              </div>
             </div>
-            <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Geocodificado automaticamente ao salvar — a entrega vai contar fábrica → cliente → essa casa, dependendo de quem entregou.</div>
+            <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Geocodificado automaticamente ao salvar — a entrega vai contar fábrica → cliente → essa casa, dependendo de quem entregou. Se a localização salva estiver muito longe de Tubarão, use o botão 🔄 pra recalcular sem precisar redigitar o endereço.</div>
           </div>
           <button class="btn btn-primary btn-sm" onclick="saveRouteModeSettings()">Salvar</button>
         </div>
@@ -3056,7 +3070,14 @@ function promptOrderDriver(orderId){
       <div class="stat-row"><span class="stat-row-label">Cliente</span><span class="stat-row-value">${esc(client?client.name:'—')}</span></div>
       <div class="stat-row"><span class="stat-row-label">Endereço</span><span class="stat-row-value" style="font-size:12px;text-align:right;">${esc(address||'Não cadastrado')}</span></div>
       <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(order?.paymentMethod||'—')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Distância</span><span class="stat-row-value" id="odp-distance-summary" style="font-weight:700;">calculando...</span></div>
     </div>
+    <div class="field"><label>Como calcular a distância dessa entrega</label><select id="odp-calc-mode" onchange="renderOdpDistanceDisplay()">
+      <option value="ida" ${(state.company.routeCalcMode||'ida')==='ida'?'selected':''}>Só ida (fábrica → cliente)</option>
+      <option value="ida_volta" ${state.company.routeCalcMode==='ida_volta'?'selected':''}>Ida e volta (fábrica → cliente → fábrica)</option>
+      <option value="casa_motorista" ${state.company.routeCalcMode==='casa_motorista'?'selected':''}>Fábrica → cliente → casa do motorista</option>
+    </select></div>
+    <div class="hint" style="margin-top:-8px;margin-bottom:12px;">Vem pré-selecionado com o padrão configurado em Agenda de Entregas, mas pode trocar só pra essa entrega.</div>
     <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
     <div id="odp-map" style="height:240px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
     <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
@@ -3081,7 +3102,7 @@ async function loadDeliveryDistanceIntoModal(client){
   odpBaseDistanceKm = null;
   odpClientCoord = null;
   odpCurrentClientId = client ? client.id : null;
-  if(!wrap || !client){ if(wrap) wrap.innerHTML = `<div class="field"><label>Distância até o cliente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`; return; }
+  if(!wrap || !client){ if(wrap) wrap.innerHTML = `<div class="field"><label>Distância até o cliente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`; updateOdpDistanceSummary(null); return; }
   const result = await ensureClientDistance(client.id);
   if(!document.body.contains(wrap)) return; // modal já foi fechado antes de terminar de calcular
   if(result && result.distanceKm!=null){
@@ -3091,6 +3112,7 @@ async function loadDeliveryDistanceIntoModal(client){
   } else {
     wrap.innerHTML = `<div class="field"><label>Não localizei o endereço no mapa — digite a distância manualmente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`;
     renderOdpMap(null, null);
+    updateOdpDistanceSummary(null);
   }
 }
 // Recalcula o texto/valor mostrado no modal de acordo com o modo de rota configurado (ida / ida e volta /
@@ -3099,13 +3121,14 @@ async function loadDeliveryDistanceIntoModal(client){
 function renderOdpDistanceDisplay(){
   const wrap = document.getElementById('odp-distance-wrap');
   if(!wrap || odpBaseDistanceKm==null) return;
-  const mode = state.company.routeCalcMode || 'ida';
+  const mode = document.getElementById('odp-calc-mode')?.value || state.company.routeCalcMode || 'ida';
   const baseTxt = odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1});
 
   if(mode==='ida_volta'){
     const total = odpBaseDistanceKm * 2;
     wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Ida e volta (fábrica → cliente → fábrica): <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
     renderOdpMap(odpClientCoord, null);
+    updateOdpDistanceSummary(total);
     return;
   }
   if(mode==='casa_motorista'){
@@ -3113,12 +3136,14 @@ function renderOdpDistanceDisplay(){
     if(!driver){
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br>Selecione o motorista pra somar o trecho até a casa dele.</div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
       renderOdpMap(odpClientCoord, null);
+      updateOdpDistanceSummary(odpBaseDistanceKm);
       return;
     }
     const home = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
     if(home.lat==null){
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${baseTxt} km</strong><br><span style="color:var(--warn);">⚠️ Endereço da casa desse motorista não cadastrado — contando só até o cliente. Cadastre em Agenda de Entregas.</span></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
       renderOdpMap(odpClientCoord, null);
+      updateOdpDistanceSummary(odpBaseDistanceKm);
       return;
     }
     wrap.innerHTML = `<div class="hint">📍 Calculando trecho cliente → casa do motorista...</div>`;
@@ -3129,12 +3154,21 @@ function renderOdpDistanceDisplay(){
       const total = odpBaseDistanceKm + finalExtra;
       wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${baseTxt} km + cliente → casa: ${finalExtra.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${total}">`;
       renderOdpMap(odpClientCoord, home);
+      updateOdpDistanceSummary(total);
     });
     return;
   }
   // modo 'ida' (padrão)
   wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${baseTxt} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
   renderOdpMap(odpClientCoord, null);
+  updateOdpDistanceSummary(odpBaseDistanceKm);
+}
+// Mantém o resumo do topo do modal ("Distância") sincronizado com o valor final calculado abaixo —
+// evita que a informação apareça só perto do mapa, como o usuário pediu pra também constar no resumo.
+function updateOdpDistanceSummary(km){
+  const el = document.getElementById('odp-distance-summary');
+  if(!el) return;
+  el.textContent = km!=null ? km.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km' : '—';
 }
 // Mostra num mapa (Leaflet/OpenStreetMap, mesmo padrão já usado em Visitas Comerciais) o trajeto que está
 // sendo usado pra calcular a km da entrega: 🏭 fábrica (início) → 📍 cliente (destino), e, no modo "casa
@@ -7489,6 +7523,42 @@ function renderWeekAgenda(){
   if(betoHomeEl && document.activeElement !== betoHomeEl) betoHomeEl.value = state.company.betoHomeAddress || '';
   const guiHomeEl = document.getElementById('cfg-gui-home');
   if(guiHomeEl && document.activeElement !== guiHomeEl) guiHomeEl.value = state.company.guiHomeAddress || '';
+  updateDriverHomeStatus('beto');
+  updateDriverHomeStatus('gui');
+}
+// Mostra um aviso quando a coordenada JÁ SALVA de uma casa de motorista está longe demais de Tubarão —
+// cobre o caso de endereços geocodificados antes da validação de plausibilidade existir (o problema real
+// que causou entregas contando 800+ km: a validação só protege geocodificações NOVAS, não corrige
+// coordenadas ruins que já estavam no banco antes dela existir).
+function updateDriverHomeStatus(prefix){
+  const statusEl = document.getElementById(`cfg-${prefix}-home-status`);
+  if(!statusEl) return;
+  const lat = state.company[prefix+'HomeLat'], lng = state.company[prefix+'HomeLng'];
+  if(lat==null || lng==null){ statusEl.innerHTML = ''; return; }
+  if(!isPlausibleTubaraoLocation(lat, lng)){
+    statusEl.innerHTML = `<span style="color:var(--danger);font-weight:600;">⚠️ A localização salva está muito longe de Tubarão (provavelmente geocodificada errada antes da validação existir) — clique em 🔄 pra recalcular.</span>`;
+  } else {
+    statusEl.innerHTML = `<span style="color:var(--success);">✓ Localização confirmada perto de Tubarão.</span>`;
+  }
+}
+// Força um novo geocoding do endereço já digitado, mesmo que o texto não tenha mudado (o salvamento
+// normal só re-geocodifica quando o texto muda) — é exatamente o que resolve o caso de coordenada ruim
+// já salva no banco.
+async function regeocodeDriverHome(prefix){
+  const input = document.getElementById(`cfg-${prefix}-home`);
+  if(!input || !input.value.trim()){ toast('Digite o endereço primeiro', true); return; }
+  const address = input.value.trim();
+  toast('Recalculando localização...');
+  const coords = await geocodeAddress(address + ', Brasil', 'Tubarão');
+  if(!coords){ toast('Não localizei esse endereço perto de Tubarão — confira e tente de novo', true); return; }
+  const patch = { id:true };
+  patch[`${prefix}_home_address`] = address;
+  patch[`${prefix}_home_lat`] = coords.lat;
+  patch[`${prefix}_home_lng`] = coords.lng;
+  const { error } = await sb.from('company_settings').upsert(patch);
+  if(error){ dbErr(error, 'Erro ao salvar localização'); return; }
+  toast('Localização recalculada com sucesso');
+  await loadAll(); renderAll();
 }
 
 // ---- Rota otimizada do dia (OSRM — dados e roteamento OpenStreetMap) ----
