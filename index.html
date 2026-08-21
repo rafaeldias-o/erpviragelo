@@ -3146,25 +3146,29 @@ function renderRouteConfirmModal(){
     return { o, c, selected, orderNum };
   }).sort((a,b)=> (a.orderNum||99) - (b.orderNum||99));
   const selectedCount = routeConfirmSelectedIds.length;
+  const activeAccounts = state.financialAccounts.filter(a=>a.status!=='inativo');
   openModal(`
     <div class="modal-head"><h3>🔗 Confirmar rota com múltiplas entregas</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:12px;">Marque, na ordem em que foram visitadas, todas as entregas feitas nessa mesma saída — o número mostra a posição na rota. A distância de cada trecho (fábrica → 1ª parada → 2ª parada → ...) é calculada de uma vez só, sem duplicar o trajeto inicial pra cada entrega.</div>
-    ${rows.length===0 ? emptyState('Nenhum pedido confirmado disponível pra somar nessa rota.') : `<div class="table-scroll" style="max-height:260px;">
-      <table><thead><tr><th></th><th>Ordem</th><th>Cliente</th><th>Endereço</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr style="cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')">
-        <td><input type="checkbox" ${r.selected?'checked':''} onclick="event.stopPropagation(); toggleRouteConfirmOrder('${r.o.id}')"></td>
-        <td>${r.orderNum ? `<span class="badge badge-info">${r.orderNum}ª</span>` : '—'}</td>
-        <td>${esc(r.c?r.c.name:'—')}</td>
-        <td style="color:var(--muted);font-size:12px;">${esc(r.c?buildFullAddress(r.c):'')}</td>
+    <div class="hint" style="margin-bottom:12px;">Marque, na ordem em que foram visitadas, todas as entregas feitas nessa mesma saída — o número mostra a posição na rota. A distância de cada trecho (fábrica → 1ª parada → 2ª parada → ...) é calculada de uma vez só, sem duplicar o trajeto inicial pra cada entrega. Cada entrega mantém a própria forma de pagamento e conta a creditar — não precisa ser tudo igual.</div>
+    ${rows.length===0 ? emptyState('Nenhum pedido confirmado disponível pra somar nessa rota.') : `<div class="table-scroll" style="max-height:320px;">
+      <table><thead><tr><th></th><th>Ordem</th><th>Cliente</th><th>Endereço</th><th>Pagamento</th><th>Creditar na conta</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr>
+        <td style="cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')"><input type="checkbox" ${r.selected?'checked':''} onclick="event.stopPropagation(); toggleRouteConfirmOrder('${r.o.id}')"></td>
+        <td style="cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')">${r.orderNum ? `<span class="badge badge-info">${r.orderNum}ª</span>` : '—'}</td>
+        <td style="cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')">${esc(r.c?r.c.name:'—')}</td>
+        <td style="color:var(--muted);font-size:12px;cursor:pointer;" onclick="toggleRouteConfirmOrder('${r.o.id}')">${esc(r.c?buildFullAddress(r.c):'')}</td>
+        <td style="font-size:12.5px;">${esc(r.o.paymentMethod||'—')}</td>
+        <td>${r.selected ? (()=>{
+          const suggested = suggestedAccountForPaymentMethod(r.o.paymentMethod);
+          return `<select id="route-account-${r.o.id}" style="min-width:140px;">
+            <option value="">— Não creditar —</option>
+            ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
+          </select>`;
+        })() : '<span style="color:var(--muted);">—</span>'}</td>
       </tr>`).join('')}
       </tbody></table>
     </div>`}
     <div class="field" style="margin-top:16px;"><label>Será entregue por:</label><select id="route-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
-    <div class="field"><label>Creditar pagamento na conta</label><select id="route-account">
-      <option value="">— Não creditar em nenhuma conta —</option>
-      ${state.financialAccounts.filter(a=>a.status!=='inativo').map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}
-    </select></div>
-    <div class="hint">Essa conta vale pra todas as entregas selecionadas — se cada uma foi paga de um jeito diferente, confirme e ajuste depois em Financeiro.</div>
     <div id="route-confirm-status"></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -3179,11 +3183,14 @@ function renderRouteConfirmModal(){
 async function confirmRouteBatch(){
   if(routeConfirmSelectedIds.length===0) return;
   const driver = document.getElementById('route-driver').value || null;
-  const accountId = document.getElementById('route-account').value || null;
   const statusEl = document.getElementById('route-confirm-status');
   if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
 
   const orders = routeConfirmSelectedIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  // Cada entrega mantém sua própria conta de destino (a forma de pagamento já vem do pedido) — lida aqui
+  // pelo id de cada pedido, não um valor único compartilhado pra rota inteira.
+  const accountByOrder = {};
+  orders.forEach(o=>{ const el = document.getElementById(`route-account-${o.id}`); accountByOrder[o.id] = el ? (el.value||null) : null; });
   const stopsData = [];
   for(const o of orders){
     const client = state.clients.find(c=>c.id===o.clientId);
@@ -3209,7 +3216,7 @@ async function confirmRouteBatch(){
       const { error } = await sb.from('orders').update({ status:'entregue' }).eq('id', o.id);
       if(error){ dbErr(error, `Erro ao marcar o pedido ${i+1} como entregue`); continue; }
     }
-    await finalizeOrderDelivery(o.id, driver, legsKm[i], accountId);
+    await finalizeOrderDelivery(o.id, driver, legsKm[i], accountByOrder[o.id]);
   }
   const totalKm = legsKm.reduce((s,v)=>s+v,0);
   pendingDeliveryConfirmOrderIds = null; // resolvido com sucesso — antes do closeModal(), mesmo motivo do confirmOrderDriver
@@ -4302,11 +4309,11 @@ function renderDashContasBancariasMini(){
   const total = accounts.reduce((s,a)=>s+accountBalance(a.id),0);
   box.innerHTML = accounts.map(a=>{
     const t = accountTypeInfo(a.type);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:8px;"><span>${t.icon}</span><span style="font-size:12.5px;font-weight:600;">${esc(a.name)}</span></div>
-      <span style="font-size:12.5px;font-weight:700;">${fmtMoney(accountBalance(a.id))}</span>
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;"><span style="flex-shrink:0;">${t.icon}</span><span style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span></div>
+      <span style="font-size:12.5px;font-weight:700;white-space:nowrap;flex-shrink:0;">${fmtMoney(accountBalance(a.id))}</span>
     </div>`;
-  }).join('') + `<div style="display:flex;justify-content:space-between;padding-top:10px;"><span style="font-size:12.5px;font-weight:700;">Saldo total</span><span style="font-size:13px;font-weight:700;color:var(--accent);">${fmtMoney(total)}</span></div>`;
+  }).join('') + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;"><span style="font-size:12.5px;font-weight:700;">Saldo total</span><span style="font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0;">${fmtMoney(total)}</span></div>`;
 }
 function renderDashBottomCards(){
   const metaBox = document.getElementById('dashMetaCard');
@@ -5723,8 +5730,7 @@ function openDriverFeeDetail(driver){
   renderDriverFeeDetailModal(driver, label, pagarMonthRange());
 }
 function renderDriverFeeDetailModal(driver, label, range){
-  const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=range.from && d.date<=range.to)
-    .sort((a,b)=> b.distanceKm - a.distanceKm);
+  const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=range.from && d.date<=range.to);
   const totalKm = dels.reduce((s,d)=>s+d.distanceKm,0);
   const efficiency = state.company.fuelEfficiencyKmL || 10;
   const price = state.company.fuelPricePerLiter || 6.20;
@@ -5735,14 +5741,26 @@ function renderDriverFeeDetailModal(driver, label, range){
   const mid = Math.floor(distances.length/2);
   const medianKm = distances.length ? (distances.length%2 ? distances[mid] : (distances[mid-1]+distances[mid])/2) : 0;
   const monthLabelCap = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+  // Agrupa por dia — dias com mais de uma entrega (mesma saída do motorista) ficam juntos, com o
+  // subtotal de km daquele dia em destaque, em vez de aparecerem como linhas soltas e desconectadas.
+  const groups = {};
+  dels.forEach(d=>{ (groups[d.date]=groups[d.date]||[]).push(d); });
+  const sortedDates = Object.keys(groups).sort((a,b)=> b.localeCompare(a)); // mais recente primeiro
   openModal(`
     <div class="modal-head"><h3>🚚 Entregas de ${esc(label)} — ${esc(monthLabelCap)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:12px;">Confira a distância de cada entrega. Valores muito acima da mediana do período (destacados em vermelho) costumam indicar erro no endereço ou no cálculo automático — corrija direto aqui, se precisar.</div>
-    ${dels.length ? `<div class="table-scroll">
-      <table>
-        <thead><tr><th>Data</th><th>Cliente</th><th>Distância (km)</th><th></th></tr></thead>
-        <tbody id="driverFeeDetailRows">${dels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}</tbody>
-      </table>
+    <div class="hint" style="margin-bottom:12px;">Confira a distância de cada entrega — dias com mais de uma entrega aparecem agrupados (mesma saída do motorista), com o total do dia em destaque. Valores muito acima da mediana do período (destacados em vermelho) costumam indicar erro no endereço ou no cálculo automático — corrija direto aqui, se precisar.</div>
+    ${dels.length ? `<div class="table-scroll" id="driverFeeDetailRows" style="max-height:400px;">
+      ${sortedDates.map(date=>{
+        const dayDels = groups[date];
+        const dayTotal = dayDels.reduce((s,d)=>s+d.distanceKm,0);
+        return `<div style="margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--ink);padding:6px 2px;background:var(--surface-2);border-radius:6px;margin-bottom:4px;">
+            <span>📅 ${fmtDate(date)}${dayDels.length>1?` <span style="font-weight:500;color:var(--muted);">· ${dayDels.length} entregas nessa saída</span>`:''}</span>
+            <span>${dayTotal.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span>
+          </div>
+          <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}</tbody></table>
+        </div>`;
+      }).join('')}
     </div>` : '<div class="hint">Nenhuma entrega encontrada nesse período.</div>'}
     <div class="stat-row-list" style="margin-top:14px;">
       <div class="stat-row"><span class="stat-row-label">Total km</span><span class="stat-row-value" id="driverFeeDetailTotalKm">${totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span></div>
@@ -5755,9 +5773,8 @@ function renderDriverFeeDetailRow(d, medianKm){
   const client = state.clients.find(c=>c.id===d.clientId);
   const suspicious = medianKm>0 && d.distanceKm > medianKm*4 && d.distanceKm > 50;
   return `<tr id="driverFeeDetailRow-${d.id}">
-    <td>${fmtDate(d.date)}</td>
-    <td>${esc(client?client.name:'—')}${client&&client.address?`<div style="color:var(--muted);font-size:11px;">${esc(client.address)}${client.city?', '+esc(client.city):''}</div>`:''}</td>
-    <td>
+    <td style="width:40%;">${esc(client?client.name:'—')}${client&&client.address?`<div style="color:var(--muted);font-size:11px;">${esc(client.address)}${client.city?', '+esc(client.city):''}</div>`:''}</td>
+    <td style="width:30%;">
       <input type="number" step="0.1" min="0" inputmode="decimal" value="${d.distanceKm}" style="width:90px;${suspicious?'border-color:var(--danger);color:var(--danger);font-weight:700;':''}" id="driverFeeDetailInput-${d.id}">
       ${suspicious?'<div style="color:var(--danger);font-size:10.5px;margin-top:2px;">⚠️ Muito acima da mediana</div>':''}
     </td>
@@ -7241,6 +7258,54 @@ function stripAddressNumber(address){
 // requisições rápido demais, o serviço passa a rejeitar tudo, e NENHUM endereço é encontrado, mesmo
 // existindo de verdade.
 function sleepMs(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
+// Geocodifica um endereço em texto livre (usado na fábrica e na casa dos motoristas, que não têm campos
+// estruturados como o cadastro de cliente) tentando várias formas até achar algo plausível. Cada
+// tentativa já passa pela validação de plausibilidade geográfica de geocodeAddress (raio de 30km de
+// Tubarão), então nunca aceita um resultado errado — só vai tentando um jeito diferente de perguntar.
+// Ordem das tentativas: 1) texto exato digitado; 2) removendo ruído tipo "apt 101"/complemento, que
+// costuma confundir o parser de endereço; 3) validando pelo CEP (se tiver um no texto) via ViaCEP, que
+// devolve o endereço oficial certinho pra geocodificar; 4) só a rua (sem número) + cidade, como último
+// recurso aproximado.
+async function geocodeFreeTextWithFallback(rawText, expectedCity){
+  if(!rawText || !rawText.trim()) return null;
+  const original = rawText.trim();
+
+  let coords = await geocodeAddress(original + ', Brasil', expectedCity);
+  if(coords) return coords;
+
+  const cleaned = original
+    .replace(/,?\s*\b(apt|ap\.?|apto\.?|bloco|bl\.?|sala|fundos|unidade|casa)\s*\.?\s*[a-z0-9]+/gi, '')
+    .replace(/\s{2,}/g,' ').replace(/,\s*,/g,',').replace(/^,|,$/g,'').trim();
+  if(cleaned && cleaned !== original){
+    await sleepMs(1100);
+    coords = await geocodeAddress(cleaned + ', Brasil', expectedCity);
+    if(coords) return coords;
+  }
+
+  const cepMatch = original.match(/\d{5}-?\d{3}/);
+  if(cepMatch){
+    try{
+      const cepDigits = cepMatch[0].replace(/\D/g,'');
+      const res = await fetch(`https://viacep.com.br/ws/${cepDigits}/json/`);
+      const data = await res.json();
+      if(!data.erro && data.logradouro){
+        await sleepMs(1100);
+        const viaCepAddress = [data.logradouro, data.bairro, data.localidade, data.uf].filter(Boolean).join(', ');
+        coords = await geocodeAddress(viaCepAddress + ', Brasil', data.localidade || expectedCity);
+        if(coords) return coords;
+      }
+    }catch(e){ console.warn('Validação por CEP falhou:', e); }
+  }
+
+  const streetOnly = (cleaned || original).split(',')[0].replace(/\d+/g,'').trim();
+  if(streetOnly && expectedCity){
+    await sleepMs(1100);
+    coords = await geocodeAddress(`${streetOnly}, ${expectedCity}, Brasil`, expectedCity);
+    if(coords) return coords;
+  }
+
+  return null;
+}
 async function geocodeEntityWithFallback(entity){
   const fullQuery = buildFullAddress(entity);
   if(!fullQuery) return { coords:null, approximate:false, queryUsed:null };
@@ -7740,7 +7805,7 @@ async function regeocodeDriverHome(prefix){
   if(!input || !input.value.trim()){ toast('Digite o endereço primeiro', true); return; }
   const address = input.value.trim();
   toast('Recalculando localização...');
-  const coords = await geocodeAddress(address + ', Brasil', 'Tubarão');
+  const coords = await geocodeFreeTextWithFallback(address, 'Tubarão');
   if(!coords){ toast('Não localizei esse endereço perto de Tubarão — confira e tente de novo', true); return; }
   const patch = { id:true };
   patch[`${prefix}_home_address`] = address;
@@ -10216,14 +10281,14 @@ async function saveRouteModeSettings(){
 
   if(mode==='casa_motorista'){
     if(betoAddress && betoAddress !== state.company.betoHomeAddress){
-      const coords = await geocodeAddress(betoAddress + ', Brasil', 'Tubarão');
+      const coords = await geocodeFreeTextWithFallback(betoAddress, 'Tubarão');
       if(!coords){ toast('Não localizei o endereço da casa do Beto perto de Tubarão — confira e tenta de novo', true); return; }
       patch.beto_home_address = betoAddress; patch.beto_home_lat = coords.lat; patch.beto_home_lng = coords.lng;
     } else if(betoAddress){
       patch.beto_home_address = betoAddress;
     }
     if(guiAddress && guiAddress !== state.company.guiHomeAddress){
-      const coords = await geocodeAddress(guiAddress + ', Brasil', 'Tubarão');
+      const coords = await geocodeFreeTextWithFallback(guiAddress, 'Tubarão');
       if(!coords){ toast('Não localizei o endereço da casa do Gui perto de Tubarão — confira e tenta de novo', true); return; }
       patch.gui_home_address = guiAddress; patch.gui_home_lat = coords.lat; patch.gui_home_lng = coords.lng;
     } else if(guiAddress){
@@ -10246,7 +10311,7 @@ async function saveCompany(){
     cliente_inativo_dias: parseInt(document.getElementById('cfg-cliente-inativo-dias').value) || 60,
   };
   if(data.address && data.address !== state.company.geocodedAddress){
-    const coords = await geocodeAddress(data.address + ', Brasil', 'Tubarão');
+    const coords = await geocodeFreeTextWithFallback(data.address, 'Tubarão');
     if(coords){ data.lat = coords.lat; data.lng = coords.lng; data.geocoded_address = data.address; }
     else { toast('Endereço salvo, mas não localizei ele perto de Tubarão no mapa — a rota otimizada vai começar direto na primeira entrega até isso ser resolvido.', true); }
   }
