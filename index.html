@@ -5838,11 +5838,22 @@ function renderDriverFeeDetailModal(driver, label, range){
       ${sortedDates.map(date=>{
         const dayDels = groups[date];
         const dayTotal = dayDels.reduce((s,d)=>s+d.distanceKm,0);
+        // Endereço final da saída — só faz sentido mostrar quando o modo de cálculo termina em algum
+        // lugar diferente do último cliente (casa do motorista, ou de volta pra fábrica).
+        const mode = state.company.routeCalcMode || 'ida';
+        let finalAddressLine = '';
+        if(mode==='casa_motorista'){
+          const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
+          finalAddressLine = `<div style="font-size:11px;color:var(--muted);padding:2px 2px 4px;">🏠 Endereço final (casa de ${esc(driver==='beto'?'Beto':'Gui')}): ${esc(homeAddress||'não cadastrado')}</div>`;
+        } else if(mode==='ida_volta'){
+          finalAddressLine = `<div style="font-size:11px;color:var(--muted);padding:2px 2px 4px;">🏭 Endereço final: volta pra fábrica — ${esc(state.company.address||'endereço não cadastrado')}</div>`;
+        }
         return `<div style="margin-bottom:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--ink);padding:6px 2px;background:var(--surface-2);border-radius:6px;margin-bottom:4px;">
             <span>📅 ${fmtDate(date)}${dayDels.length>1?` <span style="font-weight:500;color:var(--muted);">· ${dayDels.length} entregas nessa saída</span> <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:2px 6px;margin-left:4px;" onclick="event.stopPropagation(); showRouteBreakdown('${driver}','${date}')">🔍 Ver trechos</button>`:''}</span>
             <span>${dayTotal.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span>
           </div>
+          ${finalAddressLine}
           <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}</tbody></table>
         </div>`;
       }).join('')}
@@ -7556,8 +7567,12 @@ async function showRouteBreakdown(driver, date){
   const mode = state.company.routeCalcMode || 'ida';
   const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
   const points = [origin, ...stopsData];
-  if(mode==='casa_motorista' && driverHome.lat!=null){ points.push(driverHome); clientNames.push('Casa do motorista'); }
-  else if(mode==='ida_volta'){ points.push(origin); clientNames.push('Fábrica (volta)'); }
+  if(mode==='casa_motorista' && driverHome.lat!=null){
+    const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
+    points.push(driverHome); clientNames.push(`Casa do motorista${homeAddress?' ('+homeAddress+')':''}`);
+  } else if(mode==='ida_volta'){
+    points.push(origin); clientNames.push(`Fábrica (volta)${state.company.address?' ('+state.company.address+')':''}`);
+  }
 
   const legsKm = await fetchRawRouteLegs(points);
   if(!legsKm){
