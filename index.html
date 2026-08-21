@@ -5754,7 +5754,7 @@ function openLeadModal(id){
     </div>
     <div class="subhead" style="font-size:12px;">Endereço (aproveitado automaticamente se o lead virar cliente)</div>
     <div class="field-row3">
-      <div class="field"><label>CEP</label><input id="l-cep" value="${l?esc(l.cep||''):''}"></div>
+      <div class="field"><label>CEP</label><input id="l-cep" value="${l?esc(l.cep||''):''}" oninput="lookupCep('l-cep')"></div>
       <div class="field"><label>Cidade</label><input id="l-city" value="${l?esc(l.city||''):''}"></div>
       <div class="field"><label>Estado</label><input id="l-state" value="${l?esc(l.state||''):''}" maxlength="2"></div>
     </div>
@@ -6856,7 +6856,7 @@ function openClientDetailModal(id){
     <div class="field-row3">
       <div class="field"><label>Bairro</label><input id="c-neighborhood" value="${c?esc(c.neighborhood||''):''}"></div>
       <div class="field"><label>Estado</label><input id="c-state" value="${c?esc(c.state||''):''}" maxlength="2" placeholder="Ex: SC"></div>
-      <div class="field"><label>CEP</label><input id="c-cep" value="${c?esc(c.cep||''):''}" placeholder="Ex: 88701-000"></div>
+      <div class="field"><label>CEP</label><input id="c-cep" value="${c?esc(c.cep||''):''}" placeholder="Ex: 88701-000" oninput="lookupCep('c-cep')"></div>
     </div>
     <div class="field"><label>Complemento</label><input id="c-complement" value="${c?esc(c.complement||''):''}"></div>
     <div class="field-row">
@@ -6928,6 +6928,37 @@ function setHasFreezer(v){
 // o geocodificador pode escolher o resultado errado (de outra cidade) mesmo com "Tubarão" no texto da
 // busca. Por isso pedimos alguns candidatos (limit=3) e conferimos qual bate com a cidade que o próprio
 // cadastro informa, em vez de confiar cegamente no primeiro resultado.
+// Preenchimento automático de endereço a partir do CEP (ViaCEP — serviço público, gratuito, sem precisar
+// de chave de API). Dispara sozinho assim que o campo tem os 8 dígitos de um CEP completo. Bairro/Cidade/
+// Estado são sempre atualizados com o que a ViaCEP retornar (é a fonte mais confiável pra isso); já o
+// campo Endereço só é preenchido se ainda estiver vazio, porque ele junta rua + número no mesmo campo
+// (ex: "Rua Rui Barbosa, 245") — sobrescrever destruiria um número que a pessoa já tivesse digitado.
+async function lookupCep(cepFieldId){
+  const cepInput = document.getElementById(cepFieldId);
+  if(!cepInput) return;
+  const digits = cepInput.value.replace(/\D/g,'');
+  if(digits.length !== 8) { cepInput.style.borderColor = ''; return; }
+  const prefix = cepFieldId.split('-')[0]; // 'c' (cliente) ou 'l' (lead) — os dois formulários usam o mesmo padrão de nome de campo
+  const addressEl = document.getElementById(prefix+'-address');
+  const neighborhoodEl = document.getElementById(prefix+'-neighborhood');
+  const cityEl = document.getElementById(prefix+'-city');
+  const stateEl = document.getElementById(prefix+'-state');
+  cepInput.style.borderColor = 'var(--accent-2)';
+  try{
+    const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+    const data = await res.json();
+    if(!res.ok || data.erro){ cepInput.style.borderColor = 'var(--danger)'; toast('CEP não encontrado — confira e tente de novo', true); return; }
+    if(addressEl && !addressEl.value.trim() && data.logradouro) addressEl.value = data.logradouro;
+    if(neighborhoodEl && data.bairro) neighborhoodEl.value = data.bairro;
+    if(cityEl && data.localidade) cityEl.value = data.localidade;
+    if(stateEl && data.uf) stateEl.value = data.uf;
+    cepInput.style.borderColor = 'var(--success)';
+    toast('Endereço preenchido automaticamente pelo CEP');
+  }catch(e){
+    console.warn('Busca de CEP falhou:', e);
+    cepInput.style.borderColor = '';
+  }
+}
 function normalizeCityName(s){
   return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 }
