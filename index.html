@@ -3186,7 +3186,7 @@ function renderRouteConfirmModal(){
       </tr>`).join('')}
       </tbody></table>
     </div>`}
-    <div class="field" style="margin-top:16px;"><label>Será entregue por:</label><select id="route-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
+    <div class="field" style="margin-top:16px;"><label>Será entregue por:</label><select id="route-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option><option value="retirada">🏪 Retirada no local (sem custo de entrega)</option></select></div>
     <div id="route-confirm-status"></div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -3205,13 +3205,31 @@ async function confirmRouteBatch(){
   // real pra disparar a confirmação duas vezes e duplicar as movimentações de estoque.
   const driver = document.getElementById('route-driver').value || null;
   const statusEl = document.getElementById('route-confirm-status');
-  if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
-
   const orders = routeConfirmSelectedIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
   // Cada entrega mantém sua própria conta de destino (a forma de pagamento já vem do pedido) — lida aqui
   // pelo id de cada pedido, não um valor único compartilhado pra rota inteira.
   const accountByOrder = {};
   orders.forEach(o=>{ const el = document.getElementById(`route-account-${o.id}`); accountByOrder[o.id] = el ? (el.value||null) : null; });
+
+  // Retirada no local: não existe rota nenhuma pra calcular (cliente busca ele mesmo) — zera a distância
+  // de todos os pedidos selecionados direto, sem tentar geocodificar nem chamar o OSRM.
+  if(driver==='retirada'){
+    for(let i=0;i<orders.length;i++){
+      const o = orders[i];
+      if(o.status!=='entregue'){
+        const { error } = await sb.from('orders').update({ status:'entregue' }).eq('id', o.id);
+        if(error){ dbErr(error, `Erro ao marcar o pedido ${i+1} como entregue`); continue; }
+      }
+      await finalizeOrderDelivery(o.id, driver, 0, accountByOrder[o.id], null);
+    }
+    pendingDeliveryConfirmOrderIds = null;
+    closeModal();
+    toast(`${orders.length} retirada(s) confirmada(s) — sem custo de entrega`);
+    await loadAll(); renderAll();
+    return;
+  }
+
+  if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
   const stopsData = [];
   for(const o of orders){
     const client = state.clients.find(c=>c.id===o.clientId);
@@ -3276,7 +3294,7 @@ function promptOrderDriver(orderId){
     <div class="hint" style="margin-top:-8px;margin-bottom:12px;">Vem pré-selecionado com o padrão configurado em Agenda de Entregas, mas pode trocar só pra essa entrega.</div>
     <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
     <div id="odp-map" style="height:240px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
-    <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option></select></div>
+    <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option><option value="retirada">🏪 Retirada no local (sem custo de entrega)</option></select></div>
     <div class="field"><label>Creditar pagamento na conta</label><select id="odp-account">
       <option value="">— Não creditar em nenhuma conta —</option>
       ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
@@ -3317,6 +3335,15 @@ async function loadDeliveryDistanceIntoModal(client){
 function renderOdpDistanceDisplay(){
   const wrap = document.getElementById('odp-distance-wrap');
   if(!wrap || odpBaseDistanceKm==null) return;
+  const driverSel = document.getElementById('odp-driver')?.value;
+  // Retirada no local: cliente busca ele mesmo, sem custo de entrega nenhum — zera a distância e nem
+  // tenta calcular rota, independente do modo de cálculo configurado.
+  if(driverSel==='retirada'){
+    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">🏪 Retirada no local — sem custo de entrega.</div><input type="hidden" id="odp-distance-auto" value="0">`;
+    renderOdpMap(odpClientCoord, null);
+    updateOdpDistanceSummary(0);
+    return;
+  }
   const mode = document.getElementById('odp-calc-mode')?.value || state.company.routeCalcMode || 'ida';
   const nota = ' <span style="color:var(--muted);">(já com 500m de margem descontados)</span>';
 
