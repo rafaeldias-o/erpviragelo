@@ -5893,7 +5893,14 @@ function driverRevenueInsights(driver, fromDate, toDate){
   // combustível fica concentrado em poucas unidades, encarecendo desproporcionalmente cada uma.
   const LIMIAR_PACOTES_PEQUENOS = 15;
   const smallOrders = orders.filter(o=> o.items.reduce((s,it)=>s+it.qty,0) < LIMIAR_PACOTES_PEQUENOS);
-  return { ordersCount: orders.length, totalRevenue, totalProductCost, deliveryCost, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: smallOrders.length/orders.length*100, limiar: LIMIAR_PACOTES_PEQUENOS };
+  // Projeção: "se esse mesmo ticket médio por pacote e essa mesma margem (já com o custo de entrega)
+  // se mantiverem, quanto daria pra vender 1.500 pacotes/mês?" — útil pra enxergar o efeito da margem
+  // atual numa escala maior, sem precisar fazer essa conta na mão toda vez.
+  const VOLUME_PROJETADO = 1500;
+  const avgTicketPorPacote = totalPackages>0 ? totalRevenue/totalPackages : null;
+  const projRevenue = avgTicketPorPacote!=null ? avgTicketPorPacote*VOLUME_PROJETADO : null;
+  const projProfit = (projRevenue!=null && marginComEntrega!=null) ? projRevenue*(marginComEntrega/100) : null;
+  return { ordersCount: orders.length, totalRevenue, totalProductCost, deliveryCost, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: smallOrders.length/orders.length*100, limiar: LIMIAR_PACOTES_PEQUENOS, volumeProjetado: VOLUME_PROJETADO, avgTicketPorPacote, projRevenue, projProfit };
 }
 function renderDriverInsightsBoxes(range){
   range = range || pagarMonthRange();
@@ -5921,6 +5928,10 @@ function renderDriverInsightsBoxes(range){
       const ruim = m.marginComEntrega < 10;
       const boa = m.marginComEntrega >= 20;
       insights.push({ color: ruim?'var(--danger)':boa?'var(--success)':'var(--warn)', icon: ruim?'📉':boa?'📈':'⚖️', text:`Margem já descontando o custo de entrega: ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%${ruim?' — abaixo do saudável, vale revisar preço ou frete cobrado':boa?' — segue saudável mesmo com o frete':''}.` });
+    }
+    if(m.projRevenue!=null && m.projProfit!=null){
+      const lucroNegativo = m.projProfit < 0;
+      insights.push({ color: lucroNegativo?'var(--danger)':'var(--ink)', icon: lucroNegativo?'🔴':'🔮', text:`Se essa margem de ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}% se mantiver, vendendo ${m.volumeProjetado.toLocaleString('pt-BR')} pacotes/mês nesse mesmo ritmo o faturamento projetado seria de ${fmtMoney(m.projRevenue)}, com lucro líquido de ${fmtMoney(m.projProfit)}${lucroNegativo?' — prejuízo nesse volume, ajuste preço ou custo de entrega antes de escalar':''}. (assume o mesmo ticket médio por pacote e a mesma margem de hoje)` });
     }
     box.innerHTML = `
       <div class="panel-head"><div class="section-title">💡 Insights de faturamento — ${dr.label}</div></div>
