@@ -1062,7 +1062,7 @@ tr:last-child td{border-bottom:none;}
           <div class="panel" id="driverInsightsBox-beto"></div>
           <div class="panel" id="driverInsightsBox-gui"></div>
         </div>
-        <div class="panel" style="max-width:640px;">
+        <div class="panel" id="ownerOnlyFuelPanel" style="max-width:640px;display:none;">
           <div class="panel-head"><div class="section-title">⛽ Combustível e taxa de entrega</div></div>
           <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas acima e o alerta mensal de pagamento.</div>
           <div class="field-row">
@@ -1071,7 +1071,7 @@ tr:last-child td{border-bottom:none;}
           </div>
           <button class="btn btn-primary btn-sm" onclick="saveFuelSettings()">Salvar</button>
         </div>
-        <div class="panel" style="max-width:640px;">
+        <div class="panel" id="ownerOnlyRouteModePanel" style="max-width:640px;display:none;">
           <div class="panel-head"><div class="section-title">🗺️ Como calcular a distância da entrega</div></div>
           <div class="hint" style="margin-bottom:10px;">Define como a quilometragem de cada entrega é calculada pra taxa de entrega dos motoristas.</div>
           <div class="field">
@@ -1603,6 +1603,13 @@ async function afterLogin(session){
     minhaContaEl.textContent = [displayName, myUser.email||'', roleLabel(profile.role)].filter(Boolean).join(' · ');
   }
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
+  // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
+  // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre
+  // permissão de escrita normal (canWrite), é sobre quem pode até VER essas configurações.
+  const fuelPanel = document.getElementById('ownerOnlyFuelPanel');
+  const routeModePanel = document.getElementById('ownerOnlyRouteModePanel');
+  if(fuelPanel) fuelPanel.style.display = isOwnerUser() ? 'block' : 'none';
+  if(routeModePanel) routeModePanel.style.display = isOwnerUser() ? 'block' : 'none';
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'long', year:'numeric'});
   document.documentElement.setAttribute('data-theme','light');
   renderThemeIcon('light');
@@ -8154,6 +8161,7 @@ function updateDriverHomeStatus(prefix){
 // normal só re-geocodifica quando o texto muda) — é exatamente o que resolve o caso de coordenada ruim
 // já salva no banco.
 async function regeocodeDriverHome(prefix){
+  if(!isOwnerUser()){ toast('Só o proprietário pode alterar essa configuração', true); return; }
   const input = document.getElementById(`cfg-${prefix}-home`);
   if(!input || !input.value.trim()){ toast('Digite o endereço primeiro', true); return; }
   const address = input.value.trim();
@@ -10615,7 +10623,14 @@ function checkAndSendNotifications(){
   });
   markNotifiedToday([...already]);
 }
+// Combustível/taxa de entrega e modo de cálculo de distância só ficam visíveis E editáveis pro seu
+// usuário específico (por e-mail) — mesmo pra outros administradores. Checado tanto na hora de mostrar
+// o painel quanto dentro das próprias funções de salvar, pra não dar pra contornar via console.
+function isOwnerUser(){
+  return (myUser?.email||'').trim().toLowerCase() === 'rafaeldiasdeoliveira29@gmail.com';
+}
 async function saveFuelSettings(){
+  if(!isOwnerUser()){ toast('Só o proprietário pode alterar essa configuração', true); return; }
   const price = parseFloat(document.getElementById('cfg-fuel-price').value) || 6.20;
   const efficiency = parseFloat(document.getElementById('cfg-fuel-efficiency').value) || 10;
   const { error } = await sb.from('company_settings').upsert({ id:true, fuel_price_per_liter: price, fuel_efficiency_km_l: efficiency });
@@ -10627,6 +10642,7 @@ function onRouteModeChange(){
   document.getElementById('driverHomesWrap').style.display = mode==='casa_motorista' ? 'block' : 'none';
 }
 async function saveRouteModeSettings(){
+  if(!isOwnerUser()){ toast('Só o proprietário pode alterar essa configuração', true); return; }
   const mode = document.getElementById('cfg-route-mode').value;
   const betoAddress = document.getElementById('cfg-beto-home').value.trim();
   const guiAddress = document.getElementById('cfg-gui-home').value.trim();
