@@ -5838,23 +5838,13 @@ function renderDriverFeeDetailModal(driver, label, range){
       ${sortedDates.map(date=>{
         const dayDels = groups[date];
         const dayTotal = dayDels.reduce((s,d)=>s+d.distanceKm,0);
-        // Endereço final da saída — só faz sentido mostrar quando o modo de cálculo termina em algum
-        // lugar diferente do último cliente (casa do motorista, ou de volta pra fábrica).
         const mode = state.company.routeCalcMode || 'ida';
-        let finalAddressLine = '';
-        if(mode==='casa_motorista'){
-          const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
-          finalAddressLine = `<div style="font-size:11px;color:var(--muted);padding:2px 2px 4px;">🏠 Endereço final (casa de ${esc(driver==='beto'?'Beto':'Gui')}): ${esc(homeAddress||'não cadastrado')}</div>`;
-        } else if(mode==='ida_volta'){
-          finalAddressLine = `<div style="font-size:11px;color:var(--muted);padding:2px 2px 4px;">🏭 Endereço final: volta pra fábrica — ${esc(state.company.address||'endereço não cadastrado')}</div>`;
-        }
         return `<div style="margin-bottom:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--ink);padding:6px 2px;background:var(--surface-2);border-radius:6px;margin-bottom:4px;">
-            <span>📅 ${fmtDate(date)}${dayDels.length>1?` <span style="font-weight:500;color:var(--muted);">· ${dayDels.length} entregas nessa saída</span> <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:2px 6px;margin-left:4px;" onclick="event.stopPropagation(); showRouteBreakdown('${driver}','${date}')">🔍 Ver trechos</button>`:''}</span>
+            <span>📅 ${fmtDate(date)}${dayDels.length>1?` <span style="font-weight:500;color:var(--muted);">· ${dayDels.length} entregas nessa saída</span>`:''}</span>
             <span>${dayTotal.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span>
           </div>
-          ${finalAddressLine}
-          <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}</tbody></table>
+          <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}${renderDriverFeeFinalStopRow(mode, driver)}</tbody></table>
         </div>`;
       }).join('')}
     </div>` : '<div class="hint">Nenhuma entrega encontrada nesse período.</div>'}
@@ -5871,7 +5861,7 @@ function renderDriverFeeDetailRow(d, medianKm){
   return `<tr id="driverFeeDetailRow-${d.id}">
     <td style="width:38%;">${esc(client?client.name:'—')}${client&&client.address?`<div style="color:var(--muted);font-size:11px;">${esc(client.address)}${client.city?', '+esc(client.city):''}</div>`:''}</td>
     <td style="width:28%;">
-      <input type="number" step="0.1" min="0" inputmode="decimal" value="${d.distanceKm}" style="width:90px;${suspicious?'border-color:var(--danger);color:var(--danger);font-weight:700;':''}" id="driverFeeDetailInput-${d.id}">
+      <input type="number" step="0.1" min="0" inputmode="decimal" value="${d.distanceKm}" style="width:90px;border-radius:8px;${suspicious?'border-color:var(--danger);color:var(--danger);font-weight:700;':''}" id="driverFeeDetailInput-${d.id}">
       ${suspicious?'<div style="color:var(--danger);font-size:10.5px;margin-top:2px;">⚠️ Muito acima da mediana</div>':''}
     </td>
     <td style="white-space:nowrap;">
@@ -5879,6 +5869,26 @@ function renderDriverFeeDetailRow(d, medianKm){
       <button class="btn btn-ghost btn-sm" onclick="recalculateDeliveryDistance('${d.id}')" title="Refaz o cálculo com os endereços atuais">🔄</button>
     </td>
   </tr>`;
+}
+// Mostra o destino final da saída (casa do motorista, ou de volta pra fábrica, dependendo do modo de
+// cálculo configurado) como se fosse mais uma linha da lista — mesmo formato de nome em negrito + endereço
+// embaixo usado nas entregas de verdade, só sem input/botões, já que não é um registro próprio editável
+// (a distância desse trecho já está somada na última entrega do dia).
+function renderDriverFeeFinalStopRow(mode, driver){
+  if(mode==='casa_motorista'){
+    const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
+    return `<tr>
+      <td style="width:38%;">🏠 Casa de ${esc(driver==='beto'?'Beto':'Gui')}${homeAddress?`<div style="color:var(--muted);font-size:11px;">${esc(homeAddress)}</div>`:'<div style="color:var(--danger);font-size:11px;">Endereço não cadastrado</div>'}</td>
+      <td colspan="2" style="color:var(--muted);font-size:11px;">Destino final dessa saída</td>
+    </tr>`;
+  }
+  if(mode==='ida_volta'){
+    return `<tr>
+      <td style="width:38%;">🏭 Fábrica${state.company.address?`<div style="color:var(--muted);font-size:11px;">${esc(state.company.address)}</div>`:''}</td>
+      <td colspan="2" style="color:var(--muted);font-size:11px;">Destino final dessa saída (volta)</td>
+    </tr>`;
+  }
+  return '';
 }
 async function saveDriverFeeDetailDistance(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
@@ -7530,98 +7540,6 @@ async function fetchRouteGeometry(points){
 function applyDeliveryKmAdjustment(km){
   if(km==null) return km;
   return Math.max(0, Math.round((km - 0.5) * 100) / 100);
-}
-// Busca a distância BRUTA (sem o desconto de 500m) de cada trecho de uma rota, sem agrupar por parada —
-// usado só pra auditoria/conferência (ex: comparar trecho a trecho com o Google Maps), não pra salvar nada.
-async function fetchRawRouteLegs(points){
-  try{
-    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
-    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`);
-    const json = await res.json();
-    if(json.code!=='Ok' || !json.routes?.[0]?.legs) return null;
-    return json.routes[0].legs.map(l=>l.distance/1000);
-  }catch(e){ console.warn('Detalhe do trajeto falhou:', e); return null; }
-}
-// Mostra a distância de CADA TRECHO de uma rota com múltiplas entregas (fábrica → 1ª parada → 2ª parada
-// → ... → destino final), em vez de só o total já dividido por entrega — pra dar total transparência de
-// como o cálculo foi feito e permitir comparar, trecho a trecho, com outro app de rotas (Google Maps
-// etc.). Não salva nada no banco, é só uma consulta de conferência.
-async function showRouteBreakdown(driver, date){
-  const dels = state.deliveries.filter(d=>d.driver===driver && d.date===date && d.distanceKm!=null && d.status!=='cancelada');
-  if(dels.length<2) return;
-  openModal(`<div class="modal-head"><h3>🔍 Detalhe do trajeto — ${fmtDate(date)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div class="hint">Calculando os trechos...</div>`);
-  const clientNames = ['Fábrica'];
-  const stopsData = [];
-  for(const d of dels){
-    const client = state.clients.find(c=>c.id===d.clientId);
-    clientNames.push(client?client.name:'Cliente');
-    const result = client ? await ensureClientDistance(client.id) : null;
-    stopsData.push((result && result.lat!=null) ? {lat:result.lat, lng:result.lng} : null);
-  }
-  if(stopsData.some(s=>s===null)){
-    openModal(`<div class="modal-head"><h3>🔍 Detalhe do trajeto — ${fmtDate(date)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div class="hint" style="color:var(--danger);">Não consegui localizar o endereço de um dos clientes pra montar o detalhe.</div><div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>`);
-    return;
-  }
-  const origin = companyOrigin();
-  if(!origin){ toast('Endereço da fábrica não geocodificado', true); closeModal(); return; }
-  const mode = state.company.routeCalcMode || 'ida';
-  const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
-  const points = [origin, ...stopsData];
-  if(mode==='casa_motorista' && driverHome.lat!=null){
-    const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
-    points.push(driverHome); clientNames.push(`Casa do motorista${homeAddress?' ('+homeAddress+')':''}`);
-  } else if(mode==='ida_volta'){
-    points.push(origin); clientNames.push(`Fábrica (volta)${state.company.address?' ('+state.company.address+')':''}`);
-  }
-
-  const legsKm = await fetchRawRouteLegs(points);
-  if(!legsKm){
-    openModal(`<div class="modal-head"><h3>🔍 Detalhe do trajeto — ${fmtDate(date)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div class="hint" style="color:var(--danger);">Não consegui calcular a rota agora — tenta de novo em alguns segundos.</div><div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>`);
-    return;
-  }
-  const rawTotal = legsKm.reduce((s,v)=>s+v,0);
-  const adjustedTotal = Math.max(0, rawTotal - 0.5*dels.length);
-  const savedTotal = dels.reduce((s,d)=>s+d.distanceKm,0);
-  const rows = legsKm.map((km,i)=> `<tr><td>${esc(clientNames[i])} → ${esc(clientNames[i+1])}</td><td style="text-align:right;font-weight:600;">${km.toLocaleString('pt-BR',{maximumFractionDigits:2})} km</td></tr>`).join('');
-
-  openModal(`
-    <div class="modal-head"><h3>🔍 Detalhe do trajeto — ${fmtDate(date)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:12px;">Cada trecho calculado como parte de uma viagem só (fábrica → 1ª parada → 2ª parada → ...${mode==='casa_motorista'?' → casa do motorista':mode==='ida_volta'?' → fábrica':''}) — a mesma lógica usada pra evitar contar "fábrica → cliente" duplicado. Motor de rotas: OSRM/OpenStreetMap, que pode divergir um pouco de outros apps (Google Maps usa mapa e algoritmo próprios — alguma diferença entre os dois é esperada).</div>
-    <table><thead><tr><th>Trecho</th><th style="text-align:right;">Distância</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="stat-row-list" style="margin-top:14px;">
-      <div class="stat-row"><span class="stat-row-label">Soma dos trechos (bruto, sem desconto)</span><span class="stat-row-value">${rawTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} km</span></div>
-      <div class="stat-row"><span class="stat-row-label">Com 500m de margem descontados por entrega (${dels.length}×)</span><span class="stat-row-value">${adjustedTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} km</span></div>
-      <div class="stat-row"><span class="stat-row-label">Valor atualmente salvo nessas entregas</span><span class="stat-row-value" style="font-weight:700;">${savedTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} km</span></div>
-    </div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
-  `, 'wide');
-}
-// Quando o motorista sai numa viagem só e visita vários clientes em sequência (fábrica -> cliente A ->
-// cliente B -> ... -> casa), calcular "fábrica -> cliente" isoladamente pra CADA entrega duplica o
-// trecho inicial e ignora o trajeto real entre os clientes. Essa função pede a rota inteira ao OSRM numa
-// chamada só (com todas as paradas em ordem) e devolve a distância de cada TRECHO já atribuída à parada
-// certa — a soma bate com o percurso de verdade, sem duplicar nada. `stops` é um array ordenado de
-// {lat,lng}; retorna um array de distâncias em km na mesma ordem, já com os 500m de margem descontados
-// de cada parada (ou null se a rota não puder ser calculada).
-async function computeRouteLegs(stops, mode, driverHome){
-  const origin = companyOrigin();
-  if(!origin || !stops.length) return null;
-  const points = [origin, ...stops];
-  let hasFinalLeg = false;
-  if(mode==='casa_motorista' && driverHome && driverHome.lat!=null){ points.push(driverHome); hasFinalLeg = true; }
-  else if(mode==='ida_volta'){ points.push(origin); hasFinalLeg = true; }
-  try{
-    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
-    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`);
-    const json = await res.json();
-    if(json.code!=='Ok' || !json.routes?.[0]?.legs) return null;
-    const legsKm = json.routes[0].legs.map(l=>l.distance/1000);
-    const perStop = stops.map((_,i)=> legsKm[i]);
-    // O último trecho (volta à fábrica no modo ida e volta, ou até a casa do motorista) inteiro entra na
-    // última parada — é lá que a viagem de fato termina.
-    if(hasFinalLeg) perStop[perStop.length-1] += legsKm[legsKm.length-1];
-    return perStop.map(applyDeliveryKmAdjustment);
-  }catch(e){ console.warn('Cálculo de rota com múltiplas paradas falhou:', e); return null; }
 }
 function pickFreightTier(distanceKm){
   if(distanceKm==null || !state.freightTiers.length) return null;
