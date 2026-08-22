@@ -1054,6 +1054,10 @@ tr:last-child td{border-bottom:none;}
           <div class="panel" id="driverFeeBox-beto"></div>
           <div class="panel" id="driverFeeBox-gui"></div>
         </div>
+        <div class="two-col">
+          <div class="panel" id="driverMarginBox-beto"></div>
+          <div class="panel" id="driverMarginBox-gui"></div>
+        </div>
         <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">⛽ Combustível e taxa de entrega</div></div>
           <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas acima e o alerta mensal de pagamento.</div>
@@ -5820,6 +5824,43 @@ function renderDriverFeeBoxes(){
     box.classList.add('clickable');
     box.title = 'Ver entregas do período e conferir a quilometragem calculada';
     box.onclick = () => openDriverFeeDetail(dr.v);
+  });
+  renderDriverMarginBoxes(range);
+}
+// Quanto o custo de entrega está "comendo" da margem, olhando SÓ os pedidos que esse motorista de fato
+// entregou (não o total da empresa) — em R$ por pacote entregue, e em % do faturamento desses pedidos
+// especificamente. Reaproveita driverFeeForPeriod pro custo de combustível, já calculado e conferido ali.
+function driverPackageMarginForPeriod(driver, fromDate, toDate){
+  const dels = state.deliveries.filter(d=>d.driver===driver && d.orderId && d.status!=='cancelada' && d.date>=fromDate && d.date<=toDate);
+  const orderIds = [...new Set(dels.map(d=>d.orderId))];
+  const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  const totalRevenue = orders.reduce((s,o)=>s+o.total,0);
+  const totalPackages = orders.reduce((s,o)=>s+o.items.reduce((s2,it)=>s2+it.qty,0),0);
+  const fee = driverFeeForPeriod(driver, fromDate, toDate);
+  const costPerPackage = totalPackages>0 ? fee.value/totalPackages : null;
+  const costPctOfRevenue = totalRevenue>0 ? (fee.value/totalRevenue*100) : null;
+  return { ordersCount: orders.length, totalPackages, totalRevenue, deliveryCost: fee.value, costPerPackage, costPctOfRevenue };
+}
+function renderDriverMarginBoxes(range){
+  range = range || pagarMonthRange();
+  DELIVERY_DRIVERS.forEach(dr=>{
+    const box = document.getElementById('driverMarginBox-'+dr.v);
+    if(!box) return;
+    const m = driverPackageMarginForPeriod(dr.v, range.from, range.to);
+    box.innerHTML = `
+      <div class="panel-head"><div class="section-title">💰 Custo de entrega por pacote — ${dr.label}</div></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Pedidos entregues por ${dr.label}</span><span class="stat-row-value">${m.ordersCount}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Pacotes entregues</span><span class="stat-row-value">${m.totalPackages} un</span></div>
+        <div class="stat-row"><span class="stat-row-label">Faturamento desses pedidos</span><span class="stat-row-value">${fmtMoney(m.totalRevenue)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Custo de entrega (combustível)</span><span class="stat-row-value">${fmtMoney(m.deliveryCost)}</span></div>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+        <div style="font-size:12px;color:var(--muted);">Custo de entrega a mais por pacote</div>
+        <div style="font-size:22px;font-weight:700;">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</div>
+        <div class="hint" style="margin-top:2px;">${m.costPctOfRevenue!=null?`Isso representa ${m.costPctOfRevenue.toLocaleString('pt-BR',{maximumFractionDigits:1})}% do faturamento desses pedidos`:'Sem pedidos suficientes nesse período pra calcular'}</div>
+      </div>
+    `;
   });
 }
 // Lista as entregas usadas no cálculo da taxa do motorista, pra conferir manualmente se a km bate —
