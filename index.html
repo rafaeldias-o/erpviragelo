@@ -3184,6 +3184,9 @@ function renderRouteConfirmModal(){
 // são transicionados aqui, disparando o mesmo gatilho de baixa de estoque/receita de sempre.
 async function confirmRouteBatch(){
   if(routeConfirmSelectedIds.length===0) return;
+  const _btn = lockButton(); // trava o botão — esse fluxo fica com o modal aberto durante todo o cálculo
+  // (várias chamadas assíncronas em sequência), então um clique duplo por impaciência tinha uma janela
+  // real pra disparar a confirmação duas vezes e duplicar as movimentações de estoque.
   const driver = document.getElementById('route-driver').value || null;
   const statusEl = document.getElementById('route-confirm-status');
   if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
@@ -3201,6 +3204,7 @@ async function confirmRouteBatch(){
   }
   if(stopsData.some(s=>s===null)){
     if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não localizei o endereço de um ou mais clientes selecionados no mapa. Confirme essas entregas individualmente (uma por vez) pra poder digitar a distância manualmente.</div>`;
+    unlockButton(_btn);
     return;
   }
 
@@ -3209,6 +3213,7 @@ async function confirmRouteBatch(){
   const legsKm = await computeRouteLegs(stopsData, mode, driverHome);
   if(!legsKm){
     if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não consegui calcular a rota completa entre essas paradas. Confirme as entregas individualmente.</div>`;
+    unlockButton(_btn);
     return;
   }
 
@@ -3410,6 +3415,7 @@ async function skipOrderDriverPrompt(orderId){
   await loadAll(); renderAll();
 }
 async function confirmOrderDriver(orderId){
+  const _btn = lockButton(); // trava o botão pra evitar clique duplo disparar a confirmação duas vezes
   const driver = document.getElementById('odp-driver').value || null;
   const accountId = document.getElementById('odp-account').value || null;
   const autoEl = document.getElementById('odp-distance-auto');
