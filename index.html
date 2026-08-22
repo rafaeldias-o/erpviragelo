@@ -982,17 +982,7 @@ tr:last-child td{border-bottom:none;}
               <div class="panel-head"><div class="section-title" style="font-size:14px;">Despesas por categoria</div><span class="hint">Este mês</span></div>
               <div id="despesasDonutChart"></div>
             </div>
-            <div class="panel">
-              <div class="panel-head"><div class="section-title" style="font-size:14px;">⚡ Ações rápidas</div></div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <button class="quick-action-btn" onclick="switchView('pedidos')"><span style="font-size:20px;">🧊</span>Novo Pedido</button>
-                <button class="quick-action-btn" onclick="openTransactionModal()"><span style="font-size:20px;">📤</span>Nova Despesa</button>
-                <button class="quick-action-btn" onclick="openTransferModal()"><span style="font-size:20px;">↔️</span>Transferência</button>
-                <button class="quick-action-btn" onclick="setFinTab('conciliacao')"><span style="font-size:20px;">🔍</span>Conciliar</button>
-                <button class="quick-action-btn" onclick="setFinTab('receber')"><span style="font-size:20px;">📥</span>Contas a Receber</button>
-                <button class="quick-action-btn" onclick="setFinTab('recorrentes')"><span style="font-size:20px;">🔁</span>Recorrentes</button>
-              </div>
-            </div>
+            <div class="panel" id="finMarginInsightsCard"></div>
           </div>
           <div class="two-col">
             <div class="panel">
@@ -4857,6 +4847,142 @@ function renderFinDashboard(){
   renderDashAlertsMini();
   renderDashContasBancariasMini();
   renderDashBottomCards();
+  renderFinMarginInsightsCard();
+}
+// Visão combinada de margem/custo de entrega, olhando TODAS as entregas com motorista definido (Beto,
+// Gui, e qualquer outro que venha a existir — não fixo na lista DELIVERY_DRIVERS, pra já vir pronto se
+// crescer a frota), excluindo "Retirada" (não tem custo de entrega nenhum pra considerar). Reaproveita
+// driverRevenueInsights() por motorista pro detalhamento, e monta os totais gerais aqui.
+function combinedRevenueInsights(fromDate, toDate){
+  const dels = state.deliveries.filter(d=>d.driver && d.driver!=='retirada' && d.distanceKm!=null && d.status!=='cancelada' && d.date>=fromDate && d.date<=toDate);
+  if(dels.length===0) return null;
+  const driverNames = [...new Set(dels.map(d=>d.driver))];
+  const totalKm = dels.reduce((s,d)=>s+d.distanceKm+(d.homeLegKm||0),0);
+  const efficiency = state.company.fuelEfficiencyKmL || 10;
+  const price = state.company.fuelPricePerLiter || 6.20;
+  const deliveryCost = totalKm/efficiency*price;
+  const orderIds = [...new Set(dels.map(d=>d.orderId).filter(Boolean))];
+  const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  const totalRevenue = orders.reduce((s,o)=>s+o.total,0);
+  let totalProductCost = 0, totalPackages = 0;
+  orders.forEach(o=> o.items.forEach(it=>{
+    totalPackages += it.qty;
+    const stockItem = state.stockItems.find(s=>s.id===it.productId);
+    totalProductCost += it.qty * (stockItem?.costPrice||0);
+  }));
+  const marginSemEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost)/totalRevenue*100 : null;
+  const marginComEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost-deliveryCost)/totalRevenue*100 : null;
+  const costPerPackage = totalPackages>0 ? deliveryCost/totalPackages : null;
+  const LIMIAR = 15;
+  const smallOrders = orders.filter(o=> o.items.reduce((s,it)=>s+it.qty,0) < LIMIAR);
+  const VOLUME_PROJETADO = 1500;
+  const avgTicketPorPacote = totalPackages>0 ? totalRevenue/totalPackages : null;
+  const projRevenue = avgTicketPorPacote!=null ? avgTicketPorPacote*VOLUME_PROJETADO : null;
+  const projProfit = (projRevenue!=null && marginComEntrega!=null) ? projRevenue*(marginComEntrega/100) : null;
+  const perDriver = driverNames.map(dv=>{
+    const label = DELIVERY_DRIVERS.find(x=>x.v===dv)?.label || (dv.charAt(0).toUpperCase()+dv.slice(1));
+    return { driver: dv, label, data: driverRevenueInsights(dv, fromDate, toDate) };
+  });
+  return { ordersCount: orders.length, totalRevenue, totalProductCost, deliveryCost, totalKm, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: orders.length?smallOrders.length/orders.length*100:0, limiar: LIMIAR, avgTicketPorPacote, projRevenue, projProfit, volumeProjetado: VOLUME_PROJETADO, perDriver };
+}
+// Monta a lista de insights (ícone + cor + texto) a partir de um objeto de métricas — reaproveitado tanto
+// pro resumo combinado quanto pro detalhamento de cada motorista dentro da modal, pra manter a mesma
+// leitura (cores/critérios) em todo canto em vez de duplicar a lógica.
+function buildMarginInsightsList(m){
+  if(!m) return [];
+  const insights = [];
+  if(m.smallOrdersCount>0){
+    insights.push({ color:'var(--danger)', icon:'⚠️', text:`${m.smallOrdersCount} de ${m.ordersCount} pedido(s) (${m.smallOrdersPct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%) tiveram menos de ${m.limiar} pacotes — o custo de combustível fica concentrado em poucas unidades nesses casos.` });
+  } else {
+    insights.push({ color:'var(--success)', icon:'✅', text:`Nenhum pedido abaixo de ${m.limiar} pacotes — bom volume por entrega.` });
+  }
+  if(m.costPerPackage!=null){
+    insights.push({ color:'var(--warn)', icon:'🎯', text:`Pra cobrir o custo de entrega sem perder margem, o preço por pacote precisaria subir ~${fmtMoney(m.costPerPackage)}.` });
+  }
+  if(m.marginSemEntrega!=null){
+    insights.push({ color:'var(--ink)', icon:'📊', text:`Margem bruta sem considerar o custo de entrega: ${m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%.` });
+  }
+  if(m.marginComEntrega!=null){
+    const ruim = m.marginComEntrega < 10;
+    const boa = m.marginComEntrega >= 20;
+    insights.push({ color: ruim?'var(--danger)':boa?'var(--success)':'var(--warn)', icon: ruim?'📉':boa?'📈':'⚖️', text:`Margem já descontando o custo de entrega: ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%${ruim?' — abaixo do saudável':boa?' — saudável mesmo com o frete':''}.` });
+  }
+  if(m.projRevenue!=null && m.projProfit!=null){
+    const lucroNegativo = m.projProfit < 0;
+    insights.push({ color: lucroNegativo?'var(--danger)':'var(--ink)', icon: lucroNegativo?'🔴':'🔮', text:`Mantendo essa margem, vendendo ${m.volumeProjetado.toLocaleString('pt-BR')} pacotes/mês: faturamento projetado de ${fmtMoney(m.projRevenue)}, lucro líquido de ${fmtMoney(m.projProfit)}${lucroNegativo?' — prejuízo nesse volume':''}.` });
+  }
+  return insights;
+}
+function renderFinMarginInsightsCard(){
+  const box = document.getElementById('finMarginInsightsCard');
+  if(!box) return;
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m){
+    box.innerHTML = `<div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Margem e custo de entrega</div></div><div class="hint">Nenhuma entrega com motorista registrada nesse período ainda.</div>`;
+    return;
+  }
+  const ruim = m.marginComEntrega!=null && m.marginComEntrega < 10;
+  const boa = m.marginComEntrega!=null && m.marginComEntrega >= 20;
+  box.innerHTML = `
+    <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Margem e custo de entrega</div></div>
+    <div class="hint" style="margin-bottom:8px;">Todas as entregas com motorista (Beto, Gui e outros), combinadas.</div>
+    <div class="stat-row-list">
+      <div class="stat-row"><span class="stat-row-label">Pedidos entregues</span><span class="stat-row-value">${m.ordersCount}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Margem sem entrega</span><span class="stat-row-value">${m.marginSemEntrega!=null?m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Margem com entrega</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo extra por pacote</span><span class="stat-row-value">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</span></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="openMarginInsightsModal()">Ver mais insights e detalhamento por motorista →</button>
+  `;
+}
+// Modal completa (centralizada, tamanho grande) com todos os insights — visão combinada de todos os
+// motoristas primeiro, depois o detalhamento de cada um separadamente, reaproveitando a mesma função de
+// montagem de insights (buildMarginInsightsList) pra manter tudo consistente.
+function openMarginInsightsModal(){
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m){ toast('Nenhuma entrega com motorista registrada nesse período ainda.', true); return; }
+  const monthLabelCap = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+  const combinedInsights = buildMarginInsightsList(m);
+
+  const driverSection = m.perDriver.map(pd=>{
+    if(!pd.data){
+      return `<div style="margin-bottom:18px;"><div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">🚚 ${esc(pd.label)}</div><div class="hint">Sem pedidos entregues nesse período.</div></div>`;
+    }
+    const insights = buildMarginInsightsList(pd.data);
+    return `<div style="margin-bottom:18px;">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">🚚 ${esc(pd.label)}</div>
+      <div class="stat-row-list" style="margin-bottom:10px;">
+        <div class="stat-row"><span class="stat-row-label">Pedidos</span><span class="stat-row-value">${pd.data.ordersCount}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Pacotes</span><span class="stat-row-value">${pd.data.totalPackages} un</span></div>
+        <div class="stat-row"><span class="stat-row-label">Faturamento</span><span class="stat-row-value">${fmtMoney(pd.data.totalRevenue)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Custo de entrega</span><span class="stat-row-value">${fmtMoney(pd.data.deliveryCost)}</span></div>
+      </div>
+      ${insights.map(i=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);">
+        <span style="flex-shrink:0;">${i.icon}</span><span style="font-size:12.5px;color:${i.color};line-height:1.4;">${i.text}</span>
+      </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  openModal(`
+    <div class="modal-head"><h3>💰 Margem e custo de entrega — ${esc(monthLabelCap)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px;">📊 Visão combinada — todos os motoristas</div>
+    <div class="stat-row-list" style="margin-bottom:12px;">
+      <div class="stat-row"><span class="stat-row-label">Pedidos entregues</span><span class="stat-row-value">${m.ordersCount}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Pacotes entregues</span><span class="stat-row-value">${m.totalPackages} un</span></div>
+      <div class="stat-row"><span class="stat-row-label">Faturamento desses pedidos</span><span class="stat-row-value">${fmtMoney(m.totalRevenue)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo do produto (CMV)</span><span class="stat-row-value">${fmtMoney(m.totalProductCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo de entrega total</span><span class="stat-row-value">${fmtMoney(m.deliveryCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Km percorridos (todos)</span><span class="stat-row-value">${m.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span></div>
+    </div>
+    ${combinedInsights.map(i=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="flex-shrink:0;">${i.icon}</span><span style="font-size:13px;color:${i.color};line-height:1.4;">${i.text}</span>
+    </div>`).join('')}
+    <div style="font-weight:700;font-size:14px;margin:20px 0 4px;">🚚 Detalhamento por motorista</div>
+    ${driverSection}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'full');
 }
 
 // ---- Gráficos do Dashboard Financeiro (Fase 5) ----
@@ -5946,27 +6072,7 @@ function renderDriverInsightsBoxes(range){
       box.innerHTML = `<div class="panel-head"><div class="section-title">💡 Insights de faturamento — ${dr.label}</div></div><div class="hint">Sem pedidos entregues por ${dr.label} nesse período ainda.</div>`;
       return;
     }
-    const insights = [];
-    if(m.smallOrdersCount>0){
-      insights.push({ color:'var(--danger)', icon:'⚠️', text:`${m.smallOrdersCount} de ${m.ordersCount} pedido(s) (${m.smallOrdersPct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%) tiveram menos de ${m.limiar} pacotes — nessas entregas o custo de combustível fica concentrado em poucas unidades e pesa desproporcionalmente mais.` });
-    } else {
-      insights.push({ color:'var(--success)', icon:'✅', text:`Nenhum pedido abaixo de ${m.limiar} pacotes nesse período — bom volume por entrega, o custo de combustível se dilui melhor.` });
-    }
-    if(m.costPerPackage!=null){
-      insights.push({ color:'var(--warn)', icon:'🎯', text:`Pra cobrir o custo de entrega sem perder margem, o preço por pacote precisaria subir ~${fmtMoney(m.costPerPackage)} nesses pedidos.` });
-    }
-    if(m.marginSemEntrega!=null){
-      insights.push({ color:'var(--ink)', icon:'📊', text:`Margem bruta sem considerar o custo de entrega: ${m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%.` });
-    }
-    if(m.marginComEntrega!=null){
-      const ruim = m.marginComEntrega < 10;
-      const boa = m.marginComEntrega >= 20;
-      insights.push({ color: ruim?'var(--danger)':boa?'var(--success)':'var(--warn)', icon: ruim?'📉':boa?'📈':'⚖️', text:`Margem já descontando o custo de entrega: ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%${ruim?' — abaixo do saudável, vale revisar preço ou frete cobrado':boa?' — segue saudável mesmo com o frete':''}.` });
-    }
-    if(m.projRevenue!=null && m.projProfit!=null){
-      const lucroNegativo = m.projProfit < 0;
-      insights.push({ color: lucroNegativo?'var(--danger)':'var(--ink)', icon: lucroNegativo?'🔴':'🔮', text:`Se essa margem de ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}% se mantiver, vendendo ${m.volumeProjetado.toLocaleString('pt-BR')} pacotes/mês nesse mesmo ritmo o faturamento projetado seria de ${fmtMoney(m.projRevenue)}, com lucro líquido de ${fmtMoney(m.projProfit)}${lucroNegativo?' — prejuízo nesse volume, ajuste preço ou custo de entrega antes de escalar':''}. (assume o mesmo ticket médio por pacote e a mesma margem de hoje)` });
-    }
+    const insights = buildMarginInsightsList(m);
     box.innerHTML = `
       <div class="panel-head"><div class="section-title">💡 Insights de faturamento — ${dr.label}</div></div>
       ${insights.map(i=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
