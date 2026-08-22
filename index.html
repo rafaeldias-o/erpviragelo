@@ -1836,6 +1836,7 @@ async function loadAll(){
     id: d.id, clientId: d.client_id, date: d.date, time: d.time, status: d.status, notes: d.notes,
     orderId: d.order_id || null, items: itemsByDelivery[d.id] || [], createdAt: (d.created_at||'').slice(0,10),
     driver: d.driver || null, distanceKm: d.distance_km!=null ? Number(d.distance_km) : null,
+    homeLegKm: d.home_leg_km!=null ? Number(d.home_leg_km) : null,
   }));
 
   const co = (coRes.data||[])[0];
@@ -3210,12 +3211,13 @@ async function confirmRouteBatch(){
 
   const mode = state.company.routeCalcMode || 'ida';
   const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
-  const legsKm = await computeRouteLegs(stopsData, mode, driverHome);
-  if(!legsKm){
+  const legsResult = await computeRouteLegs(stopsData, mode, driverHome);
+  if(!legsResult){
     if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não consegui calcular a rota completa entre essas paradas. Confirme as entregas individualmente.</div>`;
     unlockButton(_btn);
     return;
   }
+  const { perStop, homeLegKm } = legsResult;
 
   for(let i=0;i<orders.length;i++){
     const o = orders[i];
@@ -3223,9 +3225,10 @@ async function confirmRouteBatch(){
       const { error } = await sb.from('orders').update({ status:'entregue' }).eq('id', o.id);
       if(error){ dbErr(error, `Erro ao marcar o pedido ${i+1} como entregue`); continue; }
     }
-    await finalizeOrderDelivery(o.id, driver, legsKm[i], accountByOrder[o.id]);
+    const isLast = i === orders.length-1;
+    await finalizeOrderDelivery(o.id, driver, perStop[i], accountByOrder[o.id], isLast ? homeLegKm : null);
   }
-  const totalKm = legsKm.reduce((s,v)=>s+v,0);
+  const totalKm = perStop.reduce((s,v)=>s+v,0) + (homeLegKm||0);
   pendingDeliveryConfirmOrderIds = null; // resolvido com sucesso — antes do closeModal(), mesmo motivo do confirmOrderDriver
   closeModal();
   toast(`Rota confirmada — ${orders.length} entrega(s), ${totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km no total`);
@@ -3300,7 +3303,6 @@ function renderOdpDistanceDisplay(){
   const wrap = document.getElementById('odp-distance-wrap');
   if(!wrap || odpBaseDistanceKm==null) return;
   const mode = document.getElementById('odp-calc-mode')?.value || state.company.routeCalcMode || 'ida';
-  const baseTxt = odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1});
   const nota = ' <span style="color:var(--muted);">(já com 500m de margem descontados)</span>';
 
   if(mode==='ida_volta'){
@@ -3331,9 +3333,10 @@ function renderOdpDistanceDisplay(){
     const clientForCalc = odpCurrentClientId; // pra conferir se o modal ainda é o mesmo quando a resposta chegar
     routeDistanceKm(odpClientCoord, home).then(extra=>{
       if(!document.body.contains(wrap) || odpCurrentClientId!==clientForCalc) return; // modal mudou nesse meio tempo
-      const finalExtra = extra!=null ? extra : 0;
-      const total = applyDeliveryKmAdjustment(odpBaseDistanceKm + finalExtra);
-      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${baseTxt} km + cliente → casa: ${finalExtra.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}</div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+      const soFabricaCliente = applyDeliveryKmAdjustment(odpBaseDistanceKm);
+      const homeLegKm = applyDeliveryKmAdjustment(extra!=null ? extra : 0);
+      const total = soFabricaCliente + homeLegKm;
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${soFabricaCliente.toLocaleString('pt-BR',{maximumFractionDigits:1})} km + cliente → casa: ${homeLegKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}</div><input type="hidden" id="odp-distance-auto" value="${soFabricaCliente}"><input type="hidden" id="odp-homeleg-auto" value="${homeLegKm}">`;
       renderOdpMap(odpClientCoord, home);
       updateOdpDistanceSummary(total);
     });
@@ -3420,22 +3423,28 @@ async function confirmOrderDriver(orderId){
   const accountId = document.getElementById('odp-account').value || null;
   const autoEl = document.getElementById('odp-distance-auto');
   const manualEl = document.getElementById('odp-distance-manual');
+  const homeLegEl = document.getElementById('odp-homeleg-auto');
   const distanceKm = autoEl ? parseFloat(autoEl.value) : (manualEl && manualEl.value!=='' ? parseFloat(manualEl.value) : null);
+  const homeLegKm = homeLegEl ? parseFloat(homeLegEl.value) : undefined;
   pendingDeliveryConfirmOrderIds = null; // resolvido com sucesso — precisa vir ANTES do closeModal(), senão ele acha que foi abandonado e estorna a própria entrega que está sendo confirmada
   closeModal();
-  await finalizeOrderDelivery(orderId, driver, distanceKm, accountId);
+  await finalizeOrderDelivery(orderId, driver, distanceKm, accountId, homeLegKm);
   await loadAll(); renderAll();
 }
-async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId){
+async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId, homeLegKm){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return;
   const existingDelivery = state.deliveries.find(d=>d.orderId===orderId);
   let deliveryId;
   if(existingDelivery){
-    await sb.from('deliveries').update({ driver, distance_km: distanceKm, status:'entregue' }).eq('id', existingDelivery.id);
+    const patch = { driver, distance_km: distanceKm, status:'entregue' };
+    if(homeLegKm !== undefined) patch.home_leg_km = homeLegKm;
+    await sb.from('deliveries').update(patch).eq('id', existingDelivery.id);
     deliveryId = existingDelivery.id;
   } else {
-    const { data: createdDelivery, error: delErr } = await sb.from('deliveries').insert({ client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm }).select().single();
+    const insertData = { client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm };
+    if(homeLegKm !== undefined) insertData.home_leg_km = homeLegKm;
+    const { data: createdDelivery, error: delErr } = await sb.from('deliveries').insert(insertData).select().single();
     if(delErr){ dbErr(delErr, 'Erro ao registrar a entrega'); return; }
     deliveryId = createdDelivery.id;
   }
@@ -5763,7 +5772,7 @@ function driverFeeDescription(driver, monthLabel){
 // A distância já vem gravada em cada entrega (calculada uma vez, no momento de agendar) — aqui só soma.
 function driverFeeForPeriod(driver, fromDate, toDate){
   const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=fromDate && d.date<=toDate);
-  const totalKm = dels.reduce((s,d)=>s+d.distanceKm,0);
+  const totalKm = dels.reduce((s,d)=>s+d.distanceKm+(d.homeLegKm||0),0);
   const efficiency = state.company.fuelEfficiencyKmL || 10;
   const price = state.company.fuelPricePerLiter || 6.20;
   const liters = totalKm / efficiency;
@@ -5823,7 +5832,7 @@ function openDriverFeeDetail(driver){
 }
 function renderDriverFeeDetailModal(driver, label, range){
   const dels = state.deliveries.filter(d=>d.driver===driver && d.distanceKm!=null && d.status!=='cancelada' && d.date>=range.from && d.date<=range.to);
-  const totalKm = dels.reduce((s,d)=>s+d.distanceKm,0);
+  const totalKm = dels.reduce((s,d)=>s+d.distanceKm+(d.homeLegKm||0),0);
   const efficiency = state.company.fuelEfficiencyKmL || 10;
   const price = state.company.fuelPricePerLiter || 6.20;
   // Mediana em vez de média: um único valor absurdo (ex: endereço mal geocodificado, 1000+ km) puxa a
@@ -5845,14 +5854,15 @@ function renderDriverFeeDetailModal(driver, label, range){
     ${dels.length ? `<div class="table-scroll" id="driverFeeDetailRows" style="max-height:400px;">
       ${sortedDates.map(date=>{
         const dayDels = groups[date];
-        const dayTotal = dayDels.reduce((s,d)=>s+d.distanceKm,0);
+        const dayTotal = dayDels.reduce((s,d)=>s+d.distanceKm+(d.homeLegKm||0),0);
         const mode = state.company.routeCalcMode || 'ida';
+        const lastDelivery = dayDels[dayDels.length-1];
         return `<div style="margin-bottom:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--ink);padding:6px 2px;background:var(--surface-2);border-radius:6px;margin-bottom:4px;">
             <span>📅 ${fmtDate(date)}${dayDels.length>1?` <span style="font-weight:500;color:var(--muted);">· ${dayDels.length} entregas nessa saída</span>`:''}</span>
             <span>${dayTotal.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</span>
           </div>
-          <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}${renderDriverFeeFinalStopRow(mode, driver)}</tbody></table>
+          <table><tbody>${dayDels.map(d=>renderDriverFeeDetailRow(d, medianKm)).join('')}${renderDriverFeeFinalStopRow(mode, driver, lastDelivery)}</tbody></table>
         </div>`;
       }).join('')}
     </div>` : '<div class="hint">Nenhuma entrega encontrada nesse período.</div>'}
@@ -5879,24 +5889,50 @@ function renderDriverFeeDetailRow(d, medianKm){
   </tr>`;
 }
 // Mostra o destino final da saída (casa do motorista, ou de volta pra fábrica, dependendo do modo de
-// cálculo configurado) como se fosse mais uma linha da lista — mesmo formato de nome em negrito + endereço
-// embaixo usado nas entregas de verdade, só sem input/botões, já que não é um registro próprio editável
-// (a distância desse trecho já está somada na última entrega do dia).
-function renderDriverFeeFinalStopRow(mode, driver){
+// cálculo configurado) como se fosse mais uma linha da lista — mesmo formato de nome/endereço + campo de
+// km editável usado nas entregas de verdade. A km desse trecho fica na coluna própria "home_leg_km" da
+// ÚLTIMA entrega do dia (é ali que a viagem termina), então salvar/recalcular aqui edita esse campo
+// especificamente, sem mexer na distância da entrega em si.
+function renderDriverFeeFinalStopRow(mode, driver, lastDelivery){
+  if(!lastDelivery) return '';
   if(mode==='casa_motorista'){
     const homeAddress = driver==='beto' ? state.company.betoHomeAddress : driver==='gui' ? state.company.guiHomeAddress : null;
-    return `<tr>
+    const km = lastDelivery.homeLegKm;
+    return `<tr id="driverFeeHomeLegRow-${lastDelivery.id}">
       <td style="width:38%;">🏠 Casa de ${esc(driver==='beto'?'Beto':'Gui')}${homeAddress?`<div style="color:var(--muted);font-size:11px;">${esc(homeAddress)}</div>`:'<div style="color:var(--danger);font-size:11px;">Endereço não cadastrado</div>'}</td>
-      <td colspan="2" style="color:var(--muted);font-size:11px;">Destino final dessa saída</td>
+      <td style="width:28%;"><input type="number" step="0.1" min="0" inputmode="decimal" value="${km!=null?km:''}" placeholder="—" style="width:90px;border-radius:8px;" id="driverFeeHomeLegInput-${lastDelivery.id}"></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="saveDriverFeeHomeLeg('${lastDelivery.id}')">Salvar</button>
+        <button class="btn btn-ghost btn-sm" onclick="recalculateDeliveryDistance('${lastDelivery.id}')" title="Refaz o cálculo com os endereços atuais">🔄</button>
+      </td>
     </tr>`;
   }
   if(mode==='ida_volta'){
-    return `<tr>
-      <td style="width:38%;">🏭 Fábrica${state.company.address?`<div style="color:var(--muted);font-size:11px;">${esc(state.company.address)}</div>`:''}</td>
-      <td colspan="2" style="color:var(--muted);font-size:11px;">Destino final dessa saída (volta)</td>
+    const km = lastDelivery.homeLegKm;
+    return `<tr id="driverFeeHomeLegRow-${lastDelivery.id}">
+      <td style="width:38%;">🏭 Fábrica (volta)${state.company.address?`<div style="color:var(--muted);font-size:11px;">${esc(state.company.address)}</div>`:''}</td>
+      <td style="width:28%;"><input type="number" step="0.1" min="0" inputmode="decimal" value="${km!=null?km:''}" placeholder="—" style="width:90px;border-radius:8px;" id="driverFeeHomeLegInput-${lastDelivery.id}"></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="saveDriverFeeHomeLeg('${lastDelivery.id}')">Salvar</button>
+        <button class="btn btn-ghost btn-sm" onclick="recalculateDeliveryDistance('${lastDelivery.id}')" title="Refaz o cálculo com os endereços atuais">🔄</button>
+      </td>
     </tr>`;
   }
   return '';
+}
+async function saveDriverFeeHomeLeg(id){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
+  const input = document.getElementById(`driverFeeHomeLegInput-${id}`);
+  if(!input) return;
+  const value = input.value==='' ? null : parseFloat(input.value);
+  if(value!=null && (isNaN(value) || value<0)){ toast('Digite uma distância válida', true); return; }
+  const { error } = await sb.from('deliveries').update({ home_leg_km: value }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao salvar distância'); return; }
+  toast('Distância atualizada');
+  const driver = state.deliveries.find(x=>x.id===id)?.driver;
+  await loadAll();
+  renderDriverFeeBoxes();
+  if(driver) renderDriverFeeDetailModal(driver, DELIVERY_DRIVERS.find(x=>x.v===driver)?.label||driver, pagarMonthRange());
 }
 async function saveDriverFeeDetailDistance(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
@@ -5927,9 +5963,10 @@ async function recalcDeliveryGroupCore(dels){
   const mode = state.company.routeCalcMode || 'ida';
   const driver = dels[0].driver;
   const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
-  const legsKm = await computeRouteLegs(stopsData, mode, driverHome);
-  if(!legsKm) return null;
-  return dels.map((d,i)=>({ id:d.id, distanceKm: legsKm[i] }));
+  const legsResult = await computeRouteLegs(stopsData, mode, driverHome);
+  if(!legsResult) return null;
+  const { perStop, homeLegKm } = legsResult;
+  return dels.map((d,i)=>({ id:d.id, distanceKm: perStop[i], homeLegKm: (i===dels.length-1) ? homeLegKm : null }));
 }
 async function recalculateDeliveryDistance(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
@@ -5942,7 +5979,9 @@ async function recalculateDeliveryDistance(id){
   const results = await recalcDeliveryGroupCore(sameDayGroup);
   if(!results){ toast('Não consegui localizar o endereço de um dos clientes dessa saída pra recalcular', true); return; }
   for(const r of results){
-    await sb.from('deliveries').update({ distance_km: r.distanceKm }).eq('id', r.id);
+    const patch = { distance_km: r.distanceKm };
+    if(r.homeLegKm!==null) patch.home_leg_km = r.homeLegKm;
+    await sb.from('deliveries').update(patch).eq('id', r.id);
   }
   toast('Distância recalculada');
   const driver = delivery.driver;
@@ -5969,7 +6008,9 @@ async function recalculateAllDriverDeliveries(driver){
     const results = await recalcDeliveryGroupCore(group);
     if(!results){ failCount += group.length; continue; }
     for(const r of results){
-      const { error } = await sb.from('deliveries').update({ distance_km: r.distanceKm }).eq('id', r.id);
+      const patch = { distance_km: r.distanceKm };
+      if(r.homeLegKm!==null) patch.home_leg_km = r.homeLegKm;
+      const { error } = await sb.from('deliveries').update(patch).eq('id', r.id);
       if(error){ failCount++; continue; }
       okCount++;
     }
@@ -7548,6 +7589,32 @@ async function fetchRouteGeometry(points){
 function applyDeliveryKmAdjustment(km){
   if(km==null) return km;
   return Math.max(0, Math.round((km - 0.5) * 100) / 100);
+}
+// Quando o motorista sai numa viagem só e visita vários clientes em sequência (fábrica -> cliente A ->
+// cliente B -> ... -> casa), calcular "fábrica -> cliente" isoladamente pra CADA entrega duplica o
+// trecho inicial e ignora o trajeto real entre os clientes. Essa função pede a rota inteira ao OSRM numa
+// chamada só (com todas as paradas em ordem) e devolve a distância de cada TRECHO já atribuída à parada
+// certa. O trecho final (casa do motorista, ou volta pra fábrica no modo ida e volta) vem SEPARADO em vez
+// de somado dentro da última parada — assim dá pra mostrar e editar esse pedaço isoladamente, como um
+// "destino final" à parte. Cada valor (por parada e o final) já sai com os 500m de margem descontados.
+// Retorna { perStop: [...], homeLegKm } (ou null se a rota não puder ser calculada).
+async function computeRouteLegs(stops, mode, driverHome){
+  const origin = companyOrigin();
+  if(!origin || !stops.length) return null;
+  const points = [origin, ...stops];
+  let hasFinalLeg = false;
+  if(mode==='casa_motorista' && driverHome && driverHome.lat!=null){ points.push(driverHome); hasFinalLeg = true; }
+  else if(mode==='ida_volta'){ points.push(origin); hasFinalLeg = true; }
+  try{
+    const coordStr = points.map(p=>`${p.lng},${p.lat}`).join(';');
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`);
+    const json = await res.json();
+    if(json.code!=='Ok' || !json.routes?.[0]?.legs) return null;
+    const legsKm = json.routes[0].legs.map(l=>l.distance/1000);
+    const perStop = stops.map((_,i)=> applyDeliveryKmAdjustment(legsKm[i]));
+    const homeLegKm = hasFinalLeg ? applyDeliveryKmAdjustment(legsKm[legsKm.length-1]) : null;
+    return { perStop, homeLegKm };
+  }catch(e){ console.warn('Cálculo de rota com múltiplas paradas falhou:', e); return null; }
 }
 function pickFreightTier(distanceKm){
   if(distanceKm==null || !state.freightTiers.length) return null;
