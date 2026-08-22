@@ -1058,6 +1058,10 @@ tr:last-child td{border-bottom:none;}
           <div class="panel" id="driverMarginBox-beto"></div>
           <div class="panel" id="driverMarginBox-gui"></div>
         </div>
+        <div class="two-col">
+          <div class="panel" id="driverInsightsBox-beto"></div>
+          <div class="panel" id="driverInsightsBox-gui"></div>
+        </div>
         <div class="panel" style="max-width:640px;">
           <div class="panel-head"><div class="section-title">⛽ Combustível e taxa de entrega</div></div>
           <div class="hint" style="margin-bottom:10px;">Usado pra calcular a taxa de entrega dos motoristas acima e o alerta mensal de pagamento.</div>
@@ -5860,6 +5864,70 @@ function renderDriverMarginBoxes(range){
         <div style="font-size:22px;font-weight:700;">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</div>
         <div class="hint" style="margin-top:2px;">${m.costPctOfRevenue!=null?`Isso representa ${m.costPctOfRevenue.toLocaleString('pt-BR',{maximumFractionDigits:1})}% do faturamento desses pedidos`:'Sem pedidos suficientes nesse período pra calcular'}</div>
       </div>
+    `;
+  });
+  renderDriverInsightsBoxes(range);
+}
+// Insights de faturamento/margem por motorista — olhando só os pedidos que ele de fato entregou.
+// Combina o custo de entrega (já calculado) com o custo do PRODUTO (stock_items.cost_price) pra mostrar
+// a margem real, com e sem o peso da entrega. Cada insight já vem com uma leitura (bom/ruim) embutida em
+// cor, pra não precisar interpretar os números sozinho.
+function driverRevenueInsights(driver, fromDate, toDate){
+  const dels = state.deliveries.filter(d=>d.driver===driver && d.orderId && d.status!=='cancelada' && d.date>=fromDate && d.date<=toDate);
+  const orderIds = [...new Set(dels.map(d=>d.orderId))];
+  const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  if(orders.length===0) return null;
+  const totalRevenue = orders.reduce((s,o)=>s+o.total,0);
+  let totalProductCost = 0, totalPackages = 0;
+  orders.forEach(o=> o.items.forEach(it=>{
+    totalPackages += it.qty;
+    const stockItem = state.stockItems.find(s=>s.id===it.productId);
+    totalProductCost += it.qty * (stockItem?.costPrice||0);
+  }));
+  const fee = driverFeeForPeriod(driver, fromDate, toDate);
+  const deliveryCost = fee.value;
+  const marginSemEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost)/totalRevenue*100 : null;
+  const marginComEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost-deliveryCost)/totalRevenue*100 : null;
+  const costPerPackage = totalPackages>0 ? deliveryCost/totalPackages : null;
+  // Entregas pequenas (menos de 15 pacotes) diluem menos o custo fixo da viagem — o mesmo custo de
+  // combustível fica concentrado em poucas unidades, encarecendo desproporcionalmente cada uma.
+  const LIMIAR_PACOTES_PEQUENOS = 15;
+  const smallOrders = orders.filter(o=> o.items.reduce((s,it)=>s+it.qty,0) < LIMIAR_PACOTES_PEQUENOS);
+  return { ordersCount: orders.length, totalRevenue, totalProductCost, deliveryCost, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: smallOrders.length/orders.length*100, limiar: LIMIAR_PACOTES_PEQUENOS };
+}
+function renderDriverInsightsBoxes(range){
+  range = range || pagarMonthRange();
+  DELIVERY_DRIVERS.forEach(dr=>{
+    const box = document.getElementById('driverInsightsBox-'+dr.v);
+    if(!box) return;
+    const m = driverRevenueInsights(dr.v, range.from, range.to);
+    if(!m){
+      box.innerHTML = `<div class="panel-head"><div class="section-title">💡 Insights de faturamento — ${dr.label}</div></div><div class="hint">Sem pedidos entregues por ${dr.label} nesse período ainda.</div>`;
+      return;
+    }
+    const insights = [];
+    if(m.smallOrdersCount>0){
+      insights.push({ color:'var(--danger)', icon:'⚠️', text:`${m.smallOrdersCount} de ${m.ordersCount} pedido(s) (${m.smallOrdersPct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%) tiveram menos de ${m.limiar} pacotes — nessas entregas o custo de combustível fica concentrado em poucas unidades e pesa desproporcionalmente mais.` });
+    } else {
+      insights.push({ color:'var(--success)', icon:'✅', text:`Nenhum pedido abaixo de ${m.limiar} pacotes nesse período — bom volume por entrega, o custo de combustível se dilui melhor.` });
+    }
+    if(m.costPerPackage!=null){
+      insights.push({ color:'var(--warn)', icon:'🎯', text:`Pra cobrir o custo de entrega sem perder margem, o preço por pacote precisaria subir ~${fmtMoney(m.costPerPackage)} nesses pedidos.` });
+    }
+    if(m.marginSemEntrega!=null){
+      insights.push({ color:'var(--ink)', icon:'📊', text:`Margem bruta sem considerar o custo de entrega: ${m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%.` });
+    }
+    if(m.marginComEntrega!=null){
+      const ruim = m.marginComEntrega < 10;
+      const boa = m.marginComEntrega >= 20;
+      insights.push({ color: ruim?'var(--danger)':boa?'var(--success)':'var(--warn)', icon: ruim?'📉':boa?'📈':'⚖️', text:`Margem já descontando o custo de entrega: ${m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})}%${ruim?' — abaixo do saudável, vale revisar preço ou frete cobrado':boa?' — segue saudável mesmo com o frete':''}.` });
+    }
+    box.innerHTML = `
+      <div class="panel-head"><div class="section-title">💡 Insights de faturamento — ${dr.label}</div></div>
+      ${insights.map(i=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="flex-shrink:0;">${i.icon}</span>
+        <span style="font-size:12.5px;color:${i.color};line-height:1.4;">${i.text}</span>
+      </div>`).join('')}
     `;
   });
 }
