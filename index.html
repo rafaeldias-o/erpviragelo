@@ -108,6 +108,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
 .section-title{font-size:15px;font-weight:700;}
 .two-col{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
+.chart-with-insights{display:grid;grid-template-columns:1fr 260px;align-items:stretch;gap:20px;}
+@media(max-width:920px){.chart-with-insights{grid-template-columns:1fr;}}
 .two-col-equal{grid-template-columns:1fr 1fr;}
 .two-col-sidebar{grid-template-columns:230px 1fr;}
 .regioes-layout{grid-template-columns:230px 1fr 340px;}
@@ -653,7 +655,7 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head"><div class="section-title" id="producaoVendasTitle">Produção × Vendas (mês atual)</div></div>
           <div id="producaoVendasWarnBox"></div>
-          <div class="two-col" style="grid-template-columns:1fr 260px;align-items:stretch;gap:20px;">
+          <div class="chart-with-insights">
             <div style="padding:6px 4px 0 0;">
               <div class="stat-grid" id="producaoVendasStats" style="margin-bottom:28px;grid-template-columns:repeat(6,1fr);gap:8px;"></div>
               <div class="legend"><span><i style="background:var(--accent-2)"></i>Produção (kg)</span><span><i style="background:#F3C08A"></i>Vendas (kg)</span></div>
