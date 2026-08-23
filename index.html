@@ -3564,7 +3564,16 @@ async function saveOrder(id){
 }
 async function updateOrderStatus(id, newStatus){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
-  const wasAlreadyDelivered = state.orders.find(o=>o.id===id)?.status === 'entregue';
+  const current = state.orders.find(o=>o.id===id);
+  // Pedido entregue é travado pra mudança de status direto por aqui — sair de "entregue" sem passar pelo
+  // Estornar (que reverte estoque e cancela a receita corretamente) deixava a receita antiga "pendurada"
+  // ativa; se o pedido fosse marcado como entregue de novo depois, o gatilho do banco criava uma SEGUNDA
+  // receita pro mesmo pedido — a causa real das receitas duplicadas encontradas.
+  if(current?.status==='entregue' && newStatus!=='entregue'){
+    toast('Pedido entregue está travado — use "Estornar" na tela do pedido pra corrigir com segurança', true);
+    return;
+  }
+  const wasAlreadyDelivered = current?.status === 'entregue';
   const { error } = await sb.from('orders').update({ status: newStatus }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao atualizar status'); return; }
   if(newStatus==='entregue' && !wasAlreadyDelivered){
@@ -3722,7 +3731,10 @@ function renderPedidos(){
       <td style="font-size:12px;color:var(--muted)">📦 ${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ')}</td>
       <td style="font-weight:700;">${fmtMoney(o.total)}</td>
       <td><select style="border:1px solid var(--border);border-radius:7px;padding:4px 6px;font-size:12px;font-family:inherit;" onchange="updateOrderPaymentMethod('${o.id}', this.value)">${PAYMENT_METHODS.map(m=>`<option ${o.paymentMethod===m?'selected':''}>${PAYMENT_ICONS[m]||''} ${m}</option>`).join('')}</select></td>
-      <td><select style="border:1px solid var(--border);border-left:4px solid ${STATUS_COLORS[o.status]||'var(--border)'};border-radius:7px;padding:4px 6px;font-size:12px;font-family:inherit;font-weight:600;" onchange="updateOrderStatus('${o.id}', this.value)">${ORDER_STATUSES.map(s=>`<option value="${s.v}" ${s.v===o.status?'selected':''}>${s.label}</option>`).join('')}</select></td>
+      <td>${o.status==='entregue'
+        ? `<select disabled title="Pedido entregue fica travado — use 'Estornar' na tela do pedido (abra pelo ícone ao lado) pra corrigir com segurança, devolvendo estoque e cancelando a receita direito" style="border:1px solid var(--border);border-left:4px solid ${STATUS_COLORS.entregue};border-radius:7px;padding:4px 6px;font-size:12px;font-family:inherit;font-weight:600;opacity:0.7;cursor:not-allowed;"><option selected>🔒 Entregue</option></select>`
+        : `<select style="border:1px solid var(--border);border-left:4px solid ${STATUS_COLORS[o.status]||'var(--border)'};border-radius:7px;padding:4px 6px;font-size:12px;font-family:inherit;font-weight:600;" onchange="updateOrderStatus('${o.id}', this.value)">${ORDER_STATUSES.map(s=>`<option value="${s.v}" ${s.v===o.status?'selected':''}>${s.label}</option>`).join('')}</select>`
+      }</td>
       <td style="color:var(--muted);font-size:12px">📅 ${fmtDate(o.createdAt)}</td>
       <td class="row-actions"><button class="icon-btn" onclick="openOrderModal('${o.id}')">${iconEdit}</button></td>
     </tr>`;
@@ -5262,6 +5274,20 @@ function renderConciliacao(){
     const hasReceita = state.transactions.some(t=>t.orderId===o.id && t.type==='receita' && t.status!=='cancelado');
     if(!hasReceita) issues.push({ tipo:'Pedido sem receita', detalhe:`Pedido ${o.orderNumber||o.id.slice(0,8)} está entregue mas não tem receita registrada`, severidade:'alta' });
   });
+  // Pedidos com MAIS DE UMA receita ativa vinculada — normalmente causado por um pedido que voltou de
+  // "entregue" pra outro status sem passar pelo Estornar (que cancela a receita antiga corretamente) e
+  // foi marcado como entregue de novo depois, fazendo o gatilho do banco criar uma segunda receita.
+  const receitasPorPedido = {};
+  state.transactions.filter(t=>t.type==='receita' && t.orderId && t.status!=='cancelado').forEach(t=>{
+    (receitasPorPedido[t.orderId] = receitasPorPedido[t.orderId]||[]).push(t);
+  });
+  Object.keys(receitasPorPedido).forEach(orderId=>{
+    const txs = receitasPorPedido[orderId];
+    if(txs.length>1){
+      const order = state.orders.find(o=>o.id===orderId);
+      issues.push({ tipo:'Receita duplicada', detalhe:`Pedido ${order?.orderNumber||orderId.slice(0,8)} tem ${txs.length} receitas lançadas ao mesmo tempo (${txs.map(t=>fmtMoney(t.amount)).join(' + ')}) — provavelmente duplicado`, severidade:'alta', duplicateOrderId: orderId });
+    }
+  });
   // Transações com conta financeira não preenchida (dificulta saber de onde saiu/entrou o dinheiro)
   state.transactions.filter(t=>t.status==='pago' && !t.accountId).forEach(t=>{
     issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média', txId:t.id });
@@ -5275,8 +5301,44 @@ function renderConciliacao(){
   if(issues.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência encontrada.</p></div>'; return; }
   wrap.innerHTML = `<table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}</td></tr>`).join('')}
+    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
   </tbody></table>`;
+}
+// Mostra todas as receitas duplicadas de um pedido lado a lado (data, valor, conta, forma de pagamento)
+// e deixa escolher qual é a certa — as outras são CANCELADAS (não apagadas: ficam no histórico marcadas
+// como canceladas, com nota explicando o motivo), pra manter rastreabilidade. Não decide sozinho qual
+// manter, já que não dá pra saber com certeza qual delas reflete o pagamento real sem o usuário conferir.
+function openDuplicateReceitaFix(orderId){
+  const order = state.orders.find(o=>o.id===orderId);
+  const txs = state.transactions.filter(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado')
+    .sort((a,b)=> (b.paymentDate||b.dueDate||'').localeCompare(a.paymentDate||a.dueDate||''));
+  openModal(`
+    <div class="modal-head"><h3>Receita duplicada — Pedido ${esc(order?.orderNumber||orderId.slice(0,8))}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">Esse pedido tem ${txs.length} receitas lançadas ativas ao mesmo tempo. Escolha qual reflete o pagamento real — as outras são canceladas (continuam no histórico, só marcadas como canceladas, nada é apagado).</div>
+    ${txs.map(t=>{
+      const account = state.financialAccounts.find(a=>a.id===t.accountId);
+      return `<div class="panel" style="margin-bottom:10px;padding:12px;">
+        <div class="stat-row-list">
+          <div class="stat-row"><span class="stat-row-label">Data de pagamento</span><span class="stat-row-value">${t.paymentDate?fmtDate(t.paymentDate):'—'}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Valor</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(t.amount)}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Conta</span><span class="stat-row-value">${account?esc(account.name):'— sem conta —'}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(t.paymentMethod||'—')}</span></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisReceita('${t.id}','${orderId}')">✓ Manter essa, cancelar as outras</button>
+      </div>`;
+    }).join('')}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
+  `, 'wide');
+}
+async function keepThisReceita(keepTxId, orderId){
+  if(!confirm('Confirma? As outras receitas desse pedido serão canceladas — ficam no histórico marcadas como canceladas, nada é apagado.')) return;
+  const txs = state.transactions.filter(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado' && t.id!==keepTxId);
+  for(const t of txs){
+    await sb.from('transactions').update({ status:'cancelado', notes: ((t.notes||'')+' [Cancelada automaticamente — duplicata de receita corrigida]').trim() }).eq('id', t.id);
+  }
+  toast(`${txs.length} receita(s) duplicada(s) cancelada(s)`);
+  closeModal();
+  await loadAll(); renderAll(); renderConciliacao();
 }
 // Corrige um lançamento "pago sem conta" apontado pela Conciliação — o dropdown de forma de pagamento em
 // Pedidos só realoca a conta quando o valor É TROCADO; se o lançamento já nasceu sem conta nenhuma (ex:
