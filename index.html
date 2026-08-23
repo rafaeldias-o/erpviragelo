@@ -3082,7 +3082,8 @@ function resumeOrderModalFromClient(newClientId){
 function addOrderItemRow(){
   const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
   if(finished.length===0){ toast('Cadastre produtos acabados no estoque primeiro', true); return; }
-  const f = finished[0];
+  const comEstoque = finished.filter(p=>p.qty>0);
+  const f = comEstoque.length ? comEstoque[0] : finished[0]; // prioriza um produto com estoque; se nenhum tiver, ainda deixa adicionar algo pra não travar o cadastro totalmente
   orderDraftItems.push({productId: f.id, name: f.name, qty: 1, unitPrice: f.salePrice||0});
   renderOrderItems();
 }
@@ -3091,7 +3092,10 @@ function renderOrderItems(){
   const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
   document.getElementById('orderItemsWrap').innerHTML = orderDraftItems.length ? `<table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>
     ${orderDraftItems.map((row,i)=>`<tr>
-      <td><select onchange="orderDraftItems[${i}].productId=this.value; orderDraftItems[${i}].name=this.options[this.selectedIndex].text; orderDraftItems[${i}].unitPrice=(state.stockItems.find(p=>p.id===this.value)?.salePrice)||0; renderOrderItems();">${finished.map(f=>`<option value="${f.id}" ${f.id===row.productId?'selected':''}>${esc(f.name)}</option>`).join('')}</select></td>
+      <td><select onchange="orderDraftItems[${i}].productId=this.value; orderDraftItems[${i}].name=this.options[this.selectedIndex].text.replace(' (sem estoque)',''); orderDraftItems[${i}].unitPrice=(state.stockItems.find(p=>p.id===this.value)?.salePrice)||0; renderOrderItems();">${finished.map(f=>{
+        const semEstoque = f.qty<=0;
+        return `<option value="${f.id}" ${f.id===row.productId?'selected':''} ${semEstoque?'disabled':''}>${esc(f.name)}${semEstoque?' (sem estoque)':''}</option>`;
+      }).join('')}</select></td>
       <td><input type="number" inputmode="numeric" step="1" min="1" style="width:70px" value="${row.qty}" oninput="updateOrderItemField(${i},'qty',this.value)"></td>
       <td><input type="number" inputmode="decimal" step="0.01" style="width:85px" value="${row.unitPrice}" oninput="updateOrderItemField(${i},'unitPrice',this.value)"></td>
       <td id="orderItemSubtotal-${i}">${fmtMoney(row.qty*row.unitPrice)}</td>
@@ -3499,11 +3503,13 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId, hom
     if(delErr){ dbErr(delErr, 'Erro ao registrar a entrega'); return; }
     deliveryId = createdDelivery.id;
   }
-  // Preenche os itens da entrega com os mesmos itens do pedido — sem isso, confirmar a entrega direto
-  // pela aba Pedidos (em vez de pelo formulário manual em Agenda de Entregas) deixava o cartão na Agenda
-  // sem nenhuma informação do que foi entregue. Só mexe se a entrega ainda não tiver itens próprios (não
-  // sobrescreve uma entrega que já foi editada manualmente com itens diferentes do pedido).
-  if(deliveryId && (!existingDelivery || (existingDelivery.items||[]).length===0) && order.items.length){
+  // Sincroniza os itens da entrega com os itens ATUAIS do pedido toda vez que a entrega é confirmada ou
+  // reconfirmada — antes só preenchia na primeira vez; se o pedido fosse editado depois (ex: estornado,
+  // corrigido, e reenviado como entregue), a entrega ficava com um "retrato antigo" desatualizado,
+  // mostrando um produto que não é mais o que o pedido realmente tem hoje (causa real de um cartão de
+  // entrega mostrando um produto/peso errado enquanto o pedido já estava correto).
+  if(deliveryId && order.items.length){
+    await sb.from('delivery_items').delete().eq('delivery_id', deliveryId);
     const rows = order.items.map(it=> ({ delivery_id: deliveryId, stock_item_id: it.productId, qty: it.qty }));
     await sb.from('delivery_items').insert(rows);
   }
@@ -5369,6 +5375,19 @@ function renderConciliacao(){
       issues.push({ tipo:'Pedido duplicado', detalhe:`${group.length} pedidos idênticos de ${client?client.name:'—'} (mesma data, valor e itens): ${group.map(o=>o.orderNumber||o.id.slice(0,6)).join(', ')}`, severidade:'alta', duplicateOrderIds: group.map(o=>o.id) });
     }
   });
+  // Movimentações de estoque duplicadas (mesmo item, tipo, quantidade, data e observação vinculadas a
+  // pedido) — mesma causa raiz dos casos acima: um pedido saindo de "entregue" sem passar pelo Estornar
+  // e sendo confirmado de novo depois faz o gatilho do banco baixar o estoque uma segunda vez.
+  const movGroups = {};
+  state.movements.filter(m=>m.source==='pedido').forEach(m=>{
+    const key = `${m.stockItemId}|${m.type}|${m.qty}|${m.date}|${m.note}`;
+    (movGroups[key] = movGroups[key]||[]).push(m);
+  });
+  Object.values(movGroups).forEach(group=>{
+    if(group.length>1){
+      issues.push({ tipo:'Movimentação de estoque duplicada', detalhe:`${group.length}× "${group[0].itemName}" (${group[0].type==='saida'?'Saída':'Entrada'}, ${group[0].qty} un) em ${fmtDate(group[0].date)} — ${esc(group[0].note||'')}`, severidade:'alta', duplicateMovementIds: group.map(m=>m.id) });
+    }
+  });
   // Transações com conta financeira não preenchida (dificulta saber de onde saiu/entrou o dinheiro)
   state.transactions.filter(t=>t.status==='pago' && !t.accountId).forEach(t=>{
     issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média', txId:t.id });
@@ -5384,8 +5403,51 @@ function renderConciliacao(){
     ${gruposReceitaDuplicada.length>1 ? `<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button></div>` : ''}
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
+    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
   </tbody></table>`;
+}
+// Mostra movimentações de estoque duplicadas lado a lado e deixa escolher qual é a real — as outras são
+// apagadas e o estoque é revertido (uma saída duplicada devolve a quantidade; uma entrada duplicada tira
+// de volta), pra não ficar nem faltando nem sobrando estoque por causa da duplicata.
+function openDuplicateMovementFix(idsUnderscore){
+  const ids = idsUnderscore.split('_');
+  const movs = ids.map(id=>state.movements.find(m=>m.id===id)).filter(Boolean);
+  openModal(`
+    <div class="modal-head"><h3>Movimentação de estoque duplicada</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">Essas movimentações parecem ser a mesma baixa/entrada de estoque registrada mais de uma vez. Escolha qual é a real — as outras são apagadas e o estoque é revertido corretamente.</div>
+    ${movs.map(m=>`<div class="panel" style="margin-bottom:10px;padding:12px;">
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Item</span><span class="stat-row-value">${esc(m.itemName)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Tipo</span><span class="stat-row-value">${m.type==='saida'?'Saída':'Entrada'}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Quantidade</span><span class="stat-row-value">${m.qty} un</span></div>
+        <div class="stat-row"><span class="stat-row-label">Data</span><span class="stat-row-value">${fmtDate(m.date)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Observação</span><span class="stat-row-value">${esc(m.note||'—')}</span></div>
+      </div>
+      <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisMovement('${m.id}','${idsUnderscore}')">✓ Manter essa, apagar as outras</button>
+    </div>`).join('')}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
+  `, 'wide');
+}
+function keepThisMovement(keepId, idsUnderscore){
+  const ids = idsUnderscore.split('_').filter(id=>id!==keepId);
+  confirmModal(
+    `Confirma? ${ids.length} movimentação(ões) duplicada(s) serão apagadas de vez, e o estoque será revertido pra ficar certo (nem faltando, nem sobrando).`,
+    async ()=>{
+      for(const id of ids){
+        const m = state.movements.find(x=>x.id===id);
+        if(!m) continue;
+        const stockItem = state.stockItems.find(s=>s.id===m.stockItemId);
+        if(stockItem){
+          const delta = m.type==='saida' ? m.qty : -m.qty; // saída duplicada devolve a quantidade; entrada duplicada tira de volta
+          await sb.from('stock_items').update({ qty: stockItem.qty + delta }).eq('id', m.stockItemId);
+        }
+        await sb.from('stock_movements').delete().eq('id', id);
+      }
+      toast(`${ids.length} movimentação(ões) duplicada(s) apagada(s), estoque corrigido`);
+      await loadAll(); renderAll(); renderConciliacao();
+    },
+    'Apagar movimentações duplicadas'
+  );
 }
 // Mostra todas as receitas duplicadas de um pedido lado a lado (data, valor, conta, forma de pagamento)
 // e deixa escolher qual é a certa — as outras são CANCELADAS (não apagadas: ficam no histórico marcadas
@@ -6952,7 +7014,8 @@ function renderWizard(){
 function addWizardOrderItem(){
   const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
   if(finished.length===0){ toast('Cadastre produtos acabados no estoque primeiro', true); return; }
-  const f = finished[0];
+  const comEstoque = finished.filter(p=>p.qty>0);
+  const f = comEstoque.length ? comEstoque[0] : finished[0];
   orderDraftItems.push({productId: f.id, name: f.name, qty: 1, unitPrice: f.salePrice||0});
   renderWizardOrderItems();
 }
@@ -6963,7 +7026,10 @@ function renderWizardOrderItems(){
   if(!wrap) return;
   wrap.innerHTML = orderDraftItems.length ? `<table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th><th></th></tr></thead><tbody>
     ${orderDraftItems.map((row,i)=>`<tr>
-      <td><select onchange="orderDraftItems[${i}].productId=this.value; orderDraftItems[${i}].name=this.options[this.selectedIndex].text; orderDraftItems[${i}].unitPrice=(state.stockItems.find(p=>p.id===this.value)?.salePrice)||0; renderWizardOrderItems();">${finished.map(f=>`<option value="${f.id}" ${f.id===row.productId?'selected':''}>${esc(f.name)}</option>`).join('')}</select></td>
+      <td><select onchange="orderDraftItems[${i}].productId=this.value; orderDraftItems[${i}].name=this.options[this.selectedIndex].text.replace(' (sem estoque)',''); orderDraftItems[${i}].unitPrice=(state.stockItems.find(p=>p.id===this.value)?.salePrice)||0; renderWizardOrderItems();">${finished.map(f=>{
+        const semEstoque = f.qty<=0;
+        return `<option value="${f.id}" ${f.id===row.productId?'selected':''} ${semEstoque?'disabled':''}>${esc(f.name)}${semEstoque?' (sem estoque)':''}</option>`;
+      }).join('')}</select></td>
       <td><input type="number" inputmode="numeric" step="1" min="1" style="width:70px" value="${row.qty}" oninput="updateWizardOrderItemField(${i},'qty',this.value)"></td>
       <td><input type="number" inputmode="decimal" step="0.01" style="width:85px" value="${row.unitPrice}" oninput="updateWizardOrderItemField(${i},'unitPrice',this.value)"></td>
       <td id="wizardItemSubtotal-${i}">${fmtMoney(row.qty*row.unitPrice)}</td>
