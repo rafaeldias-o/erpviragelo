@@ -1907,6 +1907,26 @@ function switchView(view){
 
 // ================= MODAL =================
 function openModal(html, size){ document.getElementById('modalBody').className = 'modal' + (size?' '+size:''); document.getElementById('modalBody').innerHTML = html; document.getElementById('modalOverlay').classList.add('active'); }
+// Confirmação própria do sistema, no lugar do confirm() nativo do navegador (que quebra a identidade
+// visual e não dá pra estilizar). Uso: confirmModal('mensagem', () => { ...ação... }, 'Título opcional').
+let _confirmModalCallback = null;
+function confirmModal(message, onConfirm, title){
+  _confirmModalCallback = onConfirm;
+  openModal(`
+    <div class="modal-head"><h3>${esc(title||'Confirmar ação')}</h3><button class="icon-btn" onclick="_confirmModalCallback=null; closeModal();">✕</button></div>
+    <div style="font-size:14px;white-space:pre-line;line-height:1.5;margin-bottom:20px;">${esc(message)}</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="_confirmModalCallback=null; closeModal();">Cancelar</button>
+      <button class="btn btn-primary" onclick="runConfirmModalCallback()">Confirmar</button>
+    </div>
+  `);
+}
+function runConfirmModalCallback(){
+  const cb = _confirmModalCallback;
+  _confirmModalCallback = null;
+  closeModal();
+  if(cb) cb();
+}
 function closeModal(){
   document.getElementById('modalOverlay').classList.remove('active');
   orderDraftItems=[]; productionDraftPacks=[]; activeLeadId=null; pendingOrderClientReturn=null;
@@ -5346,53 +5366,59 @@ function openDuplicateReceitaFix(orderId){
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
   `, 'wide');
 }
-async function keepThisReceita(keepTxId, orderId){
-  if(!confirm('Confirma? As outras receitas desse pedido serão canceladas — ficam no histórico marcadas como canceladas, nada é apagado.')) return;
+function keepThisReceita(keepTxId, orderId){
   const txs = state.transactions.filter(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado' && t.id!==keepTxId);
-  for(const t of txs){
-    await sb.from('transactions').update({ status:'cancelado', notes: ((t.notes||'')+' [Cancelada automaticamente — duplicata de receita corrigida]').trim() }).eq('id', t.id);
-  }
-  toast(`${txs.length} receita(s) duplicada(s) cancelada(s)`);
-  closeModal();
-  await loadAll(); renderAll(); renderConciliacao();
+  confirmModal(
+    `Confirma? ${txs.length} receita(s) duplicada(s) desse pedido serão apagadas de vez do sistema — não ficam no histórico.`,
+    async ()=>{
+      for(const t of txs){ await sb.from('transactions').delete().eq('id', t.id); }
+      toast(`${txs.length} receita(s) duplicada(s) apagada(s)`);
+      await loadAll(); renderAll(); renderConciliacao();
+    },
+    'Apagar receita duplicada'
+  );
 }
 // Resolve TODOS os grupos de "Receita duplicada" de uma vez, sem precisar abrir um por um — pra quando
 // tem várias duplicatas acumuladas (varredura completa). Regra de escolha: mantém a que já tem conta
 // vinculada (se só uma do grupo tiver); se nenhuma ou mais de uma tiver conta, mantém a mais recente por
 // data de pagamento. É uma regra razoável, mas não perfeita — por isso continua existindo o "Ver e
-// corrigir" individual pra quem quiser conferir cada caso com calma antes de decidir.
-async function autoResolveDuplicateReceitas(){
+// corrigir" individual pra quem quiser conferir cada caso com calma antes de decidir. As duplicatas são
+// APAGADAS de vez (não ficam como "canceladas" no histórico), pra não gerar confusão de números repetidos.
+function autoResolveDuplicateReceitas(){
   const receitasPorPedido = {};
   state.transactions.filter(t=>t.type==='receita' && t.orderId && t.status!=='cancelado').forEach(t=>{
     (receitasPorPedido[t.orderId] = receitasPorPedido[t.orderId]||[]).push(t);
   });
   const grupos = Object.values(receitasPorPedido).filter(txs=>txs.length>1);
   if(grupos.length===0) return;
-  if(!confirm(`Resolver ${grupos.length} pedido(s) com receita duplicada de uma vez?\n\nRegra: mantém a receita que já tem conta vinculada (se só uma tiver); senão, mantém a mais recente. As outras são canceladas — ficam no histórico, nada é apagado.\n\nSe quiser conferir caso a caso, use "Ver e corrigir" em cada um em vez disso.`)) return;
-  let totalCanceladas = 0;
-  for(const txs of grupos){
-    const comConta = txs.filter(t=>t.accountId);
-    let keep;
-    if(comConta.length===1) keep = comConta[0];
-    else keep = [...txs].sort((a,b)=>(b.paymentDate||b.dueDate||'').localeCompare(a.paymentDate||a.dueDate||''))[0];
-    const cancelar = txs.filter(t=>t.id!==keep.id);
-    for(const t of cancelar){
-      await sb.from('transactions').update({ status:'cancelado', notes: ((t.notes||'')+' [Cancelada automaticamente — duplicata de receita corrigida em lote]').trim() }).eq('id', t.id);
-      totalCanceladas++;
-    }
-  }
-  toast(`${grupos.length} pedido(s) corrigido(s), ${totalCanceladas} receita(s) duplicada(s) cancelada(s)`);
-  await loadAll(); renderAll(); renderConciliacao();
+  confirmModal(
+    `Resolver ${grupos.length} pedido(s) com receita duplicada de uma vez?\n\nRegra: mantém a receita que já tem conta vinculada (se só uma tiver); senão, mantém a mais recente. As outras são apagadas de vez, não ficam no histórico.\n\nSe quiser conferir caso a caso, use "Ver e corrigir" em cada um em vez disso.`,
+    async ()=>{
+      let totalApagadas = 0;
+      for(const txs of grupos){
+        const comConta = txs.filter(t=>t.accountId);
+        let keep;
+        if(comConta.length===1) keep = comConta[0];
+        else keep = [...txs].sort((a,b)=>(b.paymentDate||b.dueDate||'').localeCompare(a.paymentDate||a.dueDate||''))[0];
+        const apagar = txs.filter(t=>t.id!==keep.id);
+        for(const t of apagar){ await sb.from('transactions').delete().eq('id', t.id); totalApagadas++; }
+      }
+      toast(`${grupos.length} pedido(s) corrigido(s), ${totalApagadas} receita(s) duplicada(s) apagada(s)`);
+      await loadAll(); renderAll(); renderConciliacao();
+    },
+    'Resolver receitas duplicadas'
+  );
 }
 // Mostra pedidos praticamente idênticos (mesmo cliente, data, valor e itens) lado a lado e deixa escolher
-// qual é o pedido real — os outros são ESTORNADOS (estoque devolvido, receita cancelada, mesma lógica já
-// usada no botão "Estornar" manual) e marcados como cancelados. Não decide sozinho qual manter.
+// qual é o pedido real — os outros têm o estoque devolvido e são APAGADOS de vez do sistema (pedido,
+// itens, receita e entrega vinculados), pra não sobrar histórico duplicado confuso. Não decide sozinho
+// qual manter.
 function openDuplicateOrderFix(idsUnderscore){
   const orderIds = idsUnderscore.split('_');
   const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
   openModal(`
     <div class="modal-head"><h3>Pedidos duplicados</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:14px;">Esses pedidos parecem ser a mesma venda lançada mais de uma vez (mesmo cliente, data, valor e itens). Escolha qual é o pedido real — os outros são estornados (estoque devolvido, receita cancelada) e marcados como cancelados, sem apagar nada.</div>
+    <div class="hint" style="margin-bottom:14px;">Esses pedidos parecem ser a mesma venda lançada mais de uma vez (mesmo cliente, data, valor e itens). Escolha qual é o pedido real — os outros têm o estoque devolvido e são apagados de vez (pedido, itens, receita e entrega vinculados).</div>
     ${orders.map(o=>{
       const client = state.clients.find(c=>c.id===o.clientId);
       return `<div class="panel" style="margin-bottom:10px;padding:12px;">
@@ -5402,22 +5428,49 @@ function openDuplicateOrderFix(idsUnderscore){
           <div class="stat-row"><span class="stat-row-label">Total</span><span class="stat-row-value">${fmtMoney(o.total)}</span></div>
           <div class="stat-row"><span class="stat-row-label">Entregue em</span><span class="stat-row-value">${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</span></div>
         </div>
-        <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisOrder('${o.id}','${idsUnderscore}')">✓ Manter esse, estornar os outros</button>
+        <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisOrder('${o.id}','${idsUnderscore}')">✓ Manter esse, apagar os outros</button>
       </div>`;
     }).join('')}
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
   `, 'wide');
 }
-async function keepThisOrder(keepId, idsUnderscore){
+function keepThisOrder(keepId, idsUnderscore){
   const orderIds = idsUnderscore.split('_').filter(id=>id!==keepId);
-  if(!confirm(`Confirma? ${orderIds.length} pedido(s) serão estornados (estoque devolvido, receita cancelada) e marcados como cancelados — nada é apagado.`)) return;
-  for(const id of orderIds){
-    const ok = await estornarPedidoCore(id, 'pedido duplicado corrigido');
-    if(ok) await sb.from('orders').update({ status:'cancelado' }).eq('id', id);
+  confirmModal(
+    `Confirma? ${orderIds.length} pedido(s) duplicado(s) terão o estoque devolvido e serão apagados de vez do sistema (pedido, itens, receita e entrega vinculados) — não ficam no histórico.`,
+    async ()=>{
+      let ok = 0;
+      for(const id of orderIds){
+        const sucesso = await hardDeleteDuplicateOrder(id);
+        if(sucesso) ok++;
+      }
+      toast(`${ok} pedido(s) duplicado(s) apagado(s)`);
+      await loadAll(); renderAll(); renderConciliacao();
+    },
+    'Apagar pedidos duplicados'
+  );
+}
+// Devolve o estoque do pedido duplicado e apaga TUDO relacionado a ele (receita, entrega, itens, e o
+// pedido em si) — usado só quando o usuário já escolheu qual dos pedidos duplicados manter, então esse
+// aqui é confirmadamente supérfluo. Diferente do "Estornar" normal (que mantém o pedido pra corrigir e
+// reenviar), esse some com o registro inteiro, porque a intenção aqui é remover uma duplicata, não corrigir
+// um pedido real.
+async function hardDeleteDuplicateOrder(orderId){
+  const order = state.orders.find(o=>o.id===orderId);
+  if(!order) return false;
+  for(const it of order.items){
+    const stockItem = state.stockItems.find(s=>s.id===it.productId);
+    if(stockItem){
+      await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+      await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido duplicado ${order.orderNumber||order.id.slice(-6)} removido`, date: todayStr() });
+    }
   }
-  toast(`${orderIds.length} pedido(s) duplicado(s) corrigido(s)`);
-  closeModal();
-  await loadAll(); renderAll(); renderConciliacao();
+  await sb.from('transactions').delete().eq('order_id', orderId).eq('type', 'receita');
+  await sb.from('deliveries').delete().eq('order_id', orderId);
+  await sb.from('order_items').delete().eq('order_id', orderId);
+  const { error } = await sb.from('orders').delete().eq('id', orderId);
+  if(error){ dbErr(error, 'Erro ao apagar pedido duplicado'); return false; }
+  return true;
 }
 // Corrige um lançamento "pago sem conta" apontado pela Conciliação — o dropdown de forma de pagamento em
 // Pedidos só realoca a conta quando o valor É TROCADO; se o lançamento já nasceu sem conta nenhuma (ex:
