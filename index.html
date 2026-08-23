@@ -5281,11 +5281,25 @@ function renderConciliacao(){
   state.transactions.filter(t=>t.type==='receita' && t.orderId && t.status!=='cancelado').forEach(t=>{
     (receitasPorPedido[t.orderId] = receitasPorPedido[t.orderId]||[]).push(t);
   });
-  Object.keys(receitasPorPedido).forEach(orderId=>{
+  const gruposReceitaDuplicada = Object.keys(receitasPorPedido).filter(id=>receitasPorPedido[id].length>1);
+  gruposReceitaDuplicada.forEach(orderId=>{
     const txs = receitasPorPedido[orderId];
-    if(txs.length>1){
-      const order = state.orders.find(o=>o.id===orderId);
-      issues.push({ tipo:'Receita duplicada', detalhe:`Pedido ${order?.orderNumber||orderId.slice(0,8)} tem ${txs.length} receitas lançadas ao mesmo tempo (${txs.map(t=>fmtMoney(t.amount)).join(' + ')}) — provavelmente duplicado`, severidade:'alta', duplicateOrderId: orderId });
+    const order = state.orders.find(o=>o.id===orderId);
+    issues.push({ tipo:'Receita duplicada', detalhe:`Pedido ${order?.orderNumber||orderId.slice(0,8)} tem ${txs.length} receitas lançadas ao mesmo tempo (${txs.map(t=>fmtMoney(t.amount)).join(' + ')}) — provavelmente duplicado`, severidade:'alta', duplicateOrderId: orderId });
+  });
+  // Pedidos praticamente idênticos (mesmo cliente, mesma data de entrega, mesmo total e mesmos itens) —
+  // diferente do caso acima (1 pedido com 2 receitas), aqui são DOIS REGISTROS DE PEDIDO separados que
+  // parecem ser a mesma venda lançada duas vezes.
+  const orderGroups = {};
+  state.orders.filter(o=>o.status==='entregue').forEach(o=>{
+    const itemsKey = o.items.map(it=>`${it.productId}:${it.qty}`).sort().join('|');
+    const key = `${o.clientId}|${o.deliveredAt}|${o.total}|${itemsKey}`;
+    (orderGroups[key] = orderGroups[key]||[]).push(o);
+  });
+  Object.values(orderGroups).forEach(group=>{
+    if(group.length>1){
+      const client = state.clients.find(c=>c.id===group[0].clientId);
+      issues.push({ tipo:'Pedido duplicado', detalhe:`${group.length} pedidos idênticos de ${client?client.name:'—'} (mesma data, valor e itens): ${group.map(o=>o.orderNumber||o.id.slice(0,6)).join(', ')}`, severidade:'alta', duplicateOrderIds: group.map(o=>o.id) });
     }
   });
   // Transações com conta financeira não preenchida (dificulta saber de onde saiu/entrou o dinheiro)
@@ -5299,9 +5313,11 @@ function renderConciliacao(){
     if(from?.status==='inativa' || to?.status==='inativa') issues.push({ tipo:'Transferência com conta inativa', detalhe:`Transferência de ${fmtMoney(tr.amount)} em ${fmtDate(tr.date)} envolve uma conta marcada como inativa`, severidade:'baixa' });
   });
   if(issues.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência encontrada.</p></div>'; return; }
-  wrap.innerHTML = `<table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
+  wrap.innerHTML = `
+    ${gruposReceitaDuplicada.length>1 ? `<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button></div>` : ''}
+    <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
+    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
   </tbody></table>`;
 }
 // Mostra todas as receitas duplicadas de um pedido lado a lado (data, valor, conta, forma de pagamento)
@@ -5337,6 +5353,69 @@ async function keepThisReceita(keepTxId, orderId){
     await sb.from('transactions').update({ status:'cancelado', notes: ((t.notes||'')+' [Cancelada automaticamente — duplicata de receita corrigida]').trim() }).eq('id', t.id);
   }
   toast(`${txs.length} receita(s) duplicada(s) cancelada(s)`);
+  closeModal();
+  await loadAll(); renderAll(); renderConciliacao();
+}
+// Resolve TODOS os grupos de "Receita duplicada" de uma vez, sem precisar abrir um por um — pra quando
+// tem várias duplicatas acumuladas (varredura completa). Regra de escolha: mantém a que já tem conta
+// vinculada (se só uma do grupo tiver); se nenhuma ou mais de uma tiver conta, mantém a mais recente por
+// data de pagamento. É uma regra razoável, mas não perfeita — por isso continua existindo o "Ver e
+// corrigir" individual pra quem quiser conferir cada caso com calma antes de decidir.
+async function autoResolveDuplicateReceitas(){
+  const receitasPorPedido = {};
+  state.transactions.filter(t=>t.type==='receita' && t.orderId && t.status!=='cancelado').forEach(t=>{
+    (receitasPorPedido[t.orderId] = receitasPorPedido[t.orderId]||[]).push(t);
+  });
+  const grupos = Object.values(receitasPorPedido).filter(txs=>txs.length>1);
+  if(grupos.length===0) return;
+  if(!confirm(`Resolver ${grupos.length} pedido(s) com receita duplicada de uma vez?\n\nRegra: mantém a receita que já tem conta vinculada (se só uma tiver); senão, mantém a mais recente. As outras são canceladas — ficam no histórico, nada é apagado.\n\nSe quiser conferir caso a caso, use "Ver e corrigir" em cada um em vez disso.`)) return;
+  let totalCanceladas = 0;
+  for(const txs of grupos){
+    const comConta = txs.filter(t=>t.accountId);
+    let keep;
+    if(comConta.length===1) keep = comConta[0];
+    else keep = [...txs].sort((a,b)=>(b.paymentDate||b.dueDate||'').localeCompare(a.paymentDate||a.dueDate||''))[0];
+    const cancelar = txs.filter(t=>t.id!==keep.id);
+    for(const t of cancelar){
+      await sb.from('transactions').update({ status:'cancelado', notes: ((t.notes||'')+' [Cancelada automaticamente — duplicata de receita corrigida em lote]').trim() }).eq('id', t.id);
+      totalCanceladas++;
+    }
+  }
+  toast(`${grupos.length} pedido(s) corrigido(s), ${totalCanceladas} receita(s) duplicada(s) cancelada(s)`);
+  await loadAll(); renderAll(); renderConciliacao();
+}
+// Mostra pedidos praticamente idênticos (mesmo cliente, data, valor e itens) lado a lado e deixa escolher
+// qual é o pedido real — os outros são ESTORNADOS (estoque devolvido, receita cancelada, mesma lógica já
+// usada no botão "Estornar" manual) e marcados como cancelados. Não decide sozinho qual manter.
+function openDuplicateOrderFix(idsUnderscore){
+  const orderIds = idsUnderscore.split('_');
+  const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
+  openModal(`
+    <div class="modal-head"><h3>Pedidos duplicados</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:14px;">Esses pedidos parecem ser a mesma venda lançada mais de uma vez (mesmo cliente, data, valor e itens). Escolha qual é o pedido real — os outros são estornados (estoque devolvido, receita cancelada) e marcados como cancelados, sem apagar nada.</div>
+    ${orders.map(o=>{
+      const client = state.clients.find(c=>c.id===o.clientId);
+      return `<div class="panel" style="margin-bottom:10px;padding:12px;">
+        <div class="stat-row-list">
+          <div class="stat-row"><span class="stat-row-label">Nº do pedido</span><span class="stat-row-value">${esc(o.orderNumber||o.id.slice(0,8))}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Cliente</span><span class="stat-row-value">${esc(client?client.name:'—')}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Total</span><span class="stat-row-value">${fmtMoney(o.total)}</span></div>
+          <div class="stat-row"><span class="stat-row-label">Entregue em</span><span class="stat-row-value">${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</span></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisOrder('${o.id}','${idsUnderscore}')">✓ Manter esse, estornar os outros</button>
+      </div>`;
+    }).join('')}
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
+  `, 'wide');
+}
+async function keepThisOrder(keepId, idsUnderscore){
+  const orderIds = idsUnderscore.split('_').filter(id=>id!==keepId);
+  if(!confirm(`Confirma? ${orderIds.length} pedido(s) serão estornados (estoque devolvido, receita cancelada) e marcados como cancelados — nada é apagado.`)) return;
+  for(const id of orderIds){
+    const ok = await estornarPedidoCore(id, 'pedido duplicado corrigido');
+    if(ok) await sb.from('orders').update({ status:'cancelado' }).eq('id', id);
+  }
+  toast(`${orderIds.length} pedido(s) duplicado(s) corrigido(s)`);
   closeModal();
   await loadAll(); renderAll(); renderConciliacao();
 }
