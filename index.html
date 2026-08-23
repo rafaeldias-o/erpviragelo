@@ -5407,14 +5407,16 @@ function renderConciliacao(){
   </tbody></table>`;
 }
 // Mostra movimentações de estoque duplicadas lado a lado e deixa escolher qual é a real — as outras são
-// apagadas e o estoque é revertido (uma saída duplicada devolve a quantidade; uma entrada duplicada tira
-// de volta), pra não ficar nem faltando nem sobrando estoque por causa da duplicata.
+// apagadas — SEM mexer na quantidade em estoque. Confirmado pelo usuário: o registro (linha na tabela de
+// movimentações) é o que duplica, não a baixa real no estoque em si — o `stock_items.qty` já reflete a
+// baixa certa mesmo quando o LOG dessa baixa aparece 2x. Corrigido depois de um caso real onde a versão
+// anterior (que devolvia a quantidade a cada duplicata apagada) inflou o estoque incorretamente.
 function openDuplicateMovementFix(idsUnderscore){
   const ids = idsUnderscore.split('_');
   const movs = ids.map(id=>state.movements.find(m=>m.id===id)).filter(Boolean);
   openModal(`
     <div class="modal-head"><h3>Movimentação de estoque duplicada</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="hint" style="margin-bottom:14px;">Essas movimentações parecem ser a mesma baixa/entrada de estoque registrada mais de uma vez. Escolha qual é a real — as outras são apagadas e o estoque é revertido corretamente.</div>
+    <div class="hint" style="margin-bottom:14px;">Essas movimentações parecem ser o mesmo registro de baixa/entrada de estoque duplicado na lista — a quantidade em estoque já está correta (a duplicata é só no registro/histórico, não na baixa real). Escolha qual linha manter — as outras são apagadas do histórico, sem alterar a quantidade em estoque.</div>
     ${movs.map(m=>`<div class="panel" style="margin-bottom:10px;padding:12px;">
       <div class="stat-row-list">
         <div class="stat-row"><span class="stat-row-label">Item</span><span class="stat-row-value">${esc(m.itemName)}</span></div>
@@ -5423,7 +5425,7 @@ function openDuplicateMovementFix(idsUnderscore){
         <div class="stat-row"><span class="stat-row-label">Data</span><span class="stat-row-value">${fmtDate(m.date)}</span></div>
         <div class="stat-row"><span class="stat-row-label">Observação</span><span class="stat-row-value">${esc(m.note||'—')}</span></div>
       </div>
-      <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisMovement('${m.id}','${idsUnderscore}')">✓ Manter essa, apagar as outras</button>
+      <button class="btn btn-primary btn-sm" style="width:100%;margin-top:10px;" onclick="keepThisMovement('${m.id}','${idsUnderscore}')">✓ Manter essa, apagar as outras (sem mexer no estoque)</button>
     </div>`).join('')}
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar sem decidir agora</button></div>
   `, 'wide');
@@ -5431,22 +5433,15 @@ function openDuplicateMovementFix(idsUnderscore){
 function keepThisMovement(keepId, idsUnderscore){
   const ids = idsUnderscore.split('_').filter(id=>id!==keepId);
   confirmModal(
-    `Confirma? ${ids.length} movimentação(ões) duplicada(s) serão apagadas de vez, e o estoque será revertido pra ficar certo (nem faltando, nem sobrando).`,
+    `Confirma? ${ids.length} linha(s) duplicada(s) do histórico serão apagadas — a quantidade em estoque NÃO é alterada, já que ela já está correta (só o registro duplica).`,
     async ()=>{
       for(const id of ids){
-        const m = state.movements.find(x=>x.id===id);
-        if(!m) continue;
-        const stockItem = state.stockItems.find(s=>s.id===m.stockItemId);
-        if(stockItem){
-          const delta = m.type==='saida' ? m.qty : -m.qty; // saída duplicada devolve a quantidade; entrada duplicada tira de volta
-          await sb.from('stock_items').update({ qty: stockItem.qty + delta }).eq('id', m.stockItemId);
-        }
         await sb.from('stock_movements').delete().eq('id', id);
       }
-      toast(`${ids.length} movimentação(ões) duplicada(s) apagada(s), estoque corrigido`);
+      toast(`${ids.length} registro(s) duplicado(s) apagado(s) do histórico`);
       await loadAll(); renderAll(); renderConciliacao();
     },
-    'Apagar movimentações duplicadas'
+    'Apagar registros duplicados'
   );
 }
 // Mostra todas as receitas duplicadas de um pedido lado a lado (data, valor, conta, forma de pagamento)
