@@ -4538,28 +4538,65 @@ function openSaudeFinanceiraModal(){
   `, 'wide');
 }
 const GOAL_PERIODS = [
-  { key:'monthly', label:'Mensal', field:'revenueGoalMonthly', dbField:'revenue_goal_monthly', days:30 },
-  { key:'quarterly', label:'Trimestral', field:'revenueGoalQuarterly', dbField:'revenue_goal_quarterly', days:90 },
-  { key:'semestral', label:'Semestral', field:'revenueGoalSemestral', dbField:'revenue_goal_semestral', days:180 },
-  { key:'yearly', label:'Anual', field:'revenueGoalYearly', dbField:'revenue_goal_yearly', days:365 },
+  { key:'monthly', label:'Mensal', field:'revenueGoalMonthly', dbField:'revenue_goal_monthly' },
+  { key:'quarterly', label:'Trimestral', field:'revenueGoalQuarterly', dbField:'revenue_goal_quarterly' },
+  { key:'semestral', label:'Semestral', field:'revenueGoalSemestral', dbField:'revenue_goal_semestral' },
+  { key:'yearly', label:'Anual', field:'revenueGoalYearly', dbField:'revenue_goal_yearly' },
 ];
-// Pra Mensal usa o mês corrente exato (bate com o resto do sistema). Pros demais, usa uma janela rolante
-// dos últimos N dias até hoje — um "trimestre corrente" fixo (jan-mar, abr-jun...) seria menos intuitivo
-// pra medir progresso de uma meta que pode ter sido definida a qualquer momento do ano.
-function goalPeriodRange(days){
-  const today = todayStr();
-  if(days===30){
-    const now = new Date();
-    return { from: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`, to: today };
+// Guarda em que período cada card de meta está (0 = período atual, -1 = anterior, -2 = dois atrás...) —
+// reseta pra 0 a cada carregamento da página, o que é o comportamento esperado (sempre abre no período
+// corrente, mas dá pra navegar pros anteriores clicando nas setinhas).
+let goalPeriodOffsets = { monthly:0, quarterly:0, semestral:0, yearly:0 };
+function changeGoalPeriod(key, delta){
+  const novo = (goalPeriodOffsets[key]||0) + delta;
+  if(novo > 0) return; // não deixa navegar pra período futuro (ainda não tem faturamento pra mostrar)
+  goalPeriodOffsets[key] = novo;
+  renderMetasEInsights();
+}
+// Sempre em calendário fixo começando em janeiro (trimestres: jan-mar/abr-jun/jul-set/out-dez; semestres:
+// jan-jun/jul-dez; ano: jan-dez) — em vez de uma janela "rolante" dos últimos N dias, que era menos
+// previsível pra comparar um período com o mesmo período do ano anterior. `offset` navega quantos
+// períodos pra trás (0 = o período corrente).
+function goalPeriodRange(key, offset){
+  offset = offset || 0;
+  const now = new Date();
+  const y = now.getFullYear();
+  if(key==='monthly'){
+    const d = new Date(y, now.getMonth()+offset, 1);
+    const from = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+    const lastDay = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+    const to = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return { from, to, label: d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) };
   }
-  return { from: addDays(today, -days), to: today };
+  if(key==='quarterly'){
+    let q = Math.floor(now.getMonth()/3) + offset, yy = y;
+    while(q<0){ q+=4; yy--; } while(q>3){ q-=4; yy++; }
+    const startMonth = q*3, endMonth = startMonth+2;
+    const from = `${yy}-${String(startMonth+1).padStart(2,'0')}-01`;
+    const lastDay = new Date(yy, endMonth+1, 0).getDate();
+    const to = `${yy}-${String(endMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return { from, to, label: `${q+1}º trimestre de ${yy}` };
+  }
+  if(key==='semestral'){
+    let s = (now.getMonth()<6?0:1) + offset, yy = y;
+    while(s<0){ s+=2; yy--; } while(s>1){ s-=2; yy++; }
+    const startMonth = s*6, endMonth = startMonth+5;
+    const from = `${yy}-${String(startMonth+1).padStart(2,'0')}-01`;
+    const lastDay = new Date(yy, endMonth+1, 0).getDate();
+    const to = `${yy}-${String(endMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return { from, to, label: `${s+1}º semestre de ${yy}` };
+  }
+  const yy = y + offset; // yearly
+  return { from:`${yy}-01-01`, to:`${yy}-12-31`, label: String(yy) };
 }
 function openEditGoalModal(key){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão pra editar metas', true); return; }
   const gp = GOAL_PERIODS.find(g=>g.key===key);
+  const range = goalPeriodRange(key, goalPeriodOffsets[key]||0);
   openModal(`
     <div class="modal-head"><h3>🎯 Meta ${gp.label.toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field"><label>Meta de faturamento (R$)</label><input id="goal-edit-value" type="number" step="0.01" min="0" value="${state.company[gp.field]||''}" placeholder="0,00"></div>
+    <div class="hint" style="margin-top:-8px;">Esse valor vale como meta pra qualquer ${gp.label.toLowerCase()} visualizado — não é específico de "${esc(range.label)}", é o mesmo alvo todo período. Use as setinhas no card pra navegar entre períodos e comparar o resultado de cada um.</div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveGoalModal('${key}')">Salvar</button></div>
   `);
 }
@@ -4577,15 +4614,25 @@ function renderMetasEInsights(){
   const box = document.getElementById('metasGrid');
   if(!box) return;
   box.innerHTML = GOAL_PERIODS.map(gp=>{
-    const range = goalPeriodRange(gp.days);
+    const offset = goalPeriodOffsets[gp.key]||0;
+    const range = goalPeriodRange(gp.key, offset);
     const faturamento = state.orders.filter(o=>o.status==='entregue' && o.deliveredAt && o.deliveredAt>=range.from && o.deliveredAt<=range.to).reduce((s,o)=>s+o.total,0);
     const meta = state.company[gp.field];
     const pct = meta>0 ? Math.min(100, faturamento/meta*100) : 0;
     const barColor = pct>=100?'var(--success)':pct>=60?'var(--accent)':'var(--warn)';
-    return `<div class="stat-card clickable" onclick="openEditGoalModal('${gp.key}')">
-      <div class="stat-label">${gp.label}</div>
-      <div class="stat-value" style="font-size:16px;">${fmtMoney(faturamento)}${meta?' / '+fmtMoney(meta):''}</div>
-      ${meta ? `<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:${pct}%;background:${barColor};"></div></div><div class="hint" style="margin-top:3px;">${pct.toFixed(0)}%</div>` : '<div class="hint" style="margin-top:3px;color:var(--accent);">Clique pra definir uma meta</div>'}
+    return `<div class="stat-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="stat-label">${gp.label}</div>
+        <div style="display:flex;gap:2px;">
+          <button class="icon-btn" style="width:18px;height:18px;font-size:10px;padding:0;line-height:18px;" onclick="changeGoalPeriod('${gp.key}',-1)" title="Período anterior">◀</button>
+          <button class="icon-btn" style="width:18px;height:18px;font-size:10px;padding:0;line-height:18px;" onclick="changeGoalPeriod('${gp.key}',1)" title="Próximo período" ${offset>=0?'disabled':''}>▶</button>
+        </div>
+      </div>
+      <div class="hint" style="margin:0 0 2px 0;text-transform:capitalize;">${esc(range.label)}</div>
+      <div class="clickable" style="cursor:pointer;" onclick="openEditGoalModal('${gp.key}')">
+        <div class="stat-value" style="font-size:16px;">${fmtMoney(faturamento)}${meta?' / '+fmtMoney(meta):''}</div>
+        ${meta ? `<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:6px;"><div style="height:100%;width:${pct}%;background:${barColor};"></div></div><div class="hint" style="margin-top:3px;">${pct.toFixed(0)}%</div>` : '<div class="hint" style="margin-top:3px;color:var(--accent);">Clique pra definir uma meta</div>'}
+      </div>
     </div>`;
   }).join('');
   renderMachinesList();
