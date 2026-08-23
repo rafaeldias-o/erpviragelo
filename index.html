@@ -3335,11 +3335,14 @@ function renderOdpDistanceDisplay(){
     return;
   }
   const mode = document.getElementById('odp-calc-mode')?.value || state.company.routeCalcMode || 'ida';
-  const nota = ' <span style="color:var(--muted);">(já com 500m de margem descontados)</span>';
 
+  // O desconto de 500m só se aplica ao trecho final "entrega -> casa do motorista" (ou "-> fábrica" no
+  // modo ida e volta) — nunca na distância da entrega em si. É a mesma regra usada em computeRouteLegs
+  // pras rotas com múltiplas entregas, replicada aqui pro caso de uma entrega só.
   if(mode==='ida_volta'){
-    const total = applyDeliveryKmAdjustment(odpBaseDistanceKm * 2);
-    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Ida e volta (fábrica → cliente → fábrica): <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}</div><input type="hidden" id="odp-distance-auto" value="${total}">`;
+    const volta = applyDeliveryKmAdjustment(odpBaseDistanceKm);
+    const total = odpBaseDistanceKm + volta;
+    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Ida e volta (fábrica → cliente → fábrica): <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}"><input type="hidden" id="odp-homeleg-auto" value="${volta}">`;
     renderOdpMap(odpClientCoord, null);
     updateOdpDistanceSummary(total);
     return;
@@ -3347,38 +3350,34 @@ function renderOdpDistanceDisplay(){
   if(mode==='casa_motorista'){
     const driver = document.getElementById('odp-driver')?.value;
     if(!driver){
-      const soFabricaCliente = applyDeliveryKmAdjustment(odpBaseDistanceKm);
-      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${soFabricaCliente.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}<br>Selecione o motorista pra somar o trecho até a casa dele.</div><input type="hidden" id="odp-distance-auto" value="${soFabricaCliente}">`;
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong><br>Selecione o motorista pra somar o trecho até a casa dele.</div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
       renderOdpMap(odpClientCoord, null);
-      updateOdpDistanceSummary(soFabricaCliente);
+      updateOdpDistanceSummary(odpBaseDistanceKm);
       return;
     }
     const home = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng};
     if(home.lat==null){
-      const soFabricaCliente = applyDeliveryKmAdjustment(odpBaseDistanceKm);
-      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${soFabricaCliente.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}<br><span style="color:var(--warn);">⚠️ Endereço da casa desse motorista não cadastrado — contando só até o cliente. Cadastre em Agenda de Entregas.</span></div><input type="hidden" id="odp-distance-auto" value="${soFabricaCliente}">`;
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: <strong>${odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong><br><span style="color:var(--warn);">⚠️ Endereço da casa desse motorista não cadastrado — contando só até o cliente. Cadastre em Agenda de Entregas.</span></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
       renderOdpMap(odpClientCoord, null);
-      updateOdpDistanceSummary(soFabricaCliente);
+      updateOdpDistanceSummary(odpBaseDistanceKm);
       return;
     }
     wrap.innerHTML = `<div class="hint">📍 Calculando trecho cliente → casa do motorista...</div>`;
     const clientForCalc = odpCurrentClientId; // pra conferir se o modal ainda é o mesmo quando a resposta chegar
     routeDistanceKm(odpClientCoord, home).then(extra=>{
       if(!document.body.contains(wrap) || odpCurrentClientId!==clientForCalc) return; // modal mudou nesse meio tempo
-      const soFabricaCliente = applyDeliveryKmAdjustment(odpBaseDistanceKm);
       const homeLegKm = applyDeliveryKmAdjustment(extra!=null ? extra : 0);
-      const total = soFabricaCliente + homeLegKm;
-      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${soFabricaCliente.toLocaleString('pt-BR',{maximumFractionDigits:1})} km + cliente → casa: ${homeLegKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}</div><input type="hidden" id="odp-distance-auto" value="${soFabricaCliente}"><input type="hidden" id="odp-homeleg-auto" value="${homeLegKm}">`;
+      const total = odpBaseDistanceKm + homeLegKm;
+      wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Fábrica → cliente: ${odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km + cliente → casa: ${homeLegKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km = <strong>${total.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}"><input type="hidden" id="odp-homeleg-auto" value="${homeLegKm}">`;
       renderOdpMap(odpClientCoord, home);
       updateOdpDistanceSummary(total);
     });
     return;
   }
-  // modo 'ida' (padrão)
-  const totalIda = applyDeliveryKmAdjustment(odpBaseDistanceKm);
-  wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${totalIda.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong>${nota}</div><input type="hidden" id="odp-distance-auto" value="${totalIda}">`;
+  // modo 'ida' (padrão) — não tem trecho final nenhum, então não tem onde aplicar o desconto.
+  wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">📍 Distância calculada automaticamente: <strong>${odpBaseDistanceKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km</strong></div><input type="hidden" id="odp-distance-auto" value="${odpBaseDistanceKm}">`;
   renderOdpMap(odpClientCoord, null);
-  updateOdpDistanceSummary(totalIda);
+  updateOdpDistanceSummary(odpBaseDistanceKm);
 }
 // Mantém o resumo do topo do modal ("Distância") sincronizado com o valor final calculado abaixo —
 // evita que a informação apareça só perto do mapa, como o usuário pediu pra também constar no resumo.
@@ -7842,10 +7841,11 @@ async function fetchRouteGeometry(points){
     return json.routes[0].geometry.coordinates.map(([lng,lat])=>[lat,lng]);
   }catch(e){ console.warn('Geometria da rota falhou:', e); return null; }
 }
-// Ajuste combinado: todo resultado FINAL de distância de entrega desconta 500m de margem (decisão de
-// negócio, pra compensar a diferença entre a rota calculada pelo app e o percurso real do motorista no
-// dia a dia). Nunca deixa o valor final ficar negativo — clampa em 0 se a distância calculada for menor
-// que 500m.
+// Ajuste combinado: o resultado do trecho final "entrega -> casa do motorista" (ou "-> fábrica" no modo
+// ida e volta) desconta 500m de margem (decisão de negócio, pra compensar a diferença entre a rota
+// calculada pelo app e o percurso real do motorista no dia a dia). Nunca deixa o valor final ficar
+// negativo — clampa em 0 se a distância calculada for menor que 500m. Só se aplica a esse trecho final,
+// nunca à distância da entrega em si.
 function applyDeliveryKmAdjustment(km){
   if(km==null) return km;
   return Math.max(0, Math.round((km - 0.5) * 100) / 100);
@@ -7856,7 +7856,8 @@ function applyDeliveryKmAdjustment(km){
 // chamada só (com todas as paradas em ordem) e devolve a distância de cada TRECHO já atribuída à parada
 // certa. O trecho final (casa do motorista, ou volta pra fábrica no modo ida e volta) vem SEPARADO em vez
 // de somado dentro da última parada — assim dá pra mostrar e editar esse pedaço isoladamente, como um
-// "destino final" à parte. Cada valor (por parada e o final) já sai com os 500m de margem descontados.
+// "destino final" à parte. Só o trecho final leva o desconto de 500m; as distâncias das entregas em si
+// (perStop) ficam com o valor bruto calculado, sem desconto nenhum.
 // Retorna { perStop: [...], homeLegKm } (ou null se a rota não puder ser calculada).
 async function computeRouteLegs(stops, mode, driverHome){
   const origin = companyOrigin();
@@ -7870,8 +7871,8 @@ async function computeRouteLegs(stops, mode, driverHome){
     const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`);
     const json = await res.json();
     if(json.code!=='Ok' || !json.routes?.[0]?.legs) return null;
-    const legsKm = json.routes[0].legs.map(l=>l.distance/1000);
-    const perStop = stops.map((_,i)=> applyDeliveryKmAdjustment(legsKm[i]));
+    const legsKm = json.routes[0].legs.map(l=>Math.round(l.distance/1000*100)/100);
+    const perStop = stops.map((_,i)=> legsKm[i]);
     const homeLegKm = hasFinalLeg ? applyDeliveryKmAdjustment(legsKm[legsKm.length-1]) : null;
     return { perStop, homeLegKm };
   }catch(e){ console.warn('Cálculo de rota com múltiplas paradas falhou:', e); return null; }
