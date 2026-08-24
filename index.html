@@ -951,7 +951,7 @@ tr:last-child td{border-bottom:none;}
                 </div>
                 <button class="btn btn-primary btn-sm" onclick="openMachineModal()">+ Nova máquina</button>
               </div>
-              <div id="machinesListWrap"></div>
+              <div id="machinesListWrap" class="table-scroll"></div>
             </div>
             <div class="panel">
               <div class="panel-head">
@@ -4489,11 +4489,11 @@ function renderDashContasBancariasMini(){
   const total = accounts.reduce((s,a)=>s+accountBalance(a.id),0);
   box.innerHTML = accounts.map(a=>{
     const t = accountTypeInfo(a.type);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;"><span style="flex-shrink:0;">${t.icon}</span><span style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span></div>
+    return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;flex:1 1 auto;"><span style="flex-shrink:0;">${t.icon}</span><span style="font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span></div>
       <span style="font-size:12.5px;font-weight:700;white-space:nowrap;flex-shrink:0;">${fmtMoney(accountBalance(a.id))}</span>
     </div>`;
-  }).join('') + `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;"><span style="font-size:12.5px;font-weight:700;">Saldo total</span><span style="font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0;">${fmtMoney(total)}</span></div>`;
+  }).join('') + `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px;padding-top:10px;"><span style="font-size:12.5px;font-weight:700;flex-shrink:0;">Saldo total</span><span style="font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;flex-shrink:0;">${fmtMoney(total)}</span></div>`;
 }
 function renderDashBottomCards(){
   const metaBox = document.getElementById('dashMetaCard');
