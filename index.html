@@ -764,7 +764,11 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
           </div>
-          <div class="two-col" style="margin-bottom:16px;align-items:start;">
+          <div class="three-col" style="margin-bottom:16px;align-items:start;">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
+              <div id="lancFluxoMesChart"></div>
+            </div>
             <div class="panel">
               <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Receitas</div></div>
               <div id="lancReceitasWrap" class="table-scroll"></div>
@@ -775,10 +779,6 @@ tr:last-child td{border-bottom:none;}
             </div>
           </div>
           <div class="three-col" id="contasFinanceirasResumos" style="margin-bottom:16px;"></div>
-          <div class="panel">
-            <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
-            <div id="lancFluxoMesChart"></div>
-          </div>
           <div class="panel">
             <div class="panel-head">
               <div class="section-title">Todos os lançamentos</div>
@@ -5372,26 +5372,26 @@ function renderLancResumoMes(){
   if(chartWrap) chartWrap.innerHTML = buildFluxoMesBarChart(totalReceitas, totalDespesas, saldoMes, saldoContas);
 }
 function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
-  const w=640, chartH=180, padT=26, padB=26, labelGap=20;
+  const w=280, chartH=120, padT=22, padB=22, labelGap=18;
   const maxVal = Math.max(receita, despesa, Math.abs(saldo), 1);
   const bars = [
     { label:'Receita', value:receita, color:'#16A34A' },
     { label:'Despesa', value:despesa, color:'#DC2626' },
-    { label:'Saldo do mês', value:saldo, color: saldo>=0?'#2563EB':'#DC2626' },
+    { label:'Saldo', value:saldo, color: saldo>=0?'#2563EB':'#DC2626' },
   ];
-  const barW = 100, gap = 60;
+  const barW = 46, gap = 20;
   const totalBarsW = bars.length*barW + (bars.length-1)*gap;
   const startX = (w-totalBarsW)/2;
   const baseline = padT+chartH;
-  let svg = `<svg viewBox="0 0 ${w} ${padT+chartH+padB+labelGap}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:520px;height:auto;font-family:inherit;display:block;margin:0 auto;">`;
+  let svg = `<svg viewBox="0 0 ${w} ${padT+chartH+padB+labelGap}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;">`;
   svg += `<line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--border)" stroke-width="1"/>`;
   bars.forEach((b,i)=>{
     const x = startX + i*(barW+gap);
-    const barH = Math.max(3, Math.abs(b.value)/maxVal*chartH);
+    const barH = Math.max(2, Math.abs(b.value)/maxVal*chartH);
     const y = b.value>=0 ? (baseline-barH) : baseline;
-    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="8" fill="${b.color}"/>`;
-    svg += `<text x="${x+barW/2}" y="${b.value>=0?y-10:y+barH+22}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
-    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="12" fill="var(--muted)">${b.label}</text>`;
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="5" fill="${b.color}"/>`;
+    svg += `<text x="${x+barW/2}" y="${b.value>=0?y-6:y+barH+16}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
+    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="10" fill="var(--muted)">${b.label}</text>`;
   });
   svg += `</svg>`;
   return svg + `<div class="hint" style="text-align:center;margin-top:6px;font-size:11px;">🏦 Saldo em contas: <strong style="color:var(--ink);">${fmtMoney(saldoContas)}</strong></div>`;
