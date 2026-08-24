@@ -427,7 +427,7 @@ tr:last-child td{border-bottom:none;}
         </div>
         <div class="two-col">
           <div class="panel"><div class="panel-head"><div class="section-title">Últimos pedidos</div></div><div id="lastOrders"></div></div>
-          <div class="panel"><div class="panel-head"><div class="section-title">Últimas movimentações de estoque</div></div><div id="lastMovements"></div></div>
+          <div class="panel" id="dashMarginInsightsCard"></div>
         </div>
       </section>
 
@@ -4997,8 +4997,8 @@ function buildMarginInsightsList(m){
   }
   return insights;
 }
-function renderFinMarginInsightsCard(){
-  const box = document.getElementById('finMarginInsightsCard');
+function renderFinMarginInsightsCard(containerId){
+  const box = document.getElementById(containerId||'finMarginInsightsCard');
   if(!box) return;
   const range = pagarMonthRange();
   const m = combinedRevenueInsights(range.from, range.to);
@@ -9084,9 +9084,8 @@ function renderDashboard(){
   lo.innerHTML = state.orders.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhum pedido ainda.</p></div>' :
     state.orders.slice(0,6).map(o=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('pedidos'); openOrderModal('${o.id}')"><div><strong>${esc(clientNameOf(o.clientId))}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(o.createdAt)} · ${fmtMoney(o.total)}</div></div><span class="badge ${orderStatusInfo(o.status).cls}">${orderStatusInfo(o.status).label}</span></div>`).join('');
 
-  const lm = document.getElementById('lastMovements');
-  lm.innerHTML = state.movements.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma movimentação ainda.</p></div>' :
-    state.movements.slice(0,6).map(m=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;cursor:pointer;" onclick="switchView('estoque')"><div><strong>${esc(m.itemName)}</strong><div style="color:var(--muted);font-size:11px">${fmtDate(m.date)}</div></div><span class="badge ${m.type==='entrada'?'badge-success':'badge-danger'}">${m.type==='entrada'?'+':'−'}${m.qty}</span></div>`).join('');
+  const lm = document.getElementById('dashMarginInsightsCard');
+  if(lm) renderFinMarginInsightsCard('dashMarginInsightsCard');
 }
 
 function buildLineChartSvg(values, labels, color, yAxisFmt){
