@@ -4967,7 +4967,7 @@ function combinedRevenueInsights(fromDate, toDate){
     const label = DELIVERY_DRIVERS.find(x=>x.v===dv)?.label || (dv.charAt(0).toUpperCase()+dv.slice(1));
     return { driver: dv, label, data: driverRevenueInsights(dv, fromDate, toDate) };
   });
-  return { ordersCount: orders.length, totalRevenue, totalProductCost, deliveryCost, totalKm, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: orders.length?smallOrders.length/orders.length*100:0, limiar: LIMIAR, avgTicketPorPacote, projRevenue, projProfit, volumeProjetado: VOLUME_PROJETADO, perDriver };
+  return { ordersCount: orders.length, orders, totalRevenue, totalProductCost, deliveryCost, totalKm, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: orders.length?smallOrders.length/orders.length*100:0, limiar: LIMIAR, avgTicketPorPacote, projRevenue, projProfit, volumeProjetado: VOLUME_PROJETADO, perDriver };
 }
 // Monta a lista de insights (ícone + cor + texto) a partir de um objeto de métricas — reaproveitado tanto
 // pro resumo combinado quanto pro detalhamento de cada motorista dentro da modal, pra manter a mesma
@@ -5002,9 +5002,6 @@ function renderFinMarginInsightsCard(containerId){
   if(!box) return;
   const range = pagarMonthRange();
   const m = combinedRevenueInsights(range.from, range.to);
-  box.classList.add('clickable');
-  box.title = 'Ver mais insights e detalhamento por motorista';
-  box.onclick = () => openMarginInsightsModal();
   if(!m){
     box.innerHTML = `<div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Margem e custo de entrega</div></div><div class="hint">Nenhuma entrega com motorista registrada nesse período ainda.</div>`;
     return;
@@ -5013,15 +5010,84 @@ function renderFinMarginInsightsCard(containerId){
   const boa = m.marginComEntrega!=null && m.marginComEntrega >= 20;
   box.innerHTML = `
     <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Margem e custo de entrega</div></div>
-    <div class="hint" style="margin-bottom:8px;">Todas as entregas com motorista (Beto, Gui e outros), combinadas.</div>
+    <div class="hint" style="margin-bottom:8px;">Todas as entregas com motorista (Beto, Gui e outros), combinadas. Clique em qualquer linha pra ver o detalhe.</div>
     <div class="stat-row-list">
-      <div class="stat-row"><span class="stat-row-label">Pedidos entregues</span><span class="stat-row-value">${m.ordersCount}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Margem sem entrega</span><span class="stat-row-value">${m.marginSemEntrega!=null?m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Margem com entrega</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Custo extra por pacote</span><span class="stat-row-value">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</span></div>
+      <div class="stat-row clickable" onclick="showEntregasDetailFromMargin()"><span class="stat-row-label">Pedidos entregues</span><span class="stat-row-value">${m.ordersCount}</span></div>
+      <div class="stat-row clickable" onclick="showMargemSemEntregaDetail()"><span class="stat-row-label">Margem sem entrega</span><span class="stat-row-value">${m.marginSemEntrega!=null?m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+      <div class="stat-row clickable" onclick="showMargemComEntregaDetail()"><span class="stat-row-label">Margem com entrega</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+      <div class="stat-row clickable" onclick="showCustoPorPacoteDetail()"><span class="stat-row-label">Custo extra por pacote</span><span class="stat-row-value">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</span></div>
     </div>
-    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="event.stopPropagation(); openMarginInsightsModal();">Ver mais insights e detalhamento por motorista →</button>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="openMarginInsightsModal()">Ver mais insights e detalhamento por motorista →</button>
   `;
+}
+// As 4 modais de detalhe abaixo sempre recalculam pro período atual (mês corrente de Contas a Pagar),
+// igual ao card — evita guardar estado velho se o usuário demorar pra clicar.
+function showEntregasDetailFromMargin(){
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m) return;
+  openModal(`
+    <div class="modal-head"><h3>📦 Pedidos entregues</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">${m.ordersCount} pedido(s) entregues com motorista, considerados no cálculo de margem — ${esc(range.label)}.</div>
+    <table><thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
+      ${m.orders.map(o=>{
+        const client = state.clients.find(c=>c.id===o.clientId);
+        return `<tr><td><a href="#" onclick="closeModal(); openOrderModal('${o.id}'); return false;">${esc(o.orderNumber||o.id.slice(0,8))}</a></td><td>${esc(client?client.name:'—')}</td><td>${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</td><td style="text-align:right;">${fmtMoney(o.total)}</td></tr>`;
+      }).join('')}
+    </tbody></table>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'wide');
+}
+function showMargemSemEntregaDetail(){
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m) return;
+  openModal(`
+    <div class="modal-head"><h3>📊 Margem sem entrega</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">Só considera o custo do produto (CMV) — ainda não desconta o custo de entrega.</div>
+    <div class="stat-row-list">
+      <div class="stat-row"><span class="stat-row-label">Faturamento</span><span class="stat-row-value">${fmtMoney(m.totalRevenue)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo do produto (CMV)</span><span class="stat-row-value">− ${fmtMoney(m.totalProductCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Lucro bruto</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(m.totalRevenue-m.totalProductCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Margem</span><span class="stat-row-value" style="font-weight:700;">${m.marginSemEntrega!=null?m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
+}
+function showMargemComEntregaDetail(){
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m) return;
+  const ruim = m.marginComEntrega!=null && m.marginComEntrega < 10;
+  const boa = m.marginComEntrega!=null && m.marginComEntrega >= 20;
+  openModal(`
+    <div class="modal-head"><h3>⚖️ Margem com entrega</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">Desconta o custo do produto (CMV) E o custo de entrega (combustível) — a margem real da operação.</div>
+    <div class="stat-row-list">
+      <div class="stat-row"><span class="stat-row-label">Faturamento</span><span class="stat-row-value">${fmtMoney(m.totalRevenue)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo do produto (CMV)</span><span class="stat-row-value">− ${fmtMoney(m.totalProductCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo de entrega</span><span class="stat-row-value">− ${fmtMoney(m.deliveryCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Lucro líquido</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(m.totalRevenue-m.totalProductCost-m.deliveryCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Margem</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
+}
+function showCustoPorPacoteDetail(){
+  const range = pagarMonthRange();
+  const m = combinedRevenueInsights(range.from, range.to);
+  if(!m) return;
+  openModal(`
+    <div class="modal-head"><h3>🎯 Custo extra por pacote</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">O custo de entrega total, dividido pelo número de pacotes entregues nesse período.</div>
+    <div class="stat-row-list">
+      <div class="stat-row"><span class="stat-row-label">Custo de entrega total</span><span class="stat-row-value">${fmtMoney(m.deliveryCost)}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Pacotes entregues</span><span class="stat-row-value">÷ ${m.totalPackages} un</span></div>
+      <div class="stat-row"><span class="stat-row-label">Custo extra por pacote</span><span class="stat-row-value" style="font-weight:700;">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</span></div>
+    </div>
+    <div class="hint" style="margin-top:10px;">É quanto o preço de cada pacote precisaria subir pra cobrir o custo de entrega sem perder margem.</div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
 }
 // Modal completa (centralizada, tamanho grande) com todos os insights — visão combinada de todos os
 // motoristas primeiro, depois o detalhamento de cada um separadamente, reaproveitando a mesma função de
