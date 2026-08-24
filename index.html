@@ -5399,12 +5399,40 @@ function renderConciliacao(){
     if(from?.status==='inativa' || to?.status==='inativa') issues.push({ tipo:'Transferência com conta inativa', detalhe:`Transferência de ${fmtMoney(tr.amount)} em ${fmtDate(tr.date)} envolve uma conta marcada como inativa`, severidade:'baixa' });
   });
   if(issues.length===0){ wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência encontrada.</p></div>'; return; }
+  // Dispensar um alerta guarda a "assinatura" dele no navegador (localStorage) — não apaga nem altera
+  // nenhum dado, só some da lista pra quem já decidiu que não vale a pena mexer naquele caso específico.
+  // Alertas genuinamente NOVOS (com uma assinatura diferente) continuam aparecendo normalmente.
+  issues.forEach(i=>{ i.dismissKey = i.tipo+'|'+i.detalhe; });
+  const dispensados = getDismissedConciliacaoIssues();
+  const visiveis = issues.filter(i=>!dispensados.has(i.dismissKey));
+  const totalDispensados = issues.length - visiveis.length;
+  if(visiveis.length===0){
+    wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência pendente.</p></div>${totalDispensados>0?`<div class="hint" style="text-align:center;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
+    return;
+  }
   wrap.innerHTML = `
     ${gruposReceitaDuplicada.length>1 ? `<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button></div>` : ''}
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
-    ${issues.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td>${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}</td></tr>`).join('')}
-  </tbody></table>`;
+    ${visiveis.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
+    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista">✕ Dispensar</button></td></tr>`).join('')}
+  </tbody></table>
+  ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
+}
+function getDismissedConciliacaoIssues(){
+  try{ return new Set(JSON.parse(localStorage.getItem('dismissedConciliacaoIssues')||'[]')); }
+  catch(e){ return new Set(); }
+}
+function dismissConciliacaoIssue(key){
+  const dispensados = getDismissedConciliacaoIssues();
+  dispensados.add(key);
+  localStorage.setItem('dismissedConciliacaoIssues', JSON.stringify([...dispensados]));
+  toast('Alerta dispensado — nada foi alterado nos dados');
+  renderConciliacao();
+}
+function restoreDismissedConciliacaoIssues(){
+  localStorage.removeItem('dismissedConciliacaoIssues');
+  renderConciliacao();
+  toast('Alertas dispensados restaurados');
 }
 // Mostra movimentações de estoque duplicadas lado a lado e deixa escolher qual é a real — as outras são
 // apagadas — SEM mexer na quantidade em estoque. Confirmado pelo usuário: o registro (linha na tabela de
