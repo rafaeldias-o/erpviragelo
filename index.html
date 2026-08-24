@@ -747,16 +747,44 @@ tr:last-child td{border-bottom:none;}
         <div id="finLancamentosView" style="display:none;">
           <div class="panel" style="background:var(--info-bg);border-color:transparent;">
             <div style="font-size:12.5px;color:var(--ink);">
-              <strong>Faturamento não é lançado manualmente aqui.</strong> Toda receita é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Este módulo serve para controlar despesas, contas a pagar e o fluxo de caixa.
+              <strong>Receita de venda não é lançada manualmente.</strong> Ela é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Use "+ Novo lançamento" pra despesas, receitas avulsas (que não vieram de pedido, ex: aporte, ajuste) e recorrências.
             </div>
+          </div>
+          <div class="panel-head" style="margin-bottom:10px;">
+            <div class="section-title" style="font-size:16px;">Resumo do mês</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(-1)">←</button>
+              <span id="lancResumoMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
+              <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(1)">→</button>
+              <div style="position:relative;display:inline-block;">
+                <button class="btn btn-primary" onclick="toggleNovoLancamentoMenu()">+ Novo lançamento ▾</button>
+                <div id="novoLancamentoMenu" style="display:none;position:absolute;right:0;top:110%;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);z-index:50;min-width:190px;overflow:hidden;">
+                  <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'receita');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">💰 Nova receita</button>
+                  <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'despesa');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">📤 Nova despesa</button>
+                  <button onclick="closeNovoLancamentoMenu(); openRecurringTemplateModal();" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">🔁 Novo recorrente</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="two-col" style="margin-bottom:16px;">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Despesas (pagas no mês)</div></div>
+              <div id="lancDespesasWrap" class="table-scroll"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Receitas</div></div>
+              <div id="lancReceitasWrap" class="table-scroll"></div>
+            </div>
+          </div>
+          <div class="panel" style="margin-bottom:16px;">
+            <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
+            <div id="lancFluxoMesChart"></div>
           </div>
           <div class="panel">
             <div class="panel-head">
-              <div class="section-title">Lançamentos</div>
+              <div class="section-title">Todos os lançamentos</div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(-1)" id="lancPrevMonthBtn">←</button>
                 <span id="lancMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
-                <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(1)" id="lancNextMonthBtn">→</button>
                 <button class="btn btn-ghost btn-sm" id="lancShowAllBtn" onclick="lancamentosToggleShowAll()">Ver completo</button>
               </div>
             </div>
@@ -770,7 +798,6 @@ tr:last-child td{border-bottom:none;}
                 <button class="btn btn-ghost btn-sm" onclick="exportTransactionsCsv()">⬇️ CSV</button>
                 <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Imprimir</button>
                 <button class="btn btn-ghost btn-sm" onclick="setFinTab('categorias')">🏷️ Categorias</button>
-                <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
               </div>
             </div>
             <div id="finBulkBar" style="display:none;background:var(--info-bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;align-items:center;gap:10px;font-size:12.5px;">
@@ -791,6 +818,7 @@ tr:last-child td{border-bottom:none;}
             <div class="hint" style="margin-bottom:10px;">Caixa, banco, maquininha, Pix — cada lançamento é vinculado a uma conta, e o saldo de cada uma é calculado automaticamente pelos lançamentos pagos.</div>
             <div id="finAccountsTableWrap" class="table-scroll"></div>
           </div>
+          <div class="three-col" id="contasFinanceirasResumos" style="margin-top:16px;"></div>
         </div>
 
         <div id="finCategoriasView" style="display:none;">
@@ -3797,30 +3825,34 @@ function categoryFullLabel(c){
   return parent ? `${parent.name} > ${c.name}` : c.name;
 }
 const PAYMENT_METHODS_FIN = ['Dinheiro','Pix','Cartão de crédito','Cartão de débito','Boleto','Transferência','Outro'];
-function openTransactionModal(id){
+function openTransactionModal(id, forceType){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para gerenciar lançamentos', true); return; }
   const t = id ? state.transactions.find(x=>x.id===id) : null;
-  const isReceita = t && t.type==='receita';
-  const cats = state.financialCategories.filter(c=>c.type===(t?t.type:'despesa') && (c.status==='ativa' || c.id===(t&&t.categoryId)));
+  const effectiveType = t ? t.type : (forceType==='receita' ? 'receita' : 'despesa');
+  const isReceitaType = effectiveType==='receita';
+  const locked = !!(t && t.type==='receita'); // só receita já existente (vinda de pedido) trava os campos — receita manual nova é editável
+  const cats = state.financialCategories.filter(c=>c.type===effectiveType && (c.status==='ativa' || c.id===(t&&t.categoryId)));
   const accounts = state.financialAccounts.filter(a=>a.status==='ativa' || a.id===(t&&t.accountId));
   const suppliers = state.suppliers;
   openModal(`
-    <div class="modal-head"><h3>${t?(isReceita?'Editar receita':'Editar despesa'):'Nova despesa / conta a pagar'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    ${isReceita?'<div class="hint" style="margin-bottom:10px;">Essa receita foi gerada automaticamente por um pedido. Você pode ajustar conta, categoria, datas e cancelar — mas não o valor ou o pedido de origem.</div>':''}
-    <div class="field"><label>Descrição</label><input id="t-desc" value="${t?esc(t.description):''}" placeholder="Ex: Conta de luz, manutenção..." ${isReceita?'disabled':''}></div>
+    <div class="modal-head"><h3>${t?(isReceitaType?'Editar receita':'Editar despesa'):(isReceitaType?'Nova receita (manual)':'Nova despesa / conta a pagar')}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <input type="hidden" id="t-newtype" value="${effectiveType}">
+    ${locked?'<div class="hint" style="margin-bottom:10px;">Essa receita foi gerada automaticamente por um pedido. Você pode ajustar conta, categoria, datas e cancelar — mas não o valor ou o pedido de origem.</div>':''}
+    ${(!t && isReceitaType)?'<div class="hint" style="margin-bottom:10px;">Receita avulsa, que não veio de um pedido (ex: aporte, ajuste, venda fora do sistema) — fica marcada como "Receita manual" pra diferenciar das receitas automáticas de venda.</div>':''}
+    <div class="field"><label>Descrição</label><input id="t-desc" value="${t?esc(t.description):''}" placeholder="${isReceitaType?'Ex: Aporte, ajuste, venda externa...':'Ex: Conta de luz, manutenção...'}" ${locked?'disabled':''}></div>
     <div class="field-row">
-      <div class="field"><label>Valor (R$)</label><input id="t-amount" type="number" step="0.01" value="${t?t.amount:''}" placeholder="0,00" ${isReceita?'disabled':''}></div>
+      <div class="field"><label>Valor (R$)</label><input id="t-amount" type="number" step="0.01" value="${t?t.amount:''}" placeholder="0,00" ${locked?'disabled':''}></div>
       <div class="field"><label>Categoria</label><select id="t-cat">${cats.length?cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Pago com qual conta? (caixa, banco...)</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
       <div class="field"><label>Centro de custo</label><select id="t-costcenter"><option value="">—</option>${state.costCenters.map(c=>`<option value="${c.id}" ${t&&t.costCenterId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     </div>
-    ${!isReceita?`<div class="field"><label>Fornecedor</label><select id="t-supplier"><option value="">—</option>${suppliers.map(s=>`<option value="${s.id}" ${t&&t.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
+    ${!isReceitaType?`<div class="field"><label>Fornecedor</label><select id="t-supplier"><option value="">—</option>${suppliers.map(s=>`<option value="${s.id}" ${t&&t.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
     <div class="field-row3">
-      <div class="field"><label>Desconto (R$)</label><input id="t-discount" type="number" step="0.01" value="${t?t.discount:0}" ${isReceita?'disabled':''}></div>
-      <div class="field"><label>Juros (R$)</label><input id="t-interest" type="number" step="0.01" value="${t?t.interest:0}" ${isReceita?'disabled':''}></div>
-      <div class="field"><label>Multa (R$)</label><input id="t-fine" type="number" step="0.01" value="${t?t.fine:0}" ${isReceita?'disabled':''}></div>
+      <div class="field"><label>Desconto (R$)</label><input id="t-discount" type="number" step="0.01" value="${t?t.discount:0}" ${locked?'disabled':''}></div>
+      <div class="field"><label>Juros (R$)</label><input id="t-interest" type="number" step="0.01" value="${t?t.interest:0}" ${locked?'disabled':''}></div>
+      <div class="field"><label>Multa (R$)</label><input id="t-fine" type="number" step="0.01" value="${t?t.fine:0}" ${locked?'disabled':''}></div>
     </div>
     <div class="field-row3">
       <div class="field"><label>Emissão</label><input id="t-issue" type="date" value="${t?t.issueDate||'':''}"></div>
@@ -3888,7 +3920,9 @@ const TX_FIELD_LABELS = {
 };
 async function saveTransaction(id){
   const t = id ? state.transactions.find(x=>x.id===id) : null;
-  const isReceita = t && t.type==='receita';
+  const isReceita = t && t.type==='receita'; // receita JÁ EXISTENTE (vinda de pedido) — trava campos
+  const newType = document.getElementById('t-newtype')?.value || 'despesa'; // tipo escolhido ao criar (receita manual ou despesa)
+  const isNewReceita = !t && newType==='receita';
   const desc = isReceita ? t.description : document.getElementById('t-desc').value.trim();
   const amount = isReceita ? t.amount : parseFloat(document.getElementById('t-amount').value);
   if(!desc || !amount || amount<=0){ toast('Preencha descrição e valor', true); return; }
@@ -3917,13 +3951,19 @@ async function saveTransaction(id){
     payment_date: document.getElementById('t-payment').value || (status==='pago'?todayStr():null),
     payment_method: document.getElementById('t-paymethod').value || null,
     attachment_url: document.getElementById('t-attachment').value.trim() || null,
-    notes: document.getElementById('t-notes').value.trim() || null,
+    notes: (function(){
+      // Receita manual (não veio de pedido) ganha uma nota automática, pra diferenciar de receita
+      // automática de venda em qualquer lugar que liste os lançamentos.
+      const base = document.getElementById('t-notes').value.trim();
+      if(!isNewReceita) return base || null;
+      return (base ? base + ' ' : '') + '[Receita manual]';
+    })(),
     status,
     // paid_amount sempre reflete o status: pago = tudo, parcial = mantém o que já tinha registrado (editado à parte
     // pelo botão de pagamento parcial), aberto/cancelado = zero — assim o saldo da conta nunca fica desalinhado.
     paid_amount: status==='pago' ? totalDue : (status==='parcial' ? (t?t.paidAmount:0) : 0),
   };
-  if(!isReceita){
+  if(!isReceita && newType!=='receita'){
     const supplierSel = document.getElementById('t-supplier');
     data.supplier_id = supplierSel ? (supplierSel.value || null) : null;
   }
@@ -3963,7 +4003,7 @@ async function saveTransaction(id){
     const rows = amounts.map((amt,i)=>{
       const rowStatus = i===0 ? data.status : 'pendente'; // só a 1ª parcela pode nascer paga; as futuras começam em aberto
       return {
-        ...data, type:'despesa', amount: amt, due_date: addMonthsFin(data.due_date, i),
+        ...data, type:newType, amount: amt, due_date: addMonthsFin(data.due_date, i),
         installment_group_id: groupId, installment_number: i+1, installment_total: totalInstallments,
         status: rowStatus, paid_amount: rowStatus==='pago' ? amt : 0, // cada parcela tem seu próprio valor pago, não o do lote inteiro
       };
@@ -3973,9 +4013,9 @@ async function saveTransaction(id){
     closeModal(); toast(`${totalInstallments} parcelas geradas`); await loadAll(); renderAll();
     return;
   }
-  const { error } = await sb.from('transactions').insert({ ...data, type:'despesa' });
-  if(error){ dbErr(error, 'Erro ao salvar despesa'); unlockButton(_btn); return; }
-  closeModal(); toast('Despesa salva'); await loadAll(); renderAll();
+  const { error } = await sb.from('transactions').insert({ ...data, type:newType });
+  if(error){ dbErr(error, `Erro ao salvar ${newType==='receita'?'receita':'despesa'}`); unlockButton(_btn); return; }
+  closeModal(); toast(`${newType==='receita'?'Receita':'Despesa'} salva`); await loadAll(); renderAll();
 }
 async function duplicateTransaction(id){
   const t = state.transactions.find(x=>x.id===id);
@@ -4323,8 +4363,8 @@ function renderFinTopCards(){
       pctText:(pctDespesa>=0?'+':'')+pctDespesa.toFixed(1)+'%', fmtFn:fmtR, seriesLabel:'Despesas por dia',
       series:despesasDiaria, monthlySeries:despesasPorMes, monthlyLabels:monthLabelsFin
     })),
-    cardHtml('💼', '#DBEAFE', 'Saldo do mês', saldoMes, pctSaldo, buildSparklineSvg(saldoPorMes, '#2563EB', {
-      key:'finTop-saldoMes', icon:'💼', title:'Saldo do mês', valueText:fmtMoney(saldoMes),
+    cardHtml('💼', '#DBEAFE', 'Receita - Despesa', saldoMes, pctSaldo, buildSparklineSvg(saldoPorMes, '#2563EB', {
+      key:'finTop-saldoMes', icon:'💼', title:'Receita - Despesa', valueText:fmtMoney(saldoMes),
       pctText:(pctSaldo>=0?'+':'')+pctSaldo.toFixed(1)+'%', fmtFn:fmtR, seriesLabel:'Saldo (receitas − despesas) por dia',
       series:{labels:receitasDiaria.labels, values:saldoDiariaValues}, monthlySeries:saldoPorMes, monthlyLabels:monthLabelsFin
     })),
@@ -5247,6 +5287,75 @@ function renderCashEvolution(){
 }
 
 
+// Resumo do mês (Lançamentos): despesas pagas, receitas, e um gráfico de 3 barras (Receita/Despesa/Saldo)
+// do mês selecionado — usa o mesmo lancamentosMonthOffset das setinhas, pra navegar tudo junto.
+function renderLancResumoMes(){
+  const labelEl = document.getElementById('lancResumoMonthLabel');
+  if(!labelEl) return; // não está na aba Lançamentos agora, nada a fazer
+  const range = lancamentosMonthRange();
+  labelEl.textContent = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+
+  const despesas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to).sort((a,b)=>b.paymentDate.localeCompare(a.paymentDate));
+  const receitas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to).sort((a,b)=>b.paymentDate.localeCompare(a.paymentDate));
+  const totalDespesas = despesas.reduce((s,t)=>s+t.amount,0);
+  const totalReceitas = receitas.reduce((s,t)=>s+t.amount,0);
+  const saldoMes = totalReceitas - totalDespesas;
+  const saldoContas = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+
+  const despWrap = document.getElementById('lancDespesasWrap');
+  if(despWrap) despWrap.innerHTML = despesas.length ? `<table><thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
+    ${despesas.slice(0,8).map(t=>`<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')"><td>${esc(t.description)}</td><td>${fmtDate(t.paymentDate)}</td><td style="text-align:right;color:var(--danger);">− ${fmtMoney(t.amount)}</td></tr>`).join('')}
+  </tbody></table>${despesas.length>8?`<div class="hint" style="margin-top:6px;">Mostrando 8 de ${despesas.length}. <a href="#" onclick="event.preventDefault(); setFinTab('pagar');">Ver todas em Contas a Pagar →</a></div>`:''}
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;display:flex;justify-content:space-between;"><span>Total</span><span style="color:var(--danger);">${fmtMoney(totalDespesas)}</span></div>` : '<div class="hint">Nenhuma despesa paga nesse mês.</div>';
+
+  const recWrap = document.getElementById('lancReceitasWrap');
+  if(recWrap) recWrap.innerHTML = receitas.length ? `<table><thead><tr><th>Descrição</th><th>Data</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
+    ${receitas.slice(0,8).map(t=>`<tr style="cursor:pointer;" onclick="openTransactionModal('${t.id}')"><td>${esc(t.description)}${t.notes&&t.notes.includes('[Receita manual]')?' <span class="badge badge-muted" style="font-size:10px;">manual</span>':''}</td><td>${fmtDate(t.paymentDate)}</td><td style="text-align:right;color:var(--success);">+ ${fmtMoney(t.amount)}</td></tr>`).join('')}
+  </tbody></table>${receitas.length>8?`<div class="hint" style="margin-top:6px;">Mostrando 8 de ${receitas.length}.</div>`:''}
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;display:flex;justify-content:space-between;"><span>Total</span><span style="color:var(--success);">${fmtMoney(totalReceitas)}</span></div>` : '<div class="hint">Nenhuma receita nesse mês.</div>';
+
+  const chartWrap = document.getElementById('lancFluxoMesChart');
+  if(chartWrap) chartWrap.innerHTML = buildFluxoMesBarChart(totalReceitas, totalDespesas, saldoMes, saldoContas);
+}
+function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
+  const w=640, chartH=180, padT=26, padB=26, labelGap=20;
+  const maxVal = Math.max(receita, despesa, Math.abs(saldo), 1);
+  const bars = [
+    { label:'Receita', value:receita, color:'#16A34A' },
+    { label:'Despesa', value:despesa, color:'#DC2626' },
+    { label:'Saldo do mês', value:saldo, color: saldo>=0?'#2563EB':'#DC2626' },
+  ];
+  const barW = 100, gap = 60;
+  const totalBarsW = bars.length*barW + (bars.length-1)*gap;
+  const startX = (w-totalBarsW)/2;
+  const baseline = padT+chartH;
+  let svg = `<svg viewBox="0 0 ${w} ${padT+chartH+padB+labelGap}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;">`;
+  svg += `<line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--border)" stroke-width="1"/>`;
+  bars.forEach((b,i)=>{
+    const x = startX + i*(barW+gap);
+    const barH = Math.max(3, Math.abs(b.value)/maxVal*chartH);
+    const y = b.value>=0 ? (baseline-barH) : baseline;
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="8" fill="${b.color}"/>`;
+    svg += `<text x="${x+barW/2}" y="${b.value>=0?y-10:y+barH+22}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
+    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="12" fill="var(--muted)">${b.label}</text>`;
+  });
+  svg += `</svg>`;
+  return svg + `<div class="hint" style="text-align:center;margin-top:6px;">🏦 Saldo em conta (todas as contas ativas): <strong style="color:var(--ink);">${fmtMoney(saldoContas)}</strong></div>`;
+}
+function toggleNovoLancamentoMenu(){
+  const menu = document.getElementById('novoLancamentoMenu');
+  if(!menu) return;
+  menu.style.display = menu.style.display==='none' ? 'block' : 'none';
+}
+function closeNovoLancamentoMenu(){
+  const menu = document.getElementById('novoLancamentoMenu');
+  if(menu) menu.style.display = 'none';
+}
+document.addEventListener('click', (e)=>{
+  const menu = document.getElementById('novoLancamentoMenu');
+  if(!menu || menu.style.display==='none') return;
+  if(!e.target.closest('#novoLancamentoMenu') && e.target.getAttribute('onclick')!=='toggleNovoLancamentoMenu()') menu.style.display='none';
+});
 let lancamentosMonthOffset = 0;
 let lancamentosShowAll = false;
 let lancamentosPage = 1;
@@ -5270,6 +5379,7 @@ function lancamentosMonthRange(){
 }
 function renderFinanceiro(){
   renderFinDashboard();
+  renderLancResumoMes();
   const filter = document.getElementById('finFilter').value;
   const search = (document.getElementById('finSearch')?.value||'').trim().toLowerCase();
   const today = todayStr();
@@ -5281,8 +5391,6 @@ function renderFinanceiro(){
   const showAllBtn = document.getElementById('lancShowAllBtn');
   if(monthLabelEl){
     monthLabelEl.textContent = lancamentosShowAll ? 'Todos os lançamentos' : (monthRange.label.charAt(0).toUpperCase()+monthRange.label.slice(1));
-    document.getElementById('lancPrevMonthBtn').style.display = lancamentosShowAll ? 'none' : 'inline-flex';
-    document.getElementById('lancNextMonthBtn').style.display = lancamentosShowAll ? 'none' : 'inline-flex';
     showAllBtn.textContent = lancamentosShowAll ? '📅 Ver por mês' : '📋 Ver completo';
   }
   if(!lancamentosShowAll) list = list.filter(t => t.dueDate >= monthRange.from && t.dueDate <= monthRange.to);
@@ -5725,8 +5833,8 @@ function setFinTab(tab){
   document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
   document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
-  document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas') ? 'none' : 'block';
-  if(tab==='contas') renderFinAccountsTable();
+  document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas'||tab==='lancamentos'||tab==='contas') ? 'none' : 'block';
+  if(tab==='contas'){ renderFinAccountsTable(); renderContasFinanceirasResumos(); }
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
@@ -5993,6 +6101,55 @@ async function deleteFinAccount(id){
   const { error } = await sb.from('financial_accounts').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao excluir conta'); return; }
   closeModal(); toast('Conta excluída'); await loadAll(); renderFinAccountsTable();
+}
+// 3 quadrantes de prévia dentro de Contas Financeiras — mostram as mesmas informações das abas
+// exclusivas (Recorrentes, Contas a Pagar, Contas a Receber), sem remover essas abas por enquanto.
+// Cada quadrante linka pra aba correspondente, pra ver a lista completa.
+function renderContasFinanceirasResumos(){
+  const box = document.getElementById('contasFinanceirasResumos');
+  if(!box) return;
+  const today = todayStr();
+
+  // Contas recorrentes
+  const templates = state.recurringTemplates.filter(rt=>rt.active);
+  const totalRecorrente = templates.reduce((s,rt)=>s+rt.amount,0);
+
+  // Contas a pagar
+  const despesasAtivas = state.transactions.filter(t=>t.type==='despesa' && t.status!=='cancelado');
+  const totalAPagar = despesasAtivas.filter(t=>t.status!=='pago').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const vencidoPagar = despesasAtivas.filter(t=>t.status!=='pago' && t.dueDate<today).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+
+  // Contas a receber
+  const receitasAtivas = state.transactions.filter(t=>t.type==='receita' && t.status!=='cancelado');
+  const totalAReceber = receitasAtivas.filter(t=>t.status!=='pago').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const vencidoReceber = receitasAtivas.filter(t=>t.status!=='pago' && t.dueDate<today).reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+
+  box.innerHTML = `
+    <div class="panel clickable" onclick="setFinTab('recorrentes')" title="Ver todas as recorrências">
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">🔁 Contas recorrentes</div></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Recorrências ativas</span><span class="stat-row-value">${templates.length}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Valor total por ciclo</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(totalRecorrente)}</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px;color:var(--accent-2);font-weight:600;">Ver todas →</div>
+    </div>
+    <div class="panel clickable" onclick="setFinTab('pagar')" title="Ver todas as contas a pagar">
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Contas a pagar</div></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Total a pagar</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(totalAPagar)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Vencido</span><span class="stat-row-value" style="color:${vencidoPagar?'var(--danger)':'inherit'};">${fmtMoney(vencidoPagar)}</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px;color:var(--accent-2);font-weight:600;">Ver todas →</div>
+    </div>
+    <div class="panel clickable" onclick="setFinTab('receber')" title="Ver todas as contas a receber">
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">📥 Contas a receber</div></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Total a receber</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(totalAReceber)}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Vencido</span><span class="stat-row-value" style="color:${vencidoReceber?'var(--danger)':'inherit'};">${fmtMoney(vencidoReceber)}</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px;color:var(--accent-2);font-weight:600;">Ver todas →</div>
+    </div>
+  `;
 }
 function renderFinAccountsTable(){
   const wrap = document.getElementById('finAccountsTableWrap');
