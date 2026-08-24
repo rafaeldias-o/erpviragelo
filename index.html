@@ -707,7 +707,7 @@ tr:last-child td{border-bottom:none;}
         <div class="tabs">
           <div class="tab" data-fintab="metas" onclick="setFinTab('metas')">🎯 Metas &amp; Insights</div>
           <div class="tab active" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
-          <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
+          <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Resumo do mês</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
           <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
           <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
@@ -750,35 +750,35 @@ tr:last-child td{border-bottom:none;}
               <strong>Receita de venda não é lançada manualmente.</strong> Ela é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Use "+ Novo lançamento" pra despesas, receitas avulsas (que não vieram de pedido, ex: aporte, ajuste) e recorrências.
             </div>
           </div>
-          <div class="panel-head" style="margin-bottom:10px;">
-            <div class="section-title" style="font-size:16px;">Resumo do mês</div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(-1)">←</button>
-              <span id="lancResumoMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
-              <button class="btn btn-ghost btn-sm" onclick="lancamentosChangeMonth(1)">→</button>
-              <div style="position:relative;display:inline-block;">
-                <button class="btn btn-primary" onclick="toggleNovoLancamentoMenu()">+ Novo lançamento ▾</button>
-                <div id="novoLancamentoMenu" style="display:none;position:absolute;right:0;top:110%;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);z-index:50;min-width:190px;overflow:hidden;">
-                  <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'receita');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">💰 Nova receita</button>
-                  <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'despesa');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">📤 Nova despesa</button>
-                  <button onclick="closeNovoLancamentoMenu(); openRecurringTemplateModal();" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">🔁 Novo recorrente</button>
-                </div>
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:14px;gap:10px;">
+            <div class="section-title" style="font-size:16px;margin:0;">Resumo do mês</div>
+            <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:6px 12px;justify-self:center;">
+              <button class="icon-btn" onclick="lancamentosChangeMonth(-1)" style="width:24px;height:24px;">←</button>
+              <span id="lancResumoMonthLabel" style="font-size:13px;font-weight:700;min-width:140px;text-align:center;">📅</span>
+              <button class="icon-btn" onclick="lancamentosChangeMonth(1)" style="width:24px;height:24px;">→</button>
+            </div>
+            <div style="justify-self:end;position:relative;display:inline-block;">
+              <button class="btn btn-primary" onclick="toggleNovoLancamentoMenu()">+ Novo lançamento ▾</button>
+              <div id="novoLancamentoMenu" style="display:none;position:absolute;right:0;top:110%;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);z-index:50;min-width:190px;overflow:hidden;">
+                <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'receita');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">💰 Nova receita</button>
+                <button onclick="closeNovoLancamentoMenu(); openTransactionModal(null,'despesa');" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">📤 Nova despesa</button>
+                <button onclick="closeNovoLancamentoMenu(); openRecurringTemplateModal();" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">🔁 Novo recorrente</button>
               </div>
             </div>
           </div>
-          <div class="two-col" style="margin-bottom:16px;">
+          <div class="three-col" style="margin-bottom:16px;align-items:start;">
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Receitas</div></div>
+              <div id="lancReceitasWrap" class="table-scroll"></div>
+            </div>
             <div class="panel">
               <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Despesas (pagas no mês)</div></div>
               <div id="lancDespesasWrap" class="table-scroll"></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Receitas</div></div>
-              <div id="lancReceitasWrap" class="table-scroll"></div>
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
+              <div id="lancFluxoMesChart"></div>
             </div>
-          </div>
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
-            <div id="lancFluxoMesChart"></div>
           </div>
           <div class="panel">
             <div class="panel-head">
@@ -5310,7 +5310,7 @@ function renderLancResumoMes(){
   const labelEl = document.getElementById('lancResumoMonthLabel');
   if(!labelEl) return; // não está na aba Lançamentos agora, nada a fazer
   const range = lancamentosMonthRange();
-  labelEl.textContent = range.label.charAt(0).toUpperCase()+range.label.slice(1);
+  labelEl.textContent = '📅 ' + (range.label.charAt(0).toUpperCase()+range.label.slice(1));
 
   const despesas = state.transactions.filter(t=>t.type==='despesa' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to).sort((a,b)=>b.paymentDate.localeCompare(a.paymentDate));
   const receitas = state.transactions.filter(t=>t.type==='receita' && t.status==='pago' && t.paymentDate>=range.from && t.paymentDate<=range.to).sort((a,b)=>b.paymentDate.localeCompare(a.paymentDate));
@@ -5335,14 +5335,14 @@ function renderLancResumoMes(){
   if(chartWrap) chartWrap.innerHTML = buildFluxoMesBarChart(totalReceitas, totalDespesas, saldoMes, saldoContas);
 }
 function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
-  const w=640, chartH=180, padT=26, padB=26, labelGap=20;
+  const w=280, chartH=120, padT=22, padB=22, labelGap=18;
   const maxVal = Math.max(receita, despesa, Math.abs(saldo), 1);
   const bars = [
     { label:'Receita', value:receita, color:'#16A34A' },
     { label:'Despesa', value:despesa, color:'#DC2626' },
-    { label:'Saldo do mês', value:saldo, color: saldo>=0?'#2563EB':'#DC2626' },
+    { label:'Saldo', value:saldo, color: saldo>=0?'#2563EB':'#DC2626' },
   ];
-  const barW = 100, gap = 60;
+  const barW = 46, gap = 20;
   const totalBarsW = bars.length*barW + (bars.length-1)*gap;
   const startX = (w-totalBarsW)/2;
   const baseline = padT+chartH;
@@ -5350,14 +5350,14 @@ function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
   svg += `<line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--border)" stroke-width="1"/>`;
   bars.forEach((b,i)=>{
     const x = startX + i*(barW+gap);
-    const barH = Math.max(3, Math.abs(b.value)/maxVal*chartH);
+    const barH = Math.max(2, Math.abs(b.value)/maxVal*chartH);
     const y = b.value>=0 ? (baseline-barH) : baseline;
-    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="8" fill="${b.color}"/>`;
-    svg += `<text x="${x+barW/2}" y="${b.value>=0?y-10:y+barH+22}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
-    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="12" fill="var(--muted)">${b.label}</text>`;
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="5" fill="${b.color}"/>`;
+    svg += `<text x="${x+barW/2}" y="${b.value>=0?y-6:y+barH+16}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
+    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="10" fill="var(--muted)">${b.label}</text>`;
   });
   svg += `</svg>`;
-  return svg + `<div class="hint" style="text-align:center;margin-top:6px;">🏦 Saldo em conta (todas as contas ativas): <strong style="color:var(--ink);">${fmtMoney(saldoContas)}</strong></div>`;
+  return svg + `<div class="hint" style="text-align:center;margin-top:6px;font-size:11px;">🏦 Saldo em contas: <strong style="color:var(--ink);">${fmtMoney(saldoContas)}</strong></div>`;
 }
 function toggleNovoLancamentoMenu(){
   const menu = document.getElementById('novoLancamentoMenu');
@@ -6174,7 +6174,7 @@ function renderFinAccountsTable(){
   if(state.financialAccounts.length===0){ wrap.innerHTML = emptyState('Nenhuma conta financeira cadastrada ainda.','Nova conta','openFinAccountModal()'); return; }
   const total = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
   wrap.innerHTML = `
-    <div class="stat-card" style="margin-bottom:16px;max-width:260px;"><div class="stat-label">Saldo total (contas ativas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
+    <div class="stat-card" style="margin-bottom:16px;max-width:260px;"><div class="stat-label">Saldo disponível (em contas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:16px;">
     ${state.financialAccounts.map(a=>{
       const t = accountTypeInfo(a.type);
