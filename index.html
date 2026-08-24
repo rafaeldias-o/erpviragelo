@@ -117,7 +117,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .quick-action-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px 8px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);cursor:pointer;font-size:12px;font-family:inherit;color:var(--ink);transition:background .15s;}
 .quick-action-btn:hover{background:var(--info-bg);}
 .three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
-@media(max-width:920px){.two-col,.three-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:1fr;}}
+.four-col{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+@media(max-width:920px){.two-col,.three-col,.four-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:1fr;}}
 @media print{
   .sidebar,.topbar,.bottom-nav,.tabs,.btn,.row-actions,.icon-btn,.more-sheet-overlay,.modal-overlay,.toast{display:none !important;}
   .content{padding:0;margin:0;max-width:100%;}
@@ -283,7 +284,7 @@ tr:last-child td{border-bottom:none;}
   .sidebar{display:none;}
   .content{padding:14px 14px 84px 14px;overflow-x:hidden;max-width:100vw;}
   .field-row,.field-row3{grid-template-columns:1fr;}
-  .two-col,.three-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:1fr;}
+  .two-col,.three-col,.four-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:1fr;}
   .topbar{flex-wrap:wrap;gap:8px;}
   .topbar-right{gap:8px;}
   /* Abas com muitos itens (ex: Financeiro tem 9) não cabem numa linha só em telas pequenas — em vez de
@@ -709,9 +710,6 @@ tr:last-child td{border-bottom:none;}
           <div class="tab active" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
           <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Resumo do mês</div>
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
-          <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
-          <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
-          <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
         </div>
@@ -813,10 +811,47 @@ tr:last-child td{border-bottom:none;}
         </div>
 
         <div id="finContasView" style="display:none;">
+          <div id="finContasKpisWrap" class="four-col" style="margin-bottom:16px;"></div>
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Contas Financeiras</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div></div>
-            <div class="hint" style="margin-bottom:10px;">Caixa, banco, maquininha, Pix — cada lançamento é vinculado a uma conta, e o saldo de cada uma é calculado automaticamente pelos lançamentos pagos.</div>
+            <div class="panel-head">
+              <div class="section-title">Contas Financeiras</div>
+              <div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+              <input type="text" id="contasSearch" placeholder="🔎 Buscar conta" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:200px;" oninput="renderFinAccountsTable()">
+              <select id="contasStatusFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="todas">Todos os status</option><option value="ativa">Ativas</option><option value="inativa">Inativas</option>
+              </select>
+              <select id="contasTipoFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                <option value="todos">Todos os tipos</option>${FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}">${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div id="contasFilterChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
             <div id="finAccountsTableWrap" class="table-scroll"></div>
+          </div>
+          <div class="two-col" style="margin-top:16px;align-items:start;">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="section-title" style="font-size:14px;">📈 Histórico de saldo</div>
+                <select id="saldoHistoryDays" onchange="renderSaldoHistoryChart()" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">
+                  <option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="90">90 dias</option>
+                </select>
+              </div>
+              <div id="saldoHistoryChart"></div>
+            </div>
+            <div>
+              <div class="panel">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">↔️ Últimas transferências</div><a href="#" onclick="event.preventDefault(); toggleTransfersHistory();" style="font-size:12px;color:var(--accent-2);">Ver todas</a></div>
+                <div id="ultimasTransferenciasWrap"></div>
+              </div>
+              <div class="panel" style="margin-top:16px;">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">💡 Insights das contas</div></div>
+                <div id="contasInsightsWrap" class="stat-row-list"></div>
+              </div>
+            </div>
+          </div>
+          <div id="transfersHistoryWrap" style="display:none;margin-top:16px;">
+            <div class="panel"><div class="panel-head"><div class="section-title">Todas as transferências</div></div><div id="allTransfersWrap" class="table-scroll"></div></div>
           </div>
           <div class="three-col" id="contasFinanceirasResumos" style="margin-top:16px;"></div>
         </div>
@@ -5851,7 +5886,7 @@ function setFinTab(tab){
   document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
   document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas'||tab==='lancamentos'||tab==='contas') ? 'none' : 'block';
-  if(tab==='contas'){ renderFinAccountsTable(); renderContasFinanceirasResumos(); }
+  if(tab==='contas'){ renderFinContasKpis(); renderFinAccountsTable(); renderSaldoHistoryChart(); renderUltimasTransferencias(); renderContasInsights(); renderContasFinanceirasResumos(); }
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
@@ -6168,18 +6203,66 @@ function renderContasFinanceirasResumos(){
     </div>
   `;
 }
+// Filtro rápido por tipo de conta (chips), separado dos selects de status/tipo — os dois convivem, mas
+// o chip é o atalho mais usado (clique único), enquanto os selects servem pra combinar com status.
+let contasChipFilter = 'todas';
+function setContasChipFilter(v){ contasChipFilter = v; renderFinAccountsTable(); }
+function lastAccountMovementDate(accountId){
+  const dates = state.transactions.filter(t=>t.accountId===accountId && t.paymentDate).map(t=>t.paymentDate);
+  return dates.length ? dates.reduce((max,d)=> d>max?d:max) : null;
+}
+function renderFinContasKpis(){
+  const box = document.getElementById('finContasKpisWrap');
+  if(!box) return;
+  const active = state.financialAccounts.filter(a=>a.status==='ativa');
+  const total = active.reduce((s,a)=>s+accountBalance(a.id),0);
+  const porTipo = tipo => active.filter(a=>a.type===tipo).reduce((s,a)=>s+accountBalance(a.id),0);
+  const cards = [
+    { icon:'🏦', label:'Saldo total em contas', value: total, color:'#2563EB' },
+    { icon:'🏛️', label:'Total em bancos', value: porTipo('banco'), color:'#16A34A' },
+    { icon:'💵', label:'Total em caixa físico', value: porTipo('caixa'), color:'#F59E0B' },
+    { icon:'💳', label:'Total em maquininhas', value: porTipo('maquininha'), color:'#7C3AED' },
+  ];
+  box.innerHTML = cards.map(c=>`
+    <div class="panel" style="padding:14px;margin-bottom:0;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:34px;height:34px;border-radius:50%;background:${c.color}22;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">${c.icon}</div>
+        <div style="font-size:12px;color:var(--muted);">${c.label}</div>
+      </div>
+      <div style="font-size:19px;font-weight:700;margin-top:8px;color:${c.value<0?'var(--danger)':'inherit'};">${fmtMoney(c.value)}</div>
+    </div>
+  `).join('');
+}
 function renderFinAccountsTable(){
   const wrap = document.getElementById('finAccountsTableWrap');
   if(!wrap) return;
   if(state.financialAccounts.length===0){ wrap.innerHTML = emptyState('Nenhuma conta financeira cadastrada ainda.','Nova conta','openFinAccountModal()'); return; }
-  const total = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+
+  const chipsBox = document.getElementById('contasFilterChips');
+  if(chipsBox){
+    const counts = {};
+    state.financialAccounts.forEach(a=>{ counts[a.type] = (counts[a.type]||0)+1; });
+    const chips = [{v:'todas', label:'Todas', count: state.financialAccounts.length}, ...FIN_ACCOUNT_TYPES.filter(t=>counts[t.v]).map(t=>({v:t.v, label:t.label, count:counts[t.v]}))];
+    chipsBox.innerHTML = chips.map(c=>`<button class="btn btn-sm ${contasChipFilter===c.v?'btn-primary':'btn-ghost'}" onclick="setContasChipFilter('${c.v}')">${esc(c.label)} <span style="opacity:.75;">${c.count}</span></button>`).join('');
+  }
+
+  const search = (document.getElementById('contasSearch')?.value||'').trim().toLowerCase();
+  const statusFilter = document.getElementById('contasStatusFilter')?.value || 'todas';
+  const tipoFilter = document.getElementById('contasTipoFilter')?.value || 'todos';
+  let list = state.financialAccounts;
+  if(contasChipFilter!=='todas') list = list.filter(a=>a.type===contasChipFilter);
+  if(tipoFilter!=='todos') list = list.filter(a=>a.type===tipoFilter);
+  if(statusFilter!=='todas') list = list.filter(a=>a.status===statusFilter);
+  if(search) list = list.filter(a=>a.name.toLowerCase().includes(search));
+
   wrap.innerHTML = `
-    <div class="stat-card" style="margin-bottom:16px;max-width:260px;"><div class="stat-label">Saldo disponível (em contas)</div><div class="stat-value">${fmtMoney(total)}</div></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:16px;">
-    ${state.financialAccounts.map(a=>{
+    <div class="hint" style="margin-bottom:10px;">Minhas contas (${list.length})</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;">
+    ${list.length===0 ? '<div class="hint">Nenhuma conta encontrada com esses filtros.</div>' : list.map(a=>{
       const t = accountTypeInfo(a.type);
       const balance = accountBalance(a.id);
-      return `<div class="panel clickable" style="margin-bottom:0;padding:14px;" onclick="openFinAccountDetail('${a.id}')">
+      const lastMove = lastAccountMovementDate(a.id);
+      return `<div class="panel" style="margin-bottom:0;padding:14px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
           <div style="font-size:22px;">${t.icon}</div>
           <span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span>
@@ -6187,38 +6270,107 @@ function renderFinAccountsTable(){
         <div style="font-weight:700;font-size:14px;">${esc(a.name)}</div>
         <div class="hint" style="margin:1px 0 10px 0;">${t.label}</div>
         <div style="font-size:18px;font-weight:700;color:${balance<0?'var(--danger)':'inherit'}">${fmtMoney(balance)}</div>
-        <div class="hint" style="margin-top:0;">saldo atual</div>
+        <div class="hint" style="margin:0 0 10px 0;">${lastMove?'Última movimentação '+fmtDate(lastMove):'Sem movimentação'}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="openFinAccountDetail('${a.id}')">Ver extrato</button>
+          <button class="btn btn-ghost btn-sm" onclick="openFinAccountModal('${a.id}')">Editar</button>
+          <button class="btn btn-ghost btn-sm" onclick="openTransferModal('${a.id}')">Transferir</button>
+        </div>
       </div>`;
     }).join('')}
     </div>
-    ${state.accountTransfers.length>0?`
-    <button class="btn btn-ghost btn-sm" onclick="toggleTransfersHistory()" id="btnToggleTransfers">📜 Ver últimas transferências (${state.accountTransfers.length})</button>
-    <div id="transfersHistoryWrap" style="display:none;margin-top:12px;">
-      <table><thead><tr><th>Data</th><th>De</th><th>Para</th><th>Valor</th><th>Observação</th></tr></thead><tbody>
-        ${state.accountTransfers.slice(0,15).map(tr=>{
-          const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
-          const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
-          return `<tr><td>${fmtDate(tr.date)}</td><td>${esc(from?from.name:'—')}</td><td>${esc(to?to.name:'—')}</td><td>${fmtMoney(tr.amount)}</td><td style="color:var(--muted);">${esc(tr.notes||'—')}</td></tr>`;
-        }).join('')}
-      </tbody></table>
-    </div>` : ''}`;
+  `;
+}
+// Histórico de saldo — soma de todas as contas ativas, dia a dia, partindo do saldo atual "de trás pra
+// frente" (saldo atual menos o líquido de cada dia do período = saldo no início do período, depois soma
+// dia a dia até chegar de volta no valor atual).
+function renderSaldoHistoryChart(){
+  const box = document.getElementById('saldoHistoryChart');
+  if(!box) return;
+  const days = parseInt(document.getElementById('saldoHistoryDays')?.value)||30;
+  const today = todayStr();
+  const fromDate = addDays(today, -(days-1));
+  const activeIds = new Set(state.financialAccounts.filter(a=>a.status==='ativa').map(a=>a.id));
+  const totalNow = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  const txsInRange = state.transactions.filter(t=>activeIds.has(t.accountId) && (t.status==='pago'||t.status==='parcial') && t.paymentDate && t.paymentDate>=fromDate && t.paymentDate<=today);
+  const netInRange = txsInRange.reduce((s,t)=>{ const eff = t.status==='pago'?t.amount:t.paidAmount; return s + (t.type==='receita'?eff:-eff); }, 0);
+  let acc = totalNow - netInRange;
+  const values = [], labels = [];
+  let d = fromDate;
+  while(d<=today){
+    const dayNet = txsInRange.filter(t=>t.paymentDate===d).reduce((s,t)=>{ const eff = t.status==='pago'?t.amount:t.paidAmount; return s + (t.type==='receita'?eff:-eff); }, 0);
+    acc += dayNet;
+    values.push(acc);
+    labels.push(fmtDate(d).slice(0,5));
+    d = addDays(d, 1);
+  }
+  box.innerHTML = buildLineChartSvg(values, labels, '#2563EB', fmtMoney);
+}
+function renderUltimasTransferencias(){
+  const box = document.getElementById('ultimasTransferenciasWrap');
+  if(!box) return;
+  const recent = state.accountTransfers.slice(0,5);
+  box.innerHTML = recent.length===0 ? '<div class="hint">Nenhuma transferência ainda.</div>' : `<table><thead><tr><th>Data</th><th>De → Para</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
+    ${recent.map(tr=>{
+      const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
+      const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
+      return `<tr><td>${fmtDate(tr.date)}</td><td style="font-size:12px;">${esc(from?from.name:'—')} → ${esc(to?to.name:'—')}</td><td style="text-align:right;">${fmtMoney(tr.amount)}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
 }
 function toggleTransfersHistory(){
   const box = document.getElementById('transfersHistoryWrap');
-  const btn = document.getElementById('btnToggleTransfers');
+  if(!box) return;
   const showing = box.style.display !== 'none';
   box.style.display = showing ? 'none' : 'block';
-  btn.textContent = showing ? `📜 Ver últimas transferências (${state.accountTransfers.length})` : '📜 Esconder transferências';
+  if(!showing){
+    const wrap = document.getElementById('allTransfersWrap');
+    wrap.innerHTML = state.accountTransfers.length===0 ? '<div class="hint">Nenhuma transferência ainda.</div>' : `<table><thead><tr><th>Data</th><th>De</th><th>Para</th><th>Valor</th><th>Observação</th></tr></thead><tbody>
+      ${state.accountTransfers.map(tr=>{
+        const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
+        const to = state.financialAccounts.find(a=>a.id===tr.toAccountId);
+        return `<tr><td>${fmtDate(tr.date)}</td><td>${esc(from?from.name:'—')}</td><td>${esc(to?to.name:'—')}</td><td>${fmtMoney(tr.amount)}</td><td style="color:var(--muted);">${esc(tr.notes||'—')}</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
 }
-function openTransferModal(){
+// Insights simples das contas — sem projeção complexa, só leituras diretas dos dados que já temos.
+function renderContasInsights(){
+  const box = document.getElementById('contasInsightsWrap');
+  if(!box) return;
+  const active = state.financialAccounts.filter(a=>a.status==='ativa');
+  if(active.length===0){ box.innerHTML = '<div class="hint">Cadastre contas pra ver os insights.</div>'; return; }
+  const comMaiorSaldo = [...active].sort((a,b)=>accountBalance(b.id)-accountBalance(a.id))[0];
+  const movCount = {};
+  state.transactions.forEach(t=>{ if(t.accountId) movCount[t.accountId] = (movCount[t.accountId]||0)+1; });
+  const maisMovimentadaId = Object.keys(movCount).sort((a,b)=>movCount[b]-movCount[a])[0];
+  const maisMovimentada = maisMovimentadaId ? state.financialAccounts.find(a=>a.id===maisMovimentadaId) : null;
+  const today = todayStr();
+  const transferenciasNoMes = state.accountTransfers.filter(tr=>tr.date && tr.date.slice(0,7)===today.slice(0,7)).length;
+  // Saldo previsto (7 dias): projeta com base na média diária dos últimos 30 dias de receitas/despesas pagas
+  const from30 = addDays(today, -29);
+  const txs30 = state.transactions.filter(t=>(t.status==='pago'||t.status==='parcial') && t.paymentDate>=from30 && t.paymentDate<=today);
+  const net30 = txs30.reduce((s,t)=>{ const eff = t.status==='pago'?t.amount:t.paidAmount; return s + (t.type==='receita'?eff:-eff); }, 0);
+  const mediaDiaria = net30/30;
+  const totalAtual = active.reduce((s,a)=>s+accountBalance(a.id),0);
+  const saldoPrevisto = totalAtual + mediaDiaria*7;
+  box.innerHTML = `
+    <div class="stat-row"><span class="stat-row-label">Conta com maior saldo</span><span class="stat-row-value">${comMaiorSaldo?esc(comMaiorSaldo.name):'—'}</span></div>
+    <div class="stat-row"><span class="stat-row-label">Conta mais movimentada</span><span class="stat-row-value">${maisMovimentada?esc(maisMovimentada.name):'—'}</span></div>
+    <div class="stat-row"><span class="stat-row-label">Transferências no mês</span><span class="stat-row-value">${transferenciasNoMes}</span></div>
+    <div class="stat-row"><span class="stat-row-label">Saldo previsto (7 dias)</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(saldoPrevisto)}</span></div>
+  `;
+}
+function openTransferModal(presetFromId){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para transferir entre contas', true); return; }
   const accounts = state.financialAccounts.filter(a=>a.status==='ativa');
   if(accounts.length<2){ toast('Cadastre pelo menos 2 contas ativas para transferir entre elas', true); return; }
+  const defaultToId = accounts.find(a=>a.id!==presetFromId)?.id;
   openModal(`
     <div class="modal-head"><h3>Transferir entre contas</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="field-row">
-      <div class="field"><label>De</label><select id="tr-from">${accounts.map(a=>`<option value="${a.id}">${esc(a.name)} (${fmtMoney(accountBalance(a.id))})</option>`).join('')}</select></div>
-      <div class="field"><label>Para</label><select id="tr-to">${accounts.map((a,i)=>`<option value="${a.id}" ${i===1?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>De</label><select id="tr-from">${accounts.map(a=>`<option value="${a.id}" ${presetFromId===a.id?'selected':''}>${esc(a.name)} (${fmtMoney(accountBalance(a.id))})</option>`).join('')}</select></div>
+      <div class="field"><label>Para</label><select id="tr-to">${accounts.map(a=>`<option value="${a.id}" ${a.id===defaultToId?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Valor (R$)</label><input id="tr-amount" type="number" step="0.01" placeholder="0,00"></div>
