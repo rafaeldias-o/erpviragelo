@@ -5374,6 +5374,9 @@ function exportTransactionsCsv(){
 }
 
 // ---- Conciliação Financeira (Fase 7) ----
+// Guarda os alertas visíveis do último renderConciliacao(), pra "Dispensar todos" saber exatamente o que
+// dispensar sem precisar recalcular tudo de novo.
+let _lastConciliacaoIssues = [];
 function renderConciliacao(){
   const wrap = document.getElementById('conciliacaoWrap');
   if(!wrap) return;
@@ -5447,13 +5450,17 @@ function renderConciliacao(){
   issues.forEach(i=>{ i.dismissKey = i.tipo+'|'+i.detalhe; });
   const dispensados = getDismissedConciliacaoIssues();
   const visiveis = issues.filter(i=>!dispensados.has(i.dismissKey));
+  _lastConciliacaoIssues = visiveis; // pra "Dispensar todos" saber exatamente o que está na tela agora
   const totalDispensados = issues.length - visiveis.length;
   if(visiveis.length===0){
     wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência pendente.</p></div>${totalDispensados>0?`<div class="hint" style="text-align:center;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
     return;
   }
   wrap.innerHTML = `
-    ${gruposReceitaDuplicada.length>1 ? `<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button></div>` : ''}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      ${gruposReceitaDuplicada.length>1 ? `<button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="dismissAllConciliacaoIssues()" title="Marca todos os alertas abaixo como já revisados — não apaga nem altera nenhum dado, só some da lista">✕ Dispensar todos (${visiveis.length})</button>
+    </div>
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${visiveis.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
     <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.fixPaidAmountTxId?`<button class="btn btn-ghost btn-sm" onclick="fixPaidAmountDivergente('${i.fixPaidAmountTxId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista">✕ Dispensar</button></td></tr>`).join('')}
@@ -5469,6 +5476,16 @@ function dismissConciliacaoIssue(key){
   dispensados.add(key);
   localStorage.setItem('dismissedConciliacaoIssues', JSON.stringify([...dispensados]));
   toast('Alerta dispensado — nada foi alterado nos dados');
+  renderConciliacao();
+}
+// Dispensa TODOS os alertas visíveis no momento de uma vez — mesmo mecanismo do dispensar individual
+// (guarda a assinatura de cada um no navegador), só que em lote. Não apaga nem altera nenhum dado.
+function dismissAllConciliacaoIssues(){
+  if(!_lastConciliacaoIssues.length) return;
+  const dispensados = getDismissedConciliacaoIssues();
+  _lastConciliacaoIssues.forEach(i=>dispensados.add(i.dismissKey));
+  localStorage.setItem('dismissedConciliacaoIssues', JSON.stringify([...dispensados]));
+  toast(`${_lastConciliacaoIssues.length} alerta(s) dispensado(s) — nada foi alterado nos dados`);
   renderConciliacao();
 }
 function restoreDismissedConciliacaoIssues(){
