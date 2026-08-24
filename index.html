@@ -776,6 +776,7 @@ tr:last-child td{border-bottom:none;}
             <div class="panel">
               <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Despesas (pagas no mês)</div></div>
               <div id="lancDespesasWrap" class="table-scroll"></div>
+              <div id="lancDespesasDonutWrap" style="margin-top:10px;"></div>
             </div>
           </div>
           <div class="three-col" id="contasFinanceirasResumos" style="margin-bottom:16px;"></div>
@@ -5370,6 +5371,22 @@ function renderLancResumoMes(){
 
   const chartWrap = document.getElementById('lancFluxoMesChart');
   if(chartWrap) chartWrap.innerHTML = buildFluxoMesBarChart(totalReceitas, totalDespesas, saldoMes, saldoContas);
+
+  // Despesas por categoria (pizza) — mesmo mês navegável do Resumo, não fixo no mês atual como a versão
+  // que já existe no Dashboard.
+  const donutWrap = document.getElementById('lancDespesasDonutWrap');
+  if(donutWrap){
+    if(despesas.length===0){
+      donutWrap.innerHTML = '';
+    } else {
+      const porCategoria = {};
+      despesas.forEach(t=>{ const cat = t.category||'Sem categoria'; porCategoria[cat] = (porCategoria[cat]||0)+t.amount; });
+      const data = Object.entries(porCategoria).sort((a,b)=>b[1]-a[1]).map(([label,value])=>({label,value}));
+      donutWrap.innerHTML = `<div style="font-weight:700;font-size:12.5px;margin-bottom:6px;padding-top:10px;border-top:1px solid var(--border);">Despesas por categoria</div><div id="lancDespesasDonutChart"></div>`;
+      document.getElementById('lancDespesasDonutChart').innerHTML = buildDonutChartSvg(data, fmtMoney, fmtMoney(totalDespesas).replace('R$','').trim());
+      attachPieHover('lancDespesasDonutChart', data, fmtMoney);
+    }
+  }
 }
 function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
   const w=280, chartH=120, padT=22, padB=22, labelGap=18;
