@@ -4989,11 +4989,17 @@ function combinedRevenueInsights(fromDate, toDate){
   const orders = orderIds.map(id=>state.orders.find(o=>o.id===id)).filter(Boolean);
   const totalRevenue = orders.reduce((s,o)=>s+o.total,0);
   let totalProductCost = 0, totalPackages = 0;
+  const costByProduct = {}; // id -> {name, qty, unitCost, totalCost} — detalha de onde vem o CMV total
   orders.forEach(o=> o.items.forEach(it=>{
     totalPackages += it.qty;
     const stockItem = state.stockItems.find(s=>s.id===it.productId);
-    totalProductCost += it.qty * (stockItem?.costPrice||0);
+    const unitCost = stockItem?.costPrice||0;
+    totalProductCost += it.qty * unitCost;
+    if(!costByProduct[it.productId]) costByProduct[it.productId] = { name: stockItem?.name||'Produto removido', qty:0, unitCost, totalCost:0 };
+    costByProduct[it.productId].qty += it.qty;
+    costByProduct[it.productId].totalCost += it.qty * unitCost;
   }));
+  const productCostBreakdown = Object.values(costByProduct).sort((a,b)=>b.totalCost-a.totalCost);
   const marginSemEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost)/totalRevenue*100 : null;
   const marginComEntrega = totalRevenue>0 ? (totalRevenue-totalProductCost-deliveryCost)/totalRevenue*100 : null;
   const costPerPackage = totalPackages>0 ? deliveryCost/totalPackages : null;
@@ -5007,7 +5013,7 @@ function combinedRevenueInsights(fromDate, toDate){
     const label = DELIVERY_DRIVERS.find(x=>x.v===dv)?.label || (dv.charAt(0).toUpperCase()+dv.slice(1));
     return { driver: dv, label, data: driverRevenueInsights(dv, fromDate, toDate) };
   });
-  return { ordersCount: orders.length, orders, totalRevenue, totalProductCost, deliveryCost, totalKm, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: orders.length?smallOrders.length/orders.length*100:0, limiar: LIMIAR, avgTicketPorPacote, projRevenue, projProfit, volumeProjetado: VOLUME_PROJETADO, perDriver };
+  return { ordersCount: orders.length, orders, totalRevenue, totalProductCost, productCostBreakdown, deliveryCost, totalKm, totalPackages, marginSemEntrega, marginComEntrega, costPerPackage, smallOrdersCount: smallOrders.length, smallOrdersPct: orders.length?smallOrders.length/orders.length*100:0, limiar: LIMIAR, avgTicketPorPacote, projRevenue, projProfit, volumeProjetado: VOLUME_PROJETADO, perDriver };
 }
 // Monta a lista de insights (ícone + cor + texto) a partir de um objeto de métricas — reaproveitado tanto
 // pro resumo combinado quanto pro detalhamento de cada motorista dentro da modal, pra manter a mesma
@@ -5091,8 +5097,14 @@ function showMargemSemEntregaDetail(){
       <div class="stat-row"><span class="stat-row-label">Lucro bruto</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(m.totalRevenue-m.totalProductCost)}</span></div>
       <div class="stat-row"><span class="stat-row-label">Margem</span><span class="stat-row-value" style="font-weight:700;">${m.marginSemEntrega!=null?m.marginSemEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
     </div>
+    <div style="font-weight:700;font-size:13px;margin:16px 0 6px;">De onde vem o custo do produto (CMV)</div>
+    <div class="hint" style="margin-bottom:8px;">Quantidade vendida de cada produto nesse período × o custo unitário cadastrado no Estoque.</div>
+    <table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
+      ${m.productCostBreakdown.map(p=>`<tr><td>${esc(p.name)}</td><td style="text-align:right;">${p.qty} un</td><td style="text-align:right;">${fmtMoney(p.unitCost)}</td><td style="text-align:right;font-weight:600;">${fmtMoney(p.totalCost)}</td></tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;display:flex;justify-content:space-between;"><span>Total</span><span>${fmtMoney(m.totalProductCost)}</span></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
-  `);
+  `, 'wide');
 }
 function showMargemComEntregaDetail(){
   const range = pagarMonthRange();
@@ -5110,8 +5122,13 @@ function showMargemComEntregaDetail(){
       <div class="stat-row"><span class="stat-row-label">Lucro líquido</span><span class="stat-row-value" style="font-weight:700;">${fmtMoney(m.totalRevenue-m.totalProductCost-m.deliveryCost)}</span></div>
       <div class="stat-row"><span class="stat-row-label">Margem</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
     </div>
+    <div style="font-weight:700;font-size:13px;margin:16px 0 6px;">De onde vem o custo do produto (CMV)</div>
+    <table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
+      ${m.productCostBreakdown.map(p=>`<tr><td>${esc(p.name)}</td><td style="text-align:right;">${p.qty} un</td><td style="text-align:right;">${fmtMoney(p.unitCost)}</td><td style="text-align:right;font-weight:600;">${fmtMoney(p.totalCost)}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="hint" style="margin-top:8px;">🚚 Custo de entrega: ${fmtMoney(m.deliveryCost)} de combustível (${m.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km rodados) — veja o detalhe em "Custo extra por pacote".</div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
-  `);
+  `, 'wide');
 }
 function showCustoPorPacoteDetail(){
   const range = pagarMonthRange();
