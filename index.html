@@ -55,6 +55,7 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .nav-item:hover{background:var(--sidebar-2);color:#fff;}
 .nav-item.active{background:var(--sidebar-2);color:#fff;border-color:rgba(79,195,224,.35);box-shadow:inset 3px 0 0 var(--accent-2);}
 .sidebar-foot{color:#5E7A8C;font-size:10.5px;padding:10px 8px 0 8px;border-top:1px solid rgba(255,255,255,.08);margin-top:8px;padding-top:12px;}
+.sidebar-foot #sidebarUserInfo:hover{background:rgba(255,255,255,.06);}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 26px;display:flex;align-items:center;justify-content:space-between;}
@@ -355,7 +356,9 @@ tr:last-child td{border-bottom:none;}
       <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
       <div class="nav-item" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
     </nav>
-    <div class="sidebar-foot">Conectado ao Supabase. Dados compartilhados entre todos os usuários da equipe.</div>
+    <div class="sidebar-foot">
+      <div id="sidebarUserInfo" style="cursor:pointer;padding:8px;border-radius:8px;transition:background .12s;" onclick="openSidebarUserPanel()"></div>
+    </div>
   </aside>
 
   <main class="main">
@@ -1658,6 +1661,7 @@ async function afterLogin(session){
     const displayName = (profile.name && profile.name.trim().toLowerCase() !== (myUser.email||'').trim().toLowerCase()) ? profile.name : null;
     minhaContaEl.textContent = [displayName, myUser.email||'', roleLabel(profile.role)].filter(Boolean).join(' · ');
   }
+  renderSidebarUserInfo();
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
   // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre
@@ -1800,6 +1804,7 @@ async function loadAll(){
   });
   const profileById = {};
   (profRes.data||[]).forEach(p => profileById[p.id] = p.name);
+  state.allProfiles = profRes.data || []; // usado no painel "quem está logado" — só o proprietário vê a lista completa
   state.commercialRoutes = (crRes.data||[]).map(r => ({
     id:r.id, cityId:r.city_id, neighborhoodId:r.neighborhood_id, plannedDate:r.planned_date,
     maxVisits:r.max_visits, distanceKm:r.distance_km!=null?Number(r.distance_km):null,
@@ -11525,6 +11530,49 @@ function checkAndSendNotifications(){
 function isOwnerUser(){
   return (myUser?.email||'').trim().toLowerCase() === 'rafaeldiasdeoliveira29@gmail.com';
 }
+// Mostra quem está logado no rodapé da barra lateral — clicável. O proprietário (isOwnerUser) vê a lista
+// completa de perfis cadastrados ao clicar; os demais usuários (mesmo administradores) só veem os
+// próprios dados, sem acesso à lista de outros perfis.
+function renderSidebarUserInfo(){
+  const box = document.getElementById('sidebarUserInfo');
+  if(!box || !myProfile || !myUser) return;
+  const displayName = (myProfile.name && myProfile.name.trim().toLowerCase() !== (myUser.email||'').trim().toLowerCase()) ? myProfile.name : (myUser.email||'').split('@')[0];
+  const initial = (displayName||'?').charAt(0).toUpperCase();
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--accent-2);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">${esc(initial)}</div>
+      <div style="min-width:0;overflow:hidden;">
+        <div style="font-size:12px;font-weight:700;color:#E2ECF2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(displayName)}</div>
+        <div style="font-size:10px;color:#5E7A8C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(roleLabel(myProfile.role))}${isOwnerUser()?' · 🔑 Ver todos':''}</div>
+      </div>
+    </div>
+  `;
+}
+function openSidebarUserPanel(){
+  if(!myProfile || !myUser) return;
+  if(isOwnerUser()){
+    const profiles = state.allProfiles||[];
+    openModal(`
+      <div class="modal-head"><h3>👥 Usuários do sistema</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+      <div class="hint" style="margin-bottom:10px;">Como proprietário, você pode ver todos os perfis cadastrados. Os demais usuários — mesmo administradores — só enxergam os próprios dados.</div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th></tr></thead><tbody>
+        ${profiles.length ? profiles.map(p=>`<tr><td>${esc(p.name||'—')}${p.id===myUser.id?' <span class="badge badge-muted" style="font-size:10px;">você</span>':''}</td><td>${esc(roleLabel(p.role))}</td></tr>`).join('') : '<tr><td colspan="2" style="color:var(--muted);">Nenhum outro perfil encontrado.</td></tr>'}
+      </tbody></table>
+      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+    `, 'wide');
+  } else {
+    openModal(`
+      <div class="modal-head"><h3>👤 Minha conta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+      <div class="stat-row-list">
+        <div class="stat-row"><span class="stat-row-label">Nome</span><span class="stat-row-value">${esc(myProfile.name||'—')}</span></div>
+        <div class="stat-row"><span class="stat-row-label">E-mail</span><span class="stat-row-value">${esc(myUser.email||'—')}</span></div>
+        <div class="stat-row"><span class="stat-row-label">Cargo</span><span class="stat-row-value">${esc(roleLabel(myProfile.role))}</span></div>
+      </div>
+      <div class="hint" style="margin-top:10px;">Você tem acesso só ao seu próprio perfil.</div>
+      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+    `);
+  }
+}
 async function saveFuelSettings(){
   if(!isOwnerUser()){ toast('Só o proprietário pode alterar essa configuração', true); return; }
   const price = parseFloat(document.getElementById('cfg-fuel-price').value) || 6.20;
@@ -12776,6 +12824,7 @@ function renderAll(){
   safe('Produção', renderProducao);
   safe('Pedidos', renderPedidos);
   safe('Financeiro', renderFinanceiro);
+  safe('Usuário logado', renderSidebarUserInfo);
   safe('CRM', renderCRM);
   safe('Clientes', renderClientesModule);
   safe('Visitas Comerciais', renderVisitas);
