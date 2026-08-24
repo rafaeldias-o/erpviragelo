@@ -769,9 +769,12 @@ tr:last-child td{border-bottom:none;}
               <div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Receitas</div></div>
               <div id="lancReceitasWrap" class="table-scroll"></div>
             </div>
-            <div class="panel">
-              <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Despesas (pagas no mês)</div></div>
-              <div id="lancDespesasWrap" class="table-scroll"></div>
+            <div>
+              <div class="panel">
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">📤 Despesas (pagas no mês)</div></div>
+                <div id="lancDespesasWrap" class="table-scroll"></div>
+              </div>
+              <div id="contasFinanceirasResumos" style="margin-top:16px;display:flex;flex-direction:column;gap:16px;"></div>
             </div>
             <div class="panel">
               <div class="panel-head"><div class="section-title" style="font-size:14px;">📊 Fluxo de caixa do mês</div></div>
@@ -853,7 +856,6 @@ tr:last-child td{border-bottom:none;}
           <div id="transfersHistoryWrap" style="display:none;margin-top:16px;">
             <div class="panel"><div class="panel-head"><div class="section-title">Todas as transferências</div></div><div id="allTransfersWrap" class="table-scroll"></div></div>
           </div>
-          <div class="three-col" id="contasFinanceirasResumos" style="margin-top:16px;"></div>
         </div>
 
         <div id="finCategoriasView" style="display:none;">
@@ -5434,6 +5436,7 @@ function lancamentosMonthRange(){
 function renderFinanceiro(){
   renderFinDashboard();
   renderLancResumoMes();
+  renderContasFinanceirasResumos();
   const filter = document.getElementById('finFilter').value;
   const search = (document.getElementById('finSearch')?.value||'').trim().toLowerCase();
   const today = todayStr();
@@ -5888,7 +5891,8 @@ function setFinTab(tab){
   document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
   document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas'||tab==='lancamentos'||tab==='contas') ? 'none' : 'block';
-  if(tab==='contas'){ renderFinContasKpis(); renderFinAccountsTable(); renderSaldoHistoryChart(); renderUltimasTransferencias(); renderContasInsights(); renderContasFinanceirasResumos(); }
+  if(tab==='contas'){ renderFinContasKpis(); renderFinAccountsTable(); renderSaldoHistoryChart(); renderUltimasTransferencias(); renderContasInsights(); }
+  if(tab==='lancamentos') renderContasFinanceirasResumos();
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
   if(tab==='recorrentes') renderRecurringTemplatesTable();
   if(tab==='receber') renderReceberTable();
