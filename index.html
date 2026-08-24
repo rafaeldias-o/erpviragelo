@@ -707,11 +707,9 @@ tr:last-child td{border-bottom:none;}
         <div class="tabs">
           <div class="tab" data-fintab="metas" onclick="setFinTab('metas')">🎯 Metas &amp; Insights</div>
           <div class="tab active" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
-          <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Lançamentos</div>
-          <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
-          <div class="tab" data-fintab="recorrentes" onclick="setFinTab('recorrentes')">🔁 Recorrentes</div>
-          <div class="tab" data-fintab="receber" onclick="setFinTab('receber')">📥 Contas a Receber</div>
-          <div class="tab" data-fintab="pagar" onclick="setFinTab('pagar')">📤 Contas a Pagar</div>
+          <div class="tab" data-fintab="lancamentos" onclick="setFinTab('lancamentos')">Movimentações</div>
+          <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas</div>
+          <div class="tab" data-fintab="bancos" onclick="setFinTab('bancos')">🏦 Bancos &amp; Caixa</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
         </div>
@@ -785,9 +783,9 @@ tr:last-child td{border-bottom:none;}
           </div>
         </div>
 
-        <div id="finContasView" style="display:none;">
+        <div id="finBancosView" style="display:none;">
           <div class="panel">
-            <div class="panel-head"><div class="section-title">Contas Financeiras</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div></div>
+            <div class="panel-head"><div class="section-title">Bancos &amp; Caixa</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div></div>
             <div class="hint" style="margin-bottom:10px;">Caixa, banco, maquininha, Pix — cada lançamento é vinculado a uma conta, e o saldo de cada uma é calculado automaticamente pelos lançamentos pagos.</div>
             <div id="finAccountsTableWrap" class="table-scroll"></div>
           </div>
@@ -807,13 +805,11 @@ tr:last-child td{border-bottom:none;}
           </div>
         </div>
 
-        <div id="finRecorrentesView" style="display:none;">
-          <div class="panel">
-            <div class="panel-head"><div class="section-title">Despesas Recorrentes</div><button class="btn btn-primary btn-sm" onclick="openRecurringTemplateModal()">+ Nova recorrência</button></div>
-            <div class="hint" style="margin-bottom:10px;">Ex: energia, internet, aluguel. Ao criar, já gera as próximas 12 ocorrências como lançamentos "Aberto" — sem precisar lembrar de lançar todo mês.</div>
-            <div id="recurringTemplatesTableWrap" class="table-scroll"></div>
+        <div id="finContasGroupView" style="display:none;">
+          <div class="tabs" style="margin-bottom:16px;">
+            <div class="tab active" data-contassubtab="pagar" onclick="setContasSubTab('pagar')">📤 A Pagar</div>
+            <div class="tab" data-contassubtab="receber" onclick="setContasSubTab('receber')">📥 A Receber</div>
           </div>
-        </div>
 
         <div id="finReceberView" style="display:none;">
           <div class="panel">
@@ -832,6 +828,7 @@ tr:last-child td{border-bottom:none;}
                 <span id="pagarMonthLabel" style="font-size:12.5px;font-weight:600;min-width:110px;text-align:center;"></span>
                 <button class="btn btn-ghost btn-sm" onclick="pagarChangeMonth(1)" id="pagarNextMonthBtn">→</button>
                 <button class="btn btn-ghost btn-sm" id="pagarShowAllBtn" onclick="pagarToggleShowAll()">Ver completo</button>
+                <button class="btn btn-ghost btn-sm" onclick="openRecorrentesManagerModal()">🔁 Recorrências</button>
                 <button class="btn btn-primary" onclick="openTransactionModal()">+ Nova despesa</button>
               </div>
             </div>
@@ -847,6 +844,7 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <div id="finFluxoView" style="display:none;">
@@ -992,7 +990,7 @@ tr:last-child td{border-bottom:none;}
                 <div class="tab" data-dashcontas="receber" onclick="setDashContasTab('receber')">A Receber</div>
               </div>
               <div id="dashContasWrap"></div>
-              <button class="btn btn-ghost btn-sm" id="dashContasVerTodasBtn" onclick="setFinTab('pagar')" style="margin-top:10px;">Ver todas as contas a pagar →</button>
+              <button class="btn btn-ghost btn-sm" id="dashContasVerTodasBtn" onclick="setFinTab('contas'); setContasSubTab('pagar');" style="margin-top:10px;">Ver todas as contas a pagar →</button>
             </div>
             <div>
               <div class="panel">
@@ -1000,7 +998,7 @@ tr:last-child td{border-bottom:none;}
                 <div id="dashAlertsMini"></div>
               </div>
               <div class="panel">
-                <div class="panel-head"><div class="section-title" style="font-size:14px;">🏦 Contas bancárias</div><a href="#" onclick="setFinTab('contas');return false;" style="font-size:12px;color:var(--accent);">Ver todas</a></div>
+                <div class="panel-head"><div class="section-title" style="font-size:14px;">🏦 Contas bancárias</div><a href="#" onclick="setFinTab('bancos');return false;" style="font-size:12px;color:var(--accent);">Ver todas</a></div>
                 <div id="dashContasBancariasMini"></div>
               </div>
             </div>
@@ -3517,9 +3515,12 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId, hom
   // entregue) sempre tenha data de pagamento preenchida — sem isso, ela conta certo no Faturamento do
   // Início (que usa a data de vencimento), mas fica de fora do Financeiro (que usa a data de pagamento),
   // causando os dois números baterem diferente. Vincula à conta certa também, se uma foi escolhida.
+  // Também garante paid_amount = amount sempre que status vira "pago" — achado na auditoria do módulo
+  // Financeiro: o gatilho cria a receita com status='pago' mas não seta paid_amount, deixando registros
+  // "Valor R$50 / Recebido R$0 / Status Pago" (paid_amount ficava 0 mesmo com o status dizendo pago).
   const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita');
   if(revenueTx){
-    const patch = { status:'pago', payment_date: revenueTx.paymentDate || todayStr(), payment_method: revenueTx.paymentMethod || order.paymentMethod || null };
+    const patch = { status:'pago', payment_date: revenueTx.paymentDate || todayStr(), payment_method: revenueTx.paymentMethod || order.paymentMethod || null, paid_amount: revenueTx.amount };
     if(accountId) patch.account_id = accountId;
     await sb.from('transactions').update(patch).eq('id', revenueTx.id);
   }
@@ -3841,12 +3842,23 @@ function openTransactionModal(id){
     <div class="field"><label>Observações</label><textarea id="t-notes" rows="2">${t?esc(t.notes||''):''}</textarea></div>
     ${!t?`
     <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="t-parcelar" onchange="document.getElementById('t-installmentswrap').style.display=this.checked?'block':'none'" style="width:auto;">
+      <input type="checkbox" id="t-parcelar" onchange="document.getElementById('t-installmentswrap').style.display=this.checked?'block':'none'; if(this.checked){document.getElementById('t-repetir').checked=false; document.getElementById('t-repetirwrap').style.display='none';}" style="width:auto;">
       <label style="margin:0;">Parcelar este lançamento</label>
     </div>
     <div id="t-installmentswrap" style="display:none;">
       <div class="field"><label>Número de parcelas</label><input id="t-installmentcount" type="number" min="2" value="2"></div>
       <div class="hint">Gera as parcelas automaticamente, uma por mês a partir do vencimento acima, dividindo o valor igualmente (sem perder centavo no arredondamento).</div>
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="t-repetir" onchange="document.getElementById('t-repetirwrap').style.display=this.checked?'block':'none'; if(this.checked){document.getElementById('t-parcelar').checked=false; document.getElementById('t-installmentswrap').style.display='none';}" style="width:auto;">
+      <label style="margin:0;">Repetir esta despesa</label>
+    </div>
+    <div id="t-repetirwrap" style="display:none;">
+      <div class="field-row">
+        <div class="field"><label>Recorrência</label><select id="t-repetirtype" onchange="document.getElementById('t-repetirintervalwrap').style.display=this.value==='personalizada'?'block':'none';">${RECURRING_TYPES.map(rt=>`<option value="${rt.v}">${rt.label}</option>`).join('')}</select></div>
+        <div class="field" id="t-repetirintervalwrap" style="display:none;"><label>A cada quantos dias</label><input id="t-repetirinterval" type="number" min="1" value="30"></div>
+      </div>
+      <div class="hint">Já cadastra a recorrência e gera as próximas 12 ocorrências, a partir do vencimento acima. Depois é só gerenciar em Contas a Pagar → 🔁 Recorrências.</div>
     </div>` : ''}
     <div class="modal-foot">
       ${t?`<button class="btn btn-danger-ghost" onclick="deleteTransaction('${t.id}')">Excluir</button>`:''}
@@ -3954,7 +3966,31 @@ async function saveTransaction(id){
     return;
   }
 
-  // criação — com ou sem parcelamento
+  // criação — com parcelamento, com recorrência, ou avulsa
+  const repetir = document.getElementById('t-repetir')?.checked;
+  if(repetir){
+    const recurrenceType = document.getElementById('t-repetirtype').value;
+    const intervalDays = parseInt(document.getElementById('t-repetirinterval').value)||null;
+    const { data: createdTemplate, error: tplErr } = await sb.from('recurring_expense_templates').insert({
+      description: desc, amount, category_id: categoryId, account_id: accountId,
+      supplier_id: data.supplier_id, recurrence_type: recurrenceType, interval_days: intervalDays,
+    }).select().single();
+    if(tplErr){ dbErr(tplErr, 'Erro ao criar recorrência'); unlockButton(_btn); return; }
+    let dueDate = data.due_date;
+    const rows = [];
+    for(let i=0;i<12;i++){
+      rows.push({ type:'despesa', description: desc, amount, category, category_id: categoryId,
+        account_id: accountId, supplier_id: data.supplier_id, due_date: dueDate,
+        status: i===0 ? status : 'pendente', paid_amount: (i===0 && status==='pago') ? amount : 0,
+        payment_method: data.payment_method, cost_center_id: data.cost_center_id, notes: data.notes,
+        recurring_template_id: createdTemplate.id });
+      dueDate = recurringNextDate(dueDate, recurrenceType, intervalDays);
+    }
+    const { error: rowsErr } = await sb.from('transactions').insert(rows);
+    if(rowsErr){ dbErr(rowsErr, 'Recorrência criada, mas erro ao gerar os lançamentos'); unlockButton(_btn); return; }
+    closeModal(); toast('Despesa recorrente criada — 12 lançamentos gerados'); await loadAll(); renderAll();
+    return;
+  }
   const parcelar = document.getElementById('t-parcelar')?.checked;
   const totalInstallments = parcelar ? Math.max(2, parseInt(document.getElementById('t-installmentcount').value)||2) : 1;
   if(totalInstallments>1){
@@ -4393,8 +4429,8 @@ function renderDashAlertsMini(){
   const receberHoje = state.transactions.filter(t=>t.type==='receita'&&t.status==='pendente'&&t.dueDate===today);
   const naoConciliadas = state.transactions.filter(t=>t.status==='pago' && !t.accountId).length;
   const items = [];
-  if(vencidas.length>0) items.push({ icon:'💰', bg:'#FEE2E2', title:`${vencidas.length} conta(s) a pagar vencida(s)`, sub:`Total: ${fmtMoney(vencidas.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('pagar')" });
-  if(receberHoje.length>0) items.push({ icon:'💵', bg:'#FEF3C7', title:`${receberHoje.length} conta(s) a receber vencem hoje`, sub:`Total: ${fmtMoney(receberHoje.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('receber')" });
+  if(vencidas.length>0) items.push({ icon:'💰', bg:'#FEE2E2', title:`${vencidas.length} conta(s) a pagar vencida(s)`, sub:`Total: ${fmtMoney(vencidas.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('contas'); setContasSubTab('pagar');" });
+  if(receberHoje.length>0) items.push({ icon:'💵', bg:'#FEF3C7', title:`${receberHoje.length} conta(s) a receber vencem hoje`, sub:`Total: ${fmtMoney(receberHoje.reduce((s,t)=>s+t.amount,0))}`, onclick:"setFinTab('contas'); setContasSubTab('receber');" });
   if(naoConciliadas>0) items.push({ icon:'🏦', bg:'#DBEAFE', title:'Conciliação bancária pendente', sub:`${naoConciliadas} conta(s) para conciliar`, onclick:"setFinTab('conciliacao')" });
   box.innerHTML = items.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhum alerta no momento.</div>' : items.map(a=>`
     <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="${a.onclick}">
@@ -4539,7 +4575,7 @@ function openSaudeFinanceiraModal(){
         </tr>`;
       }).join('')}
     </tbody></table>
-    ${contasPagarAbertasList.length>10?`<div class="hint" style="margin-top:8px;">Mostrando 10 de ${contasPagarAbertasList.length}. <a href="#" onclick="closeModal(); setFinTab('pagar'); return false;">Ver todas em Contas a Pagar →</a></div>`:''}
+    ${contasPagarAbertasList.length>10?`<div class="hint" style="margin-top:8px;">Mostrando 10 de ${contasPagarAbertasList.length}. <a href="#" onclick="closeModal(); setFinTab('contas'); setContasSubTab('pagar'); return false;">Ver todas em Contas a Pagar →</a></div>`:''}
     ` : '<div class="hint">Nenhuma conta a pagar em aberto no momento.</div>'}
   `, 'wide');
 }
@@ -4919,9 +4955,9 @@ function renderFinDashboard(){
 
   const card = (label, value, onclick, color) => `<div class="stat-card${onclick?' clickable':''}" ${onclick?`onclick="${onclick}"`:''}><div class="stat-label">${label}</div><div class="stat-value"${color?` style="color:${color}"`:''}>${value}</div></div>`;
   compactBox.innerHTML = [
-    card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('contas')", saldoTotal<0?'var(--danger)':null),
-    card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('pagar')"),
-    card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('receber')"),
+    card('💰 Saldo Total', fmtMoney(saldoTotal), "setFinTab('bancos')", saldoTotal<0?'var(--danger)':null),
+    card('Despesas do período', fmtMoney(despesaTotal), "setFinTab('contas'); setContasSubTab('pagar');"),
+    card('Receitas do período', fmtMoney(receitaTotal), "setFinTab('contas'); setContasSubTab('receber');"),
   ].join('');
 
   renderFinTopCards();
@@ -5392,6 +5428,12 @@ function renderConciliacao(){
   state.transactions.filter(t=>t.status==='pago' && !t.accountId).forEach(t=>{
     issues.push({ tipo:'Pago sem conta', detalhe:`"${t.description}" está pago mas sem conta financeira vinculada`, severidade:'média', txId:t.id });
   });
+  // Status diz "Pago" mas o valor recebido/pago (paid_amount) não bate com o valor total — achado na
+  // auditoria do Financeiro: receitas de pedido geradas pelo gatilho do banco às vezes ficam com
+  // paid_amount=0 mesmo com status='pago' (já corrigido daqui pra frente em finalizeOrderDelivery).
+  state.transactions.filter(t=>t.status==='pago' && Math.abs(t.paidAmount - t.amount) > 0.01).forEach(t=>{
+    issues.push({ tipo:'Pago com valor recebido divergente', detalhe:`"${t.description}" está com status Pago (${fmtMoney(t.amount)}) mas o valor recebido registrado é ${fmtMoney(t.paidAmount)}`, severidade:'alta', fixPaidAmountTxId:t.id });
+  });
   // Transferências para/de contas inativas
   state.accountTransfers.forEach(tr=>{
     const from = state.financialAccounts.find(a=>a.id===tr.fromAccountId);
@@ -5414,7 +5456,7 @@ function renderConciliacao(){
     ${gruposReceitaDuplicada.length>1 ? `<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost btn-sm" onclick="autoResolveDuplicateReceitas()" title="Resolve todas as receitas duplicadas de uma vez: mantém a que já tem conta vinculada (se só uma tiver), senão a mais recente">🧹 Resolver todas as receitas duplicadas (${gruposReceitaDuplicada.length})</button></div>` : ''}
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${visiveis.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista">✕ Dispensar</button></td></tr>`).join('')}
+    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.fixPaidAmountTxId?`<button class="btn btn-ghost btn-sm" onclick="fixPaidAmountDivergente('${i.fixPaidAmountTxId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista">✕ Dispensar</button></td></tr>`).join('')}
   </tbody></table>
   ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
 }
@@ -5624,31 +5666,61 @@ async function fixPagoSemConta(txId){
     openTransactionModal(txId);
   }
 }
+// Corrige "Pago" com valor recebido divergente — iguala paid_amount ao valor total do lançamento, já que
+// status='pago' só faz sentido significando "recebido/pago por inteiro".
+async function fixPaidAmountDivergente(txId){
+  const t = state.transactions.find(x=>x.id===txId);
+  if(!t) return;
+  const { error } = await sb.from('transactions').update({ paid_amount: t.amount }).eq('id', txId);
+  if(error){ dbErr(error, 'Erro ao corrigir valor recebido'); return; }
+  toast('Valor recebido corrigido');
+  await loadAll(); renderAll(); renderConciliacao();
+}
 
 
 // ---- Sub-abas do Financeiro ----
 function setFinTab(tab){
   document.querySelectorAll('[data-fintab]').forEach(t=>t.classList.toggle('active', t.dataset.fintab===tab));
   document.getElementById('finLancamentosView').style.display = tab==='lancamentos' ? 'block' : 'none';
-  document.getElementById('finContasView').style.display = tab==='contas' ? 'block' : 'none';
+  document.getElementById('finContasGroupView').style.display = tab==='contas' ? 'block' : 'none';
   document.getElementById('finCategoriasView').style.display = tab==='categorias' ? 'block' : 'none';
-  document.getElementById('finRecorrentesView').style.display = tab==='recorrentes' ? 'block' : 'none';
-  document.getElementById('finReceberView').style.display = tab==='receber' ? 'block' : 'none';
-  document.getElementById('finPagarView').style.display = tab==='pagar' ? 'block' : 'none';
+  document.getElementById('finBancosView').style.display = tab==='bancos' ? 'block' : 'none';
   document.getElementById('finFluxoView').style.display = tab==='fluxo' ? 'block' : 'none';
   document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
   document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
   document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas') ? 'none' : 'block';
-  if(tab==='contas') renderFinAccountsTable();
+  if(tab==='bancos') renderFinAccountsTable();
   if(tab==='categorias'){ renderFinCategoriesTable(); renderCostCentersTable(); }
-  if(tab==='recorrentes') renderRecurringTemplatesTable();
-  if(tab==='receber') renderReceberTable();
-  if(tab==='pagar') renderPagarTable();
+  if(tab==='contas') setContasSubTab(contasSubTabState);
   if(tab==='fluxo') renderFluxoCaixa();
   if(tab==='conciliacao') renderConciliacao();
   if(tab==='metas') renderMetasEInsights();
   if(tab==='dashboard') renderFinDashboard();
+}
+// "Contas" agrupa A Pagar e A Receber (antes eram 2 abas de primeiro nível) — guarda em qual sub-aba o
+// usuário estava, pra continuar lá se sair e voltar pra "Contas" de novo.
+let contasSubTabState = 'pagar';
+function setContasSubTab(sub){
+  contasSubTabState = sub;
+  document.querySelectorAll('[data-contassubtab]').forEach(t=>t.classList.toggle('active', t.dataset.contassubtab===sub));
+  document.getElementById('finPagarView').style.display = sub==='pagar' ? 'block' : 'none';
+  document.getElementById('finReceberView').style.display = sub==='receber' ? 'block' : 'none';
+  if(sub==='pagar') renderPagarTable();
+  if(sub==='receber') renderReceberTable();
+}
+// Recorrências deixou de ser aba de primeiro nível — agora é uma ferramenta secundária, acessível de
+// dentro de Contas a Pagar (onde ela é usada), aberta como modal em vez de ocupar espaço permanente na
+// navegação principal.
+function openRecorrentesManagerModal(){
+  openModal(`
+    <div class="modal-head"><h3>🔁 Despesas Recorrentes</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">Ex: energia, internet, aluguel. Ao criar, já gera as próximas 12 ocorrências como lançamentos "Aberto" — sem precisar lembrar de lançar todo mês.</div>
+    <div style="text-align:right;margin-bottom:10px;"><button class="btn btn-primary btn-sm" onclick="openRecurringTemplateModal()">+ Nova recorrência</button></div>
+    <div id="recurringTemplatesTableWrap" class="table-scroll"></div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `, 'wide');
+  renderRecurringTemplatesTable();
 }
 
 // ---- Centro de Custos ----
@@ -11672,7 +11744,7 @@ function alertActionsHtml(alert){
     btns.push(btn('Abrir cliente', `closeModal(); openClientDetailModal('${alert.entityId}')`));
   } else if(alert.type==='pagamento_entregador_pendente'){
     btns.push(btn('Lançar em Contas a Pagar', `payDriverFee('${alert.entityId}', '${alert.driverFeeFrom}', '${alert.driverFeeTo}')`, true));
-    btns.push(btn('Ver Contas a Pagar', `closeModal(); switchView('financeiro'); setFinTab('pagar');`));
+    btns.push(btn('Ver Contas a Pagar', `closeModal(); switchView('financeiro'); setFinTab('contas'); setContasSubTab('pagar');`));
   } else if(alert.type==='tarefa_atrasada'){
     const task = state.tasks.find(t=>t.id===alert.entityId);
     btns.push(btn('Concluir', `setTaskStatus('${alert.entityId}','concluida').then(()=>{closeModal();renderNotifications();})`, true));
