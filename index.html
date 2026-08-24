@@ -5002,6 +5002,9 @@ function renderFinMarginInsightsCard(containerId){
   if(!box) return;
   const range = pagarMonthRange();
   const m = combinedRevenueInsights(range.from, range.to);
+  box.classList.add('clickable');
+  box.title = 'Ver mais insights e detalhamento por motorista';
+  box.onclick = () => openMarginInsightsModal();
   if(!m){
     box.innerHTML = `<div class="panel-head"><div class="section-title" style="font-size:14px;">💰 Margem e custo de entrega</div></div><div class="hint">Nenhuma entrega com motorista registrada nesse período ainda.</div>`;
     return;
@@ -5017,7 +5020,7 @@ function renderFinMarginInsightsCard(containerId){
       <div class="stat-row"><span class="stat-row-label">Margem com entrega</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
       <div class="stat-row"><span class="stat-row-label">Custo extra por pacote</span><span class="stat-row-value">${m.costPerPackage!=null?fmtMoney(m.costPerPackage):'—'}</span></div>
     </div>
-    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="openMarginInsightsModal()">Ver mais insights e detalhamento por motorista →</button>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="event.stopPropagation(); openMarginInsightsModal();">Ver mais insights e detalhamento por motorista →</button>
   `;
 }
 // Modal completa (centralizada, tamanho grande) com todos os insights — visão combinada de todos os
