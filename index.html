@@ -813,22 +813,28 @@ tr:last-child td{border-bottom:none;}
 
         <div id="finContasView" style="display:none;">
           <div id="finContasKpisWrap" class="four-col" style="margin-bottom:16px;"></div>
-          <div class="panel">
-            <div class="panel-head">
-              <div class="section-title">Contas Financeiras</div>
-              <div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div>
+          <div class="two-col" style="align-items:start;">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="section-title">Contas Financeiras</div>
+                <div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openTransferModal()">↔️ Transferir entre contas</button><button class="btn btn-primary btn-sm" onclick="openFinAccountModal()">+ Nova conta</button></div>
+              </div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+                <input type="text" id="contasSearch" placeholder="🔎 Buscar conta" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:200px;" oninput="renderFinAccountsTable()">
+                <select id="contasStatusFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                  <option value="todas">Todos os status</option><option value="ativa">Ativas</option><option value="inativa">Inativas</option>
+                </select>
+                <select id="contasTipoFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
+                  <option value="todos">Todos os tipos</option>${FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}">${t.label}</option>`).join('')}
+                </select>
+              </div>
+              <div id="contasFilterChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
+              <div id="finAccountsTableWrap" class="table-scroll"></div>
             </div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-              <input type="text" id="contasSearch" placeholder="🔎 Buscar conta" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;width:200px;" oninput="renderFinAccountsTable()">
-              <select id="contasStatusFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
-                <option value="todas">Todos os status</option><option value="ativa">Ativas</option><option value="inativa">Inativas</option>
-              </select>
-              <select id="contasTipoFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
-                <option value="todos">Todos os tipos</option>${FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}">${t.label}</option>`).join('')}
-              </select>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">↔️ Últimas transferências</div><a href="#" onclick="event.preventDefault(); toggleTransfersHistory();" style="font-size:12px;color:var(--accent-2);">Ver todas</a></div>
+              <div id="ultimasTransferenciasWrap"></div>
             </div>
-            <div id="contasFilterChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
-            <div id="finAccountsTableWrap" class="table-scroll"></div>
           </div>
           <div class="two-col" style="margin-top:16px;align-items:start;">
             <div class="panel">
@@ -840,15 +846,9 @@ tr:last-child td{border-bottom:none;}
               </div>
               <div id="saldoHistoryChart"></div>
             </div>
-            <div>
-              <div class="panel">
-                <div class="panel-head"><div class="section-title" style="font-size:14px;">↔️ Últimas transferências</div><a href="#" onclick="event.preventDefault(); toggleTransfersHistory();" style="font-size:12px;color:var(--accent-2);">Ver todas</a></div>
-                <div id="ultimasTransferenciasWrap"></div>
-              </div>
-              <div class="panel" style="margin-top:16px;">
-                <div class="panel-head"><div class="section-title" style="font-size:14px;">💡 Insights das contas</div></div>
-                <div id="contasInsightsWrap" class="stat-row-list"></div>
-              </div>
+            <div class="panel">
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">💡 Insights das contas</div></div>
+              <div id="contasInsightsWrap" class="stat-row-list"></div>
             </div>
           </div>
           <div id="transfersHistoryWrap" style="display:none;margin-top:16px;">
