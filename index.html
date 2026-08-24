@@ -557,16 +557,6 @@ tr:last-child td{border-bottom:none;}
           <div id="stockTableWrap" class="table-scroll"></div>
           <div style="text-align:right;margin-top:10px;font-size:13px;color:var(--muted);" id="stockTotalLine"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><div class="section-title">Histórico de movimentações</div></div>
-          <div class="tabs">
-            <div class="tab active" data-movtab="todos" onclick="setMovementTab('todos')">Tudo</div>
-            <div class="tab" data-movtab="entrada" onclick="setMovementTab('entrada')">Entradas</div>
-            <div class="tab" data-movtab="saida" onclick="setMovementTab('saida')">Saídas</div>
-          </div>
-          <div id="movementsTableWrap" class="table-scroll"></div>
-          <div id="movementsPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
-        </div>
         <div class="three-col">
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Evolução do estoque (mês)</div></div>
@@ -590,6 +580,16 @@ tr:last-child td{border-bottom:none;}
             </div>
           </div>
           <div id="stockGiroWrap" class="table-scroll"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">Histórico de movimentações</div></div>
+          <div class="tabs">
+            <div class="tab active" data-movtab="todos" onclick="setMovementTab('todos')">Tudo</div>
+            <div class="tab" data-movtab="entrada" onclick="setMovementTab('entrada')">Entradas</div>
+            <div class="tab" data-movtab="saida" onclick="setMovementTab('saida')">Saídas</div>
+          </div>
+          <div id="movementsTableWrap" class="table-scroll"></div>
+          <div id="movementsPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
         </div>
       </section>
 
