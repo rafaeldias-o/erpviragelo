@@ -1,12 +1,13 @@
 // supabase/functions/ai-analyst/index.ts
 //
-// FASE 5 — Memória e Otimização, em cima das Fases 1-4 (preservadas integralmente: financeiro validado,
-// modos + 4 tools + loop de ferramentas, conversas persistentes, score de saúde).
+// FASE 6 — Maturidade e Governança, em cima das Fases 1-5 (preservadas integralmente).
 //
-// Mudança desta fase:
-// - Log de consumo real (ai_usage_logs): tokens de entrada/saída (vêm prontos no usageMetadata da
-//   própria resposta do Gemini, não precisa calcular nada), modelo, duração, ferramentas usadas, status.
-//   Fire-and-forget — uma falha ao gravar o log nunca derruba a resposta que o usuário está esperando.
+// Mudanças desta fase:
+// - Feature flag ai_module_enabled (company_settings) — checada aqui no backend, não só escondendo botão
+//   no frontend. Desligar a Inteligência não depende de deploy nenhum.
+// - Camada AIProvider mínima — o loop de ferramentas fala com uma interface genérica (generate), não
+//   direto com o formato do Gemini. Trocar de provedor no futuro = nova classe implementando a mesma
+//   interface, sem tocar no resto do arquivo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -174,6 +175,13 @@ Deno.serve(async (req) => {
       return json({ error: "Perfil não encontrado." }, 403);
     }
 
+    // Feature flag — checada aqui no backend (não só escondendo o botão no frontend). Se alguém desligar
+    // a Inteligência em company_settings, a Edge Function recusa mesmo que uma requisição chegue direto.
+    const { data: settings } = await supabase.from("company_settings").select("ai_module_enabled").limit(1).single();
+    if (settings && settings.ai_module_enabled === false) {
+      return json({ error: "O Analista IA está temporariamente desativado pelo administrador." }, 503);
+    }
+
     if (isRateLimited(userId)) {
       console.log("ai-analyst: rate limit INTERNO atingido pro usuário", userId);
       logUsage(supabase, { userId, status: "rate_limited_internal", durationMs: Date.now() - startTime });
@@ -224,22 +232,26 @@ Deno.serve(async (req) => {
     let lastToolData: unknown = null;
     let finalAnswer = "";
     let promptTokens = 0, completionTokens = 0; // acumulado de TODAS as chamadas ao Gemini nesse turno
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const systemPrompt = buildSystemPrompt(mode, todayStr);
+    const toolsForCall = mode === "company" ? COMPANY_TOOLS : undefined;
 
-    // Loop: chama o Gemini, se ele pedir uma ferramenta, executa e devolve o resultado, repete — até
-    // ele responder só com texto (sem pedir mais nada) ou atingir o teto de segurança.
+    // Loop: chama o provedor de IA, se ele pedir uma ferramenta, executa e devolve o resultado, repete —
+    // até ele responder só com texto (sem pedir mais nada) ou atingir o teto de segurança.
     toolLoop: for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const resp = await callGemini(contents, mode, mode === "company");
-      if (resp.usageMetadata) {
-        promptTokens += resp.usageMetadata.promptTokenCount || 0;
-        completionTokens += resp.usageMetadata.candidatesTokenCount || 0;
+      const resp = await aiProvider.generate(contents, systemPrompt, toolsForCall);
+      if (resp.usage) {
+        promptTokens += resp.usage.promptTokens;
+        completionTokens += resp.usage.completionTokens;
       }
-      const callPart = extractFunctionCallPart(resp);
 
-      if (!callPart) {
-        finalAnswer = extractText(resp) || "Não consegui montar uma resposta com os dados disponíveis.";
+      if (!resp.functionCallPart) {
+        finalAnswer = resp.text || "Não consegui montar uma resposta com os dados disponíveis.";
         break toolLoop;
       }
 
+      // deno-lint-ignore no-explicit-any
+      const callPart = resp.functionCallPart as any;
       const call = callPart.functionCall as { name: string; args: Record<string, unknown> };
       console.log("ai-analyst: tool escolhida pelo Gemini:", call.name, JSON.stringify(call.args));
       toolsUsed.push(call.name);
@@ -289,7 +301,7 @@ Deno.serve(async (req) => {
     return json({ answer: finalAnswer, tools_used: toolsUsed, data_used: lastToolData, conversation_id: conversationId, conversation_title: conversationTitle });
   } catch (e) {
     console.error("ai-analyst: erro não tratado:", e instanceof Error ? e.message : String(e));
-    if (e instanceof GeminiRateLimitError) {
+    if (e instanceof RateLimitError) {
       console.log("ai-analyst: rate limit DO PRÓPRIO GEMINI atingido (free tier)");
       if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, mode: modeForLog || undefined, status: "rate_limited_gemini", durationMs: Date.now()-startTime });
       return json({ error: "O provedor de IA (Gemini) atingiu o limite do plano gratuito nesse minuto. Espera um pouco — costuma liberar rápido." }, 429);
@@ -366,39 +378,59 @@ function generateTitle(question: string): string {
   return clean.length > 40 ? clean.slice(0, 40).trim() + "…" : clean;
 }
 
-class GeminiRateLimitError extends Error {}
+// ---- Camada AIProvider (Fase 6) ----
+// Contrato mínimo pra o resto do código (o loop de ferramentas) nunca falar direto com o formato
+// específico de uma API de IA. Trocar de provedor no futuro = escrever um novo XxxProvider implementando
+// essa mesma interface, sem mexer em mais nada do resto do arquivo. Não é uma abstração grande de
+// propósito — só o suficiente pra não ficar preso ao formato do Gemini.
+interface AIProviderResponse {
+  functionCallPart: unknown | null; // o "part" bruto (com thoughtSignature etc, se o provedor usar isso)
+  // — precisa ser ecoado de volta intacto na próxima chamada, então não normalizamos esse formato.
+  text: string | null;
+  usage: { promptTokens: number; completionTokens: number } | null;
+}
+interface AIProvider {
+  generate(contents: unknown[], systemPrompt: string, tools: unknown[] | undefined): Promise<AIProviderResponse>;
+}
 
-async function callGemini(contents: unknown[], mode: "company" | "general", withTools: boolean) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: buildSystemPrompt(mode, todayStr) }] },
-        contents,
-        tools: withTools ? [{ function_declarations: COMPANY_TOOLS }] : undefined,
-      }),
+class RateLimitError extends Error {}
+
+class GeminiProvider implements AIProvider {
+  async generate(contents: unknown[], systemPrompt: string, tools: unknown[] | undefined): Promise<AIProviderResponse> {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          tools: tools ? [{ function_declarations: tools }] : undefined,
+        }),
+      }
+    );
+    if (res.status === 429) throw new RateLimitError("gemini rate limited");
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error("GeminiProvider: erro", res.status, errText.slice(0, 300));
+      throw new Error(`Gemini error ${res.status}`);
     }
-  );
-  if (res.status === 429) throw new GeminiRateLimitError("gemini rate limited");
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    console.error("ai-analyst: Gemini retornou erro", res.status, errText.slice(0, 300));
-    throw new Error(`Gemini error ${res.status}`);
+    const data = await res.json();
+    return {
+      // deno-lint-ignore no-explicit-any
+      functionCallPart: data?.candidates?.[0]?.content?.parts?.find((p: any) => p.functionCall) ?? null,
+      // deno-lint-ignore no-explicit-any
+      text: data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("\n") ?? null,
+      usage: data.usageMetadata
+        ? { promptTokens: data.usageMetadata.promptTokenCount || 0, completionTokens: data.usageMetadata.candidatesTokenCount || 0 }
+        : null,
+    };
   }
-  return res.json();
 }
 
-// deno-lint-ignore no-explicit-any
-function extractFunctionCallPart(resp: any) {
-  return resp?.candidates?.[0]?.content?.parts?.find((p: any) => p.functionCall) ?? null;
-}
-// deno-lint-ignore no-explicit-any
-function extractText(resp: any) {
-  return resp?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("\n") ?? null;
-}
+// Ponto único de troca futura — pra usar outro provedor, troca só esta linha (por ex. `new OpenAIProvider()`),
+// desde que a nova classe implemente a mesma interface AIProvider.
+const aiProvider: AIProvider = new GeminiProvider();
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
