@@ -137,7 +137,11 @@ Deno.serve(async (req) => {
 
     // 4) Primeira chamada ao Gemini, com a tool disponível
     const first = await callGemini([{ role: "user", parts: [{ text: question }] }], true);
-    const call = extractFunctionCall(first);
+    // Pega o PEDAÇO INTEIRO da resposta (não só name/args) — modelos da família Gemini 3.x anexam um
+    // "thoughtSignature" nesse mesmo pedaço, que precisa ser devolvido junto na 2ª chamada, senão a API
+    // recusa com erro 400 ("missing a thought_signature"). Reconstruir só com {name, args} descarta isso.
+    const callPart = extractFunctionCallPart(first);
+    const call = callPart?.functionCall;
     console.log("ai-analyst: tool escolhida pelo Gemini:", call?.name ?? "(nenhuma)");
 
     if (!call) {
@@ -157,11 +161,12 @@ Deno.serve(async (req) => {
       toolResult = data;
     }
 
-    // 5) Segunda chamada, agora com o resultado da tool, pra Gemini interpretar
+    // 5) Segunda chamada, agora com o resultado da tool, pra Gemini interpretar — devolve o callPart
+    // INTEIRO (com thoughtSignature incluso, se veio), não uma versão reconstruída na mão
     const second = await callGemini(
       [
         { role: "user", parts: [{ text: question }] },
-        { role: "model", parts: [{ functionCall: call }] },
+        { role: "model", parts: [callPart] },
         { role: "function", parts: [{ functionResponse: { name: call.name, response: { result: toolResult } } }] },
       ],
       false
@@ -212,9 +217,10 @@ const CORS_HEADERS = {
 };
 
 // deno-lint-ignore no-explicit-any
-function extractFunctionCall(resp: any) {
-  const part = resp?.candidates?.[0]?.content?.parts?.find((p: any) => p.functionCall);
-  return part?.functionCall ?? null;
+function extractFunctionCallPart(resp: any) {
+  // Devolve o PEDAÇO INTEIRO (functionCall + qualquer campo extra tipo thoughtSignature), não só o
+  // conteúdo de functionCall — precisa disso íntegro pra ecoar de volta na 2ª chamada ao Gemini.
+  return resp?.candidates?.[0]?.content?.parts?.find((p: any) => p.functionCall) ?? null;
 }
 // deno-lint-ignore no-explicit-any
 function extractText(resp: any) {
