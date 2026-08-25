@@ -21,6 +21,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash"; // GA estável (não preview), confirmado ago/2026 — gemini-2.5-flash já está bloqueado pra chaves novas
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+// SUPABASE_ANON_KEY é um secret padrão/reservado — já vem disponível automaticamente, não precisa
+// configurar nada a mais. É a chave pública fixa do projeto, diferente do JWT de cada usuário logado.
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 
 // Rate limit simples em memória (por instância) — suficiente pra provar o fluxo na Fase 1.
 // Numa fase posterior, migrar pra uma tabela (contagem por usuário/minuto), já que instâncias de
@@ -81,13 +84,20 @@ Deno.serve(async (req) => {
       console.error("ai-analyst: SUPABASE_URL não disponível no ambiente");
       return json({ error: "Analista IA não configurado (faltando SUPABASE_URL)." }, 500);
     }
+    if (!SUPABASE_ANON_KEY) {
+      console.error("ai-analyst: SUPABASE_ANON_KEY não disponível no ambiente");
+      return json({ error: "Analista IA não configurado (faltando SUPABASE_ANON_KEY)." }, 500);
+    }
 
     // 1) Autentica o usuário pelo JWT enviado no header — nunca confia em nada vindo do body sobre "quem é"
     const authHeader = req.headers.get("Authorization") || "";
     const jwt = authHeader.replace("Bearer ", "");
     if (!jwt) return json({ error: "Não autenticado." }, 401);
 
-    const supabase = createClient(SUPABASE_URL, jwt, {
+    // Cliente criado com a chave anônima FIXA do projeto (não confundir com o JWT do usuário) — o JWT
+    // entra separado, no header Authorization, pra esse cliente específico agir "como" esse usuário
+    // (respeitando RLS normalmente, não como admin).
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
 
