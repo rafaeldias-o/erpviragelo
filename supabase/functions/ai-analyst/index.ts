@@ -135,6 +135,8 @@ Deno.serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   let supabaseForLog: any = null;
   let userIdForLog: string | null = null;
+  let modeForLog: "company" | "general" | null = null; // hoisted pra ficar disponível no catch — sem isso,
+  // o log de erro/rate-limit sempre gravava mode=null, mesmo sabendo qual modo era
 
   try {
     console.log("ai-analyst: request recebida", req.method);
@@ -181,6 +183,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const question = body?.question;
     const mode: "company" | "general" = body?.mode === "general" ? "general" : "company";
+    modeForLog = mode;
     let conversationId: string | null = typeof body?.conversation_id === "string" ? body.conversation_id : null;
     if (!question || typeof question !== "string" || question.length > 500) {
       return json({ error: "Pergunta inválida." }, 400);
@@ -288,10 +291,10 @@ Deno.serve(async (req) => {
     console.error("ai-analyst: erro não tratado:", e instanceof Error ? e.message : String(e));
     if (e instanceof GeminiRateLimitError) {
       console.log("ai-analyst: rate limit DO PRÓPRIO GEMINI atingido (free tier)");
-      if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, status: "rate_limited_gemini", durationMs: Date.now()-startTime });
+      if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, mode: modeForLog || undefined, status: "rate_limited_gemini", durationMs: Date.now()-startTime });
       return json({ error: "O provedor de IA (Gemini) atingiu o limite do plano gratuito nesse minuto. Espera um pouco — costuma liberar rápido." }, 429);
     }
-    if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, status: "error", errorMessage: e instanceof Error ? e.message : String(e), durationMs: Date.now()-startTime });
+    if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, mode: modeForLog || undefined, status: "error", errorMessage: e instanceof Error ? e.message : String(e), durationMs: Date.now()-startTime });
     return json({ error: "Não foi possível concluir a análise agora." }, 500);
   }
 });
