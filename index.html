@@ -1568,7 +1568,10 @@ function setAIMode(mode){
 function renderAIQuickQuestions(){
   const box = document.getElementById('aiQuickQuestions');
   if(!box) return;
-  box.innerHTML = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion(${JSON.stringify(q)})">${esc(q)}</button>`).join('');
+  // onclick já usa aspas duplas — JSON.stringify(q) também gera aspas duplas, e as duas colidiam,
+  // quebrando o atributo HTML do botão (clique não fazia nada). Usa aspas simples aqui, escapando
+  // qualquer aspa simples dentro do próprio texto da pergunta, evitando a colisão.
+  box.innerHTML = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${q.replace(/'/g,"\\'")}')">${esc(q)}</button>`).join('');
 }
 async function sendAIQuestion(presetQuestion){
   if(aiChatBusy) return;
