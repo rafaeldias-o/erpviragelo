@@ -20,7 +20,10 @@ const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
-const MAX_TOOL_ROUNDS = 4; // teto de segurança: evita loop indefinido consumindo o Free Tier à toa
+const MAX_TOOL_ROUNDS = 6; // teto de segurança: evita loop indefinido consumindo o Free Tier à toa.
+// 4 era curto demais na prática: uma comparação de período sem domínio especificado ("compare este mês
+// com o anterior") pode legitimamente chamar 2 ferramentas diferentes (financeiro + vendas) x 2 períodos
+// cada = 4 chamadas, sem sobrar nenhuma rodada pra responder com texto no final. 6 dá essa folga.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
