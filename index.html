@@ -12360,9 +12360,9 @@ function openSidebarUserPanel(){
     const profiles = state.allProfiles||[];
     openModal(`
       <div class="modal-head"><h3>👥 Usuários do sistema</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-      <div class="hint" style="margin-bottom:10px;">Como proprietário, você pode ver todos os perfis cadastrados. Os demais usuários — mesmo administradores — só enxergam os próprios dados.</div>
-      <table><thead><tr><th>Nome</th><th>Cargo</th></tr></thead><tbody>
-        ${profiles.length ? profiles.map(p=>`<tr><td>${esc(p.name||'—')}${p.id===myUser.id?' <span class="badge badge-muted" style="font-size:10px;">você</span>':''}</td><td>${esc(roleLabel(p.role))}</td></tr>`).join('') : '<tr><td colspan="2" style="color:var(--muted);">Nenhum outro perfil encontrado.</td></tr>'}
+      <div class="hint" style="margin-bottom:10px;">Como proprietário, você pode ver todos os perfis cadastrados e acessar a conta de qualquer um deles. Os demais usuários — mesmo administradores — só enxergam os próprios dados e não têm essa opção.</div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th></th></tr></thead><tbody>
+        ${profiles.length ? profiles.map(p=>`<tr><td>${esc(p.name||'—')}${p.id===myUser.id?' <span class="badge badge-muted" style="font-size:10px;">você</span>':''}</td><td>${esc(roleLabel(p.role))}</td><td style="text-align:right;">${p.id!==myUser.id?`<button class="btn btn-ghost btn-sm" onclick="impersonateUser('${p.id}', ${JSON.stringify(p.name||'esse usuário').replace(/"/g,'&quot;')})">Entrar</button>`:''}</td></tr>`).join('') : '<tr><td colspan="3" style="color:var(--muted);">Nenhum outro perfil encontrado.</td></tr>'}
       </tbody></table>
       <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
     `, 'wide');
@@ -12378,6 +12378,31 @@ function openSidebarUserPanel(){
       <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
     `);
   }
+}
+// "Entrar como outro usuário" — a checagem real de segurança é no backend (Edge Function), não aqui.
+// Isso aqui é só a UI; mesmo que alguém remova esse botão via console, a Edge Function recusa qualquer
+// chamada que não venha do e-mail exato do proprietário.
+async function impersonateUser(targetUserId, targetName){
+  confirmModal(`Você vai acessar a conta de ${esc(targetName)}. Sua sessão atual será substituída pela dele(a). Continuar?`, async ()=>{
+    const { data: sessionData } = await sb.auth.getSession();
+    const jwt = sessionData?.session?.access_token;
+    if(!jwt){ toast('Sessão expirada — atualize a página e tente de novo', true); return; }
+    try{
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/impersonate-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify({ target_user_id: targetUserId }),
+      });
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok || data.error){ toast(data.error || 'Não foi possível acessar essa conta', true); return; }
+      // Navega até o magic link gerado pelo backend — isso efetivamente troca a sessão do navegador
+      // pra ser a do usuário-alvo.
+      window.location.href = data.action_link;
+    }catch(e){
+      console.error(e);
+      toast('Não foi possível acessar essa conta', true);
+    }
+  }, 'Entrar como outro usuário');
 }
 async function saveFuelSettings(){
   if(!isOwnerUser()){ toast('Só o proprietário pode alterar essa configuração', true); return; }
