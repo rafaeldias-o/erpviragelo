@@ -354,6 +354,7 @@ tr:last-child td{border-bottom:none;}
       <div class="nav-item" data-view="visitas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas Comerciais</span></div>
       <div class="nav-item" data-view="freezers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
       <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
+      <div class="nav-item" data-view="inteligencia" onclick="switchView('inteligencia')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 0-5 5c0 1.6.7 2.5 1.5 3.4.6.6 1 1.2 1 2.1v.5a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-.5c0-.9.4-1.5 1-2.1.8-.9 1.5-1.8 1.5-3.4a5 5 0 0 0-5-5Z"/><path d="M9.5 18h5M10 21h4"/></svg><span>Inteligência</span></div>
       <div class="nav-item" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
     </nav>
     <div class="sidebar-foot">
@@ -392,6 +393,7 @@ tr:last-child td{border-bottom:none;}
           <div class="nav-item" data-view="visitas" onclick="switchView('visitas'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas</span></div>
           <div class="nav-item" data-view="freezers" onclick="switchView('freezers'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
           <div class="nav-item" data-view="relatorios" onclick="switchView('relatorios'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
+          <div class="nav-item" data-view="inteligencia" onclick="switchView('inteligencia'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 0-5 5c0 1.6.7 2.5 1.5 3.4.6.6 1 1.2 1 2.1v.5a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-.5c0-.9.4-1.5 1-2.1.8-.9 1.5-1.8 1.5-3.4a5 5 0 0 0-5-5Z"/><path d="M9.5 18h5M10 21h4"/></svg><span>Inteligência</span></div>
           <div class="nav-item" data-view="config" onclick="switchView('config'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
         </div>
       </div>
@@ -1437,6 +1439,23 @@ tr:last-child td{border-bottom:none;}
       </section>
 
       <!-- CONFIGURACOES -->
+      <!-- INTELIGÊNCIA (Analista IA — MVP read-only) -->
+      <section class="view" id="view-inteligencia">
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">🧠 Analista IA</div></div>
+          <div class="hint" style="margin-bottom:14px;">Pergunte sobre a operação da empresa. Ele só consulta e interpreta dados reais — nunca altera nada no sistema.</div>
+          <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
+          <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Como estão minhas finanças este mês?')">Como estão minhas finanças este mês?</button>
+            <button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Compare este mês com o anterior')">Compare este mês com o anterior</button>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="aiChatInput" placeholder="Pergunte qualquer coisa sobre sua empresa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;" onkeydown="if(event.key==='Enter'){event.preventDefault(); sendAIQuestion();}">
+            <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-config">
         <div class="config-grid">
         <div class="two-col">
@@ -1509,6 +1528,61 @@ document.addEventListener('wheel', function(e){
 
 // ================= SUPABASE =================
 const SUPABASE_URL = 'https://iknqqrwhtfnenuynemve.supabase.co';
+// ---- Analista IA (MVP read-only, Fase 1) ----
+// Chama a Edge Function "ai-analyst" com o JWT da sessão atual (nunca com a anon key sozinha nem com
+// nenhuma chave do Gemini — essa fica só como Secret da função, do lado do servidor). Se a Edge Function
+// ainda não estiver deployada, mostra um erro amigável em vez de quebrar a tela.
+let aiChatBusy = false;
+async function sendAIQuestion(presetQuestion){
+  if(aiChatBusy) return;
+  const input = document.getElementById('aiChatInput');
+  const question = (presetQuestion || input.value || '').trim();
+  if(!question) return;
+  if(input) input.value = '';
+  appendAIMessage('user', question);
+  const loadingId = appendAIMessage('model', 'Analisando os dados da sua operação...', true);
+  aiChatBusy = true;
+  const sendBtn = document.getElementById('aiSendBtn');
+  if(sendBtn){ sendBtn.disabled = true; }
+  try{
+    const { data: sessionData } = await sb.auth.getSession();
+    const jwt = sessionData?.session?.access_token;
+    if(!jwt){ updateAIMessage(loadingId, 'Sessão expirada — atualize a página e tente de novo.'); return; }
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-analyst`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({ question }),
+    });
+    if(res.status === 429){ updateAIMessage(loadingId, 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.'); return; }
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || data.error){ updateAIMessage(loadingId, data.error || 'Não foi possível concluir a análise agora.'); return; }
+    updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.');
+  }catch(e){
+    console.error(e);
+    updateAIMessage(loadingId, 'Não foi possível concluir a análise agora — tente de novo em instantes.');
+  }finally{
+    aiChatBusy = false;
+    if(sendBtn) sendBtn.disabled = false;
+  }
+}
+function appendAIMessage(role, text, isLoading){
+  const box = document.getElementById('aiChatMessages');
+  if(!box) return null;
+  const id = 'aimsg-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
+  const isUser = role==='user';
+  box.insertAdjacentHTML('beforeend', `
+    <div id="${id}" style="align-self:${isUser?'flex-end':'flex-start'};max-width:80%;background:${isUser?'var(--accent-2)':'var(--surface-2)'};color:${isUser?'#fff':'var(--ink)'};border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.5;white-space:pre-line;${isLoading?'opacity:.7;font-style:italic;':''}">${esc(text)}</div>
+  `);
+  box.scrollTop = box.scrollHeight;
+  return id;
+}
+function updateAIMessage(id, text){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = text;
+  el.style.opacity = '1';
+  el.style.fontStyle = 'normal';
+}
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrbnFxcndodGZuZW51eW5lbXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NzIyMDksImV4cCI6MjA5OTU0ODIwOX0.uBHhExWFo0qhwAUbklDyIE9V8fio3zxzU10Jbmlrw-A';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let myUser = null, myProfile = null;
