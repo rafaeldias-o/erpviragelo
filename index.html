@@ -806,7 +806,7 @@ tr:last-child td{border-bottom:none;}
             <div id="finBulkBar" style="display:none;background:var(--info-bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;align-items:center;gap:10px;font-size:12.5px;">
               <span id="finBulkCount"></span>
               <button class="btn btn-ghost btn-sm" onclick="bulkMarkPaid()">Marcar como pago</button>
-              <select id="finBulkCategory" style="border:1px solid var(--border);border-radius:6px;padding:5px 7px;font-size:12px;" onchange="bulkChangeCategory()"><option value="">Alterar categoria...</option>${''}</select>
+              <select id="finBulkCategory" style="border:1px solid var(--border);border-radius:6px;padding:5px 7px;font-size:12px;" onchange="bulkChangeCategory()"><option value="">Alterar categoria...</option></select>
               <button class="btn btn-danger-ghost btn-sm" onclick="bulkDelete()">Excluir selecionados</button>
               <button class="btn btn-ghost btn-sm" onclick="clearBulkSelection()" style="margin-left:auto;">Limpar seleção</button>
             </div>
@@ -829,7 +829,7 @@ tr:last-child td{border-bottom:none;}
                   <option value="todas">Todos os status</option><option value="ativa">Ativas</option><option value="inativa">Inativas</option>
                 </select>
                 <select id="contasTipoFilter" onchange="renderFinAccountsTable()" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;">
-                  <option value="todos">Todos os tipos</option>${FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}">${t.label}</option>`).join('')}
+                  <option value="todos">Todos os tipos</option>
                 </select>
               </div>
               <div id="contasFilterChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;"></div>
@@ -6262,6 +6262,13 @@ function renderFinContasKpis(){
 function renderFinAccountsTable(){
   const wrap = document.getElementById('finAccountsTableWrap');
   if(!wrap) return;
+  // Popula o select "Todos os tipos" via JS — precisa ser aqui, não como texto estático no HTML: um
+  // ${...} colocado direto no HTML da página nunca é avaliado pelo navegador (só dentro de uma template
+  // literal JS de verdade), o que deixava a expressão aparecendo literalmente na tela pro usuário.
+  const tipoSelect = document.getElementById('contasTipoFilter');
+  if(tipoSelect && tipoSelect.options.length<=1){
+    tipoSelect.innerHTML = '<option value="todos">Todos os tipos</option>' + FIN_ACCOUNT_TYPES.map(t=>`<option value="${t.v}">${esc(t.label)}</option>`).join('');
+  }
   if(state.financialAccounts.length===0){ wrap.innerHTML = emptyState('Nenhuma conta financeira cadastrada ainda.','Nova conta','openFinAccountModal()'); return; }
 
   const chipsBox = document.getElementById('contasFilterChips');
