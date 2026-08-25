@@ -1,16 +1,12 @@
 // supabase/functions/ai-analyst/index.ts
 //
-// FASE 3 — Conversas persistentes, em cima da Fase 2 (2 modos + 4 tools + loop de múltiplas chamadas)
-// e da Fase 1 (get_financial_summary validada), preservadas integralmente.
+// FASE 5 — Memória e Otimização, em cima das Fases 1-4 (preservadas integralmente: financeiro validado,
+// modos + 4 tools + loop de ferramentas, conversas persistentes, score de saúde).
 //
-// Mudanças desta fase:
-// - Aceita "conversation_id" opcional no body. Sem ele, cria uma conversa nova só depois da 1a resposta
-//   de verdade (nunca cria conversa vazia por causa de um clique em "+ Nova conversa" sem envio).
-// - Título automático por heurística (sem gastar chamada extra ao Gemini).
-// - Contexto limitado às últimas AI_CONTEXT_MESSAGE_LIMIT mensagens da conversa — não a conversa inteira.
-// - RLS de ai_conversations/ai_messages garante que cada usuário só acessa as próprias conversas — a
-//   consulta usa o client autenticado com o JWT do usuário (nunca service role), então mesmo um
-//   conversation_id de outra pessoa simplesmente não retorna nada.
+// Mudança desta fase:
+// - Log de consumo real (ai_usage_logs): tokens de entrada/saída (vêm prontos no usageMetadata da
+//   própria resposta do Gemini, não precisa calcular nada), modelo, duração, ferramentas usadas, status.
+//   Fire-and-forget — uma falha ao gravar o log nunca derruba a resposta que o usuário está esperando.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -135,6 +131,10 @@ retorna, nunca recalcular ou inventar um score diferente.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
+  const startTime = Date.now(); // pra medir duração total da chamada, incluindo o loop de ferramentas
+  // deno-lint-ignore no-explicit-any
+  let supabaseForLog: any = null;
+  let userIdForLog: string | null = null;
 
   try {
     console.log("ai-analyst: request recebida", req.method);
@@ -163,6 +163,8 @@ Deno.serve(async (req) => {
       return json({ error: "Sessão inválida." }, 401);
     }
     const userId = userData.user.id;
+    supabaseForLog = supabase;
+    userIdForLog = userId;
 
     const { data: profile, error: profileErr } = await supabase.from("profiles").select("role").eq("id", userId).single();
     if (profileErr || !profile) {
@@ -172,6 +174,7 @@ Deno.serve(async (req) => {
 
     if (isRateLimited(userId)) {
       console.log("ai-analyst: rate limit INTERNO atingido pro usuário", userId);
+      logUsage(supabase, { userId, status: "rate_limited_internal", durationMs: Date.now() - startTime });
       return json({ error: "Você atingiu o limite de perguntas por minuto do Analista IA. Espera um pouco e tenta de novo." }, 429);
     }
 
@@ -217,11 +220,16 @@ Deno.serve(async (req) => {
     const toolsUsed: string[] = [];
     let lastToolData: unknown = null;
     let finalAnswer = "";
+    let promptTokens = 0, completionTokens = 0; // acumulado de TODAS as chamadas ao Gemini nesse turno
 
     // Loop: chama o Gemini, se ele pedir uma ferramenta, executa e devolve o resultado, repete — até
     // ele responder só com texto (sem pedir mais nada) ou atingir o teto de segurança.
     toolLoop: for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const resp = await callGemini(contents, mode, mode === "company");
+      if (resp.usageMetadata) {
+        promptTokens += resp.usageMetadata.promptTokenCount || 0;
+        completionTokens += resp.usageMetadata.candidatesTokenCount || 0;
+      }
       const callPart = extractFunctionCallPart(resp);
 
       if (!callPart) {
@@ -236,6 +244,7 @@ Deno.serve(async (req) => {
       const { result, error } = await runTool(supabase, call.name, call.args);
       if (error) {
         console.error("ai-analyst: erro executando tool", call.name, error);
+        logUsage(supabase, { userId, conversationId, mode, toolsUsed, promptTokens, completionTokens, status: "error", errorMessage: error, durationMs: Date.now()-startTime });
         return json({ error: "Erro ao consultar os dados." }, 500);
       }
       lastToolData = result;
@@ -246,6 +255,7 @@ Deno.serve(async (req) => {
 
     if (!finalAnswer) {
       console.error("ai-analyst: atingiu o teto de rodadas de ferramentas sem finalizar");
+      logUsage(supabase, { userId, conversationId, mode, toolsUsed, promptTokens, completionTokens, status: "error", errorMessage: "max_tool_rounds", durationMs: Date.now()-startTime });
       return json({ error: "A análise ficou complexa demais pra concluir agora — tenta reformular a pergunta." }, 500);
     }
 
@@ -272,16 +282,44 @@ Deno.serve(async (req) => {
       ]);
     }
 
+    logUsage(supabase, { userId, conversationId, mode, toolsUsed, promptTokens, completionTokens, status: "success", durationMs: Date.now()-startTime });
     return json({ answer: finalAnswer, tools_used: toolsUsed, data_used: lastToolData, conversation_id: conversationId, conversation_title: conversationTitle });
   } catch (e) {
     console.error("ai-analyst: erro não tratado:", e instanceof Error ? e.message : String(e));
     if (e instanceof GeminiRateLimitError) {
       console.log("ai-analyst: rate limit DO PRÓPRIO GEMINI atingido (free tier)");
+      if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, status: "rate_limited_gemini", durationMs: Date.now()-startTime });
       return json({ error: "O provedor de IA (Gemini) atingiu o limite do plano gratuito nesse minuto. Espera um pouco — costuma liberar rápido." }, 429);
     }
+    if (supabaseForLog && userIdForLog) logUsage(supabaseForLog, { userId: userIdForLog, status: "error", errorMessage: e instanceof Error ? e.message : String(e), durationMs: Date.now()-startTime });
     return json({ error: "Não foi possível concluir a análise agora." }, 500);
   }
 });
+// Grava o log de consumo — nunca deixa uma falha no log derrubar a resposta ao usuário (fire-and-forget,
+// com seu próprio try/catch interno).
+// deno-lint-ignore no-explicit-any
+async function logUsage(supabase: any, log: {
+  userId: string; conversationId?: string | null; mode?: string; toolsUsed?: string[];
+  promptTokens?: number; completionTokens?: number; status: string; errorMessage?: string; durationMs: number;
+}) {
+  try {
+    await supabase.from("ai_usage_logs").insert({
+      user_id: log.userId,
+      conversation_id: log.conversationId || null,
+      mode: log.mode || null,
+      model: GEMINI_MODEL,
+      tools_used: log.toolsUsed || [],
+      prompt_tokens: log.promptTokens || null,
+      completion_tokens: log.completionTokens || null,
+      total_tokens: (log.promptTokens||0) + (log.completionTokens||0) || null,
+      duration_ms: log.durationMs,
+      status: log.status,
+      error_message: log.errorMessage || null,
+    });
+  } catch (e) {
+    console.error("ai-analyst: falha ao gravar log de consumo (não afeta a resposta)", e instanceof Error ? e.message : String(e));
+  }
+}
 
 // deno-lint-ignore no-explicit-any
 async function runTool(supabase: any, name: string, args: Record<string, unknown>) {
