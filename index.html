@@ -1761,7 +1761,7 @@ async function renderCompanyHealth(){
           }).join('')}
         </div>
       </div>
-      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${String(new Date(data.period.from).getMonth()+1).padStart(2,'0')} até hoje) — o número é sempre determinístico, a explicação em texto é opcional.</div>
+      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${data.period.from.slice(5,7)} até hoje) — o número é sempre determinístico, a explicação em texto é opcional.</div>
     </div>
   `;
 
