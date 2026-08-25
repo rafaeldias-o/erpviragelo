@@ -58,6 +58,23 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .sidebar-foot #sidebarUserInfo:hover{background:rgba(255,255,255,.06);}
 .ai-mode-btn{border:none;background:none;padding:6px 12px;font-size:12.5px;font-weight:600;border-radius:7px;cursor:pointer;color:var(--muted);font-family:inherit;}
 .ai-mode-btn.active{background:var(--accent-2);color:#fff;}
+.ai-layout-grid{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start;}
+#aiHistoryToggleBtn{display:none;}
+#aiHistoryOverlay{display:none;}
+.ai-conv-item{padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.ai-conv-item:hover{background:var(--surface-2);}
+.ai-conv-item.active{background:var(--info-bg);font-weight:600;}
+.ai-conv-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.ai-conv-menu-btn{opacity:0;flex-shrink:0;background:none;border:none;cursor:pointer;padding:2px 4px;font-size:13px;color:var(--muted);}
+.ai-conv-item:hover .ai-conv-menu-btn{opacity:1;}
+@media(max-width:920px){
+  .ai-layout-grid{grid-template-columns:1fr;}
+  #aiHistoryToggleBtn{display:inline-flex;}
+  #aiHistoryPanel{display:none;position:fixed;top:0;right:0;bottom:0;width:85vw;max-width:320px;z-index:200;border-radius:0;overflow-y:auto;margin:0;box-shadow:-4px 0 16px rgba(0,0,0,.18);}
+  #aiHistoryPanel.open{display:block;}
+  #aiHistoryOverlay.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;}
+  #aiHistoryCloseBtn{display:inline-flex !important;}
+}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 26px;display:flex;align-items:center;justify-content:space-between;}
@@ -1443,20 +1460,31 @@ tr:last-child td{border-bottom:none;}
       <!-- CONFIGURACOES -->
       <!-- INTELIGÊNCIA (Analista IA — MVP read-only) -->
       <section class="view" id="view-inteligencia">
-        <div class="panel">
-          <div class="panel-head">
-            <div class="section-title">🧠 Analista IA</div>
-            <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;">
-              <button id="aiModeBtnCompany" class="ai-mode-btn active" onclick="setAIMode('company')">🏢 Empresa</button>
-              <button id="aiModeBtnGeneral" class="ai-mode-btn" onclick="setAIMode('general')">💬 Geral</button>
+        <div class="ai-layout-grid">
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head">
+              <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+                <button class="btn btn-ghost btn-sm" id="aiHistoryToggleBtn" onclick="toggleAIHistoryPanel()">☰</button>
+                <div class="section-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🧠 <span id="aiChatTitle">Analista IA</span></div>
+              </div>
+              <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-shrink:0;">
+                <button id="aiModeBtnCompany" class="ai-mode-btn active" onclick="setAIMode('company')">🏢 Empresa</button>
+                <button id="aiModeBtnGeneral" class="ai-mode-btn" onclick="setAIMode('general')">💬 Geral</button>
+              </div>
+            </div>
+            <div class="hint" id="aiModeHint" style="margin-bottom:14px;">Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.</div>
+            <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
+            <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
+            <div style="display:flex;gap:8px;">
+              <textarea id="aiChatInput" rows="1" placeholder="Pergunte qualquer coisa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;resize:none;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendAIQuestion();}"></textarea>
+              <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
             </div>
           </div>
-          <div class="hint" id="aiModeHint" style="margin-bottom:14px;">Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.</div>
-          <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
-          <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
-          <div style="display:flex;gap:8px;">
-            <textarea id="aiChatInput" rows="1" placeholder="Pergunte qualquer coisa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;resize:none;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendAIQuestion();}"></textarea>
-            <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
+          <div id="aiHistoryOverlay" onclick="closeAIHistoryPanel()"></div>
+          <div class="panel" id="aiHistoryPanel" style="margin-bottom:0;">
+            <div class="panel-head"><div class="section-title" style="font-size:14px;">Conversas</div><button class="icon-btn" onclick="closeAIHistoryPanel()" id="aiHistoryCloseBtn" style="display:none;">✕</button></div>
+            <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:12px;" onclick="startNewAIConversation()">+ Nova conversa</button>
+            <div id="aiConversationsList"></div>
           </div>
         </div>
       </section>
@@ -1533,13 +1561,13 @@ document.addEventListener('wheel', function(e){
 
 // ================= SUPABASE =================
 const SUPABASE_URL = 'https://iknqqrwhtfnenuynemve.supabase.co';
-// ---- Analista IA (Fase 2 — dois modos: Empresa / Geral) ----
+// ---- Analista IA (Fase 3 — modos + conversas persistentes) ----
 // Chama a Edge Function "ai-analyst" com o JWT da sessão atual (nunca com a anon key sozinha nem com
 // nenhuma chave do Gemini — essa fica só como Secret da função, do lado do servidor). Se a Edge Function
 // ainda não estiver deployada, mostra um erro amigável em vez de quebrar a tela.
 let aiChatBusy = false;
-let aiCurrentMode = 'company'; // 'company' | 'general' — Fase 2 ainda não persiste conversa (isso é Fase 3);
-                                 // por enquanto o modo só vale pra sessão atual da aba, reseta ao recarregar.
+let aiCurrentMode = 'company'; // 'company' | 'general'
+let currentAIConversationId = null; // null = conversa nova, ainda não persistida (só existe depois da 1a resposta)
 const AI_QUICK_QUESTIONS = {
   company: [
     'Como está minha empresa este mês?',
@@ -1557,6 +1585,10 @@ const AI_QUICK_QUESTIONS = {
   ],
 };
 function setAIMode(mode){
+  // Uma conversa já persistida (com id) tem o modo travado na criação — evita que uma conversa que
+  // começou como "Geral" (sem acesso a dado nenhum) passe silenciosamente a ter acesso a dado
+  // empresarial no meio do caminho, ou vice-versa.
+  if(currentAIConversationId) return;
   aiCurrentMode = mode;
   document.getElementById('aiModeBtnCompany').classList.toggle('active', mode==='company');
   document.getElementById('aiModeBtnGeneral').classList.toggle('active', mode==='general');
@@ -1568,10 +1600,25 @@ function setAIMode(mode){
 function renderAIQuickQuestions(){
   const box = document.getElementById('aiQuickQuestions');
   if(!box) return;
-  // onclick já usa aspas duplas — JSON.stringify(q) também gera aspas duplas, e as duas colidiam,
-  // quebrando o atributo HTML do botão (clique não fazia nada). Usa aspas simples aqui, escapando
-  // qualquer aspa simples dentro do próprio texto da pergunta, evitando a colisão.
   box.innerHTML = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${q.replace(/'/g,"\\'")}')">${esc(q)}</button>`).join('');
+}
+function startNewAIConversation(){
+  currentAIConversationId = null;
+  document.getElementById('aiChatMessages').innerHTML = '';
+  document.getElementById('aiChatTitle').textContent = 'Analista IA';
+  document.getElementById('aiModeBtnCompany').style.opacity = '1';
+  document.getElementById('aiModeBtnGeneral').style.opacity = '1';
+  setAIModeUnlocked('company');
+  renderAIConversationsList();
+  closeAIHistoryPanel();
+}
+// setAIMode trava quando já existe conversation_id — esse helper força a troca mesmo assim, só pra
+// resetar a UI ao estado inicial (nova conversa, sem id ainda).
+function setAIModeUnlocked(mode){
+  const savedId = currentAIConversationId;
+  currentAIConversationId = null;
+  setAIMode(mode);
+  currentAIConversationId = savedId;
 }
 async function sendAIQuestion(presetQuestion){
   if(aiChatBusy) return;
@@ -1582,6 +1629,10 @@ async function sendAIQuestion(presetQuestion){
   appendAIMessage('user', question);
   const loadingId = appendAIMessage('model', aiCurrentMode==='company' ? 'Analisando os dados da sua operação...' : 'Pensando...', true);
   aiChatBusy = true;
+  // Trava o seletor de modo assim que a 1a mensagem é enviada, mesmo antes da resposta voltar — evita
+  // trocar de modo no meio de uma pergunta em andamento.
+  document.getElementById('aiModeBtnCompany').style.opacity = '.5';
+  document.getElementById('aiModeBtnGeneral').style.opacity = '.5';
   const sendBtn = document.getElementById('aiSendBtn');
   if(sendBtn){ sendBtn.disabled = true; }
   try{
@@ -1591,18 +1642,32 @@ async function sendAIQuestion(presetQuestion){
     const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-analyst`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
-      body: JSON.stringify({ question, mode: aiCurrentMode }),
+      body: JSON.stringify({ question, mode: aiCurrentMode, conversation_id: currentAIConversationId }),
     });
     if(res.status === 429){ updateAIMessage(loadingId, 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.'); return; }
     const data = await res.json().catch(()=>({}));
     if(!res.ok || data.error){ updateAIMessage(loadingId, data.error || 'Não foi possível concluir a análise agora.'); return; }
     updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.');
+    if(data.conversation_id){
+      const isNewConversation = !currentAIConversationId;
+      currentAIConversationId = data.conversation_id;
+      if(isNewConversation && data.conversation_title){
+        document.getElementById('aiChatTitle').textContent = data.conversation_title;
+      }
+      renderAIConversationsList(); // a conversa (nova ou existente) subiu pro topo — atualiza a lista
+    }
   }catch(e){
     console.error(e);
     updateAIMessage(loadingId, 'Não foi possível concluir a análise agora — tente de novo em instantes.');
   }finally{
     aiChatBusy = false;
     if(sendBtn) sendBtn.disabled = false;
+    // Só mantém o seletor de modo travado (opacidade reduzida) se a conversa realmente foi persistida —
+    // se a chamada falhou antes de gerar um conversation_id, o modo continua livre pra trocar.
+    if(!currentAIConversationId){
+      document.getElementById('aiModeBtnCompany').style.opacity = '1';
+      document.getElementById('aiModeBtnGeneral').style.opacity = '1';
+    }
   }
 }
 function appendAIMessage(role, text, isLoading){
@@ -1643,6 +1708,102 @@ function renderAIMarkdown(text){
   });
   if(inList) html += '</ul>';
   return html;
+}
+// ---- Painel de conversas (Fase 3) ----
+function toggleAIHistoryPanel(){
+  document.getElementById('aiHistoryPanel').classList.toggle('open');
+  document.getElementById('aiHistoryOverlay').classList.toggle('open');
+}
+function closeAIHistoryPanel(){
+  document.getElementById('aiHistoryPanel').classList.remove('open');
+  document.getElementById('aiHistoryOverlay').classList.remove('open');
+}
+async function renderAIConversationsList(){
+  const box = document.getElementById('aiConversationsList');
+  if(!box) return;
+  const { data, error } = await sb.from('ai_conversations').select('id, title, mode, updated_at').is('deleted_at', null).order('updated_at', { ascending:false });
+  if(error){ box.innerHTML = '<div class="hint">Não foi possível carregar as conversas.</div>'; return; }
+  if(!data || data.length===0){ box.innerHTML = '<div class="hint">Nenhuma conversa ainda.</div>'; return; }
+
+  const today = todayStr();
+  const yesterday = addDays(today, -1);
+  const sevenDaysAgo = addDays(today, -7);
+  const groups = { 'Hoje':[], 'Ontem':[], 'Últimos 7 dias':[], 'Anteriores':[] };
+  data.forEach(c=>{
+    const d = c.updated_at.slice(0,10);
+    if(d===today) groups['Hoje'].push(c);
+    else if(d===yesterday) groups['Ontem'].push(c);
+    else if(d>=sevenDaysAgo) groups['Últimos 7 dias'].push(c);
+    else groups['Anteriores'].push(c);
+  });
+
+  box.innerHTML = Object.entries(groups).filter(([,list])=>list.length>0).map(([label, list])=>`
+    <div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:12px 0 4px 4px;">${label}</div>
+    ${list.map(c=>`
+      <div class="ai-conv-item ${c.id===currentAIConversationId?'active':''}" onclick="openAIConversation('${c.id}')">
+        <span class="ai-conv-title">${c.mode==='general'?'💬':'🏢'} ${esc(c.title||'Nova conversa')}</span>
+        <button class="ai-conv-menu-btn" onclick="event.stopPropagation(); openAIConversationMenu(event, '${c.id}', ${JSON.stringify(c.title||'').replace(/"/g,'&quot;')})">⋯</button>
+      </div>
+    `).join('')}
+  `).join('');
+}
+async function openAIConversation(id){
+  if(id === currentAIConversationId) return;
+  const { data: convo, error } = await sb.from('ai_conversations').select('*').eq('id', id).single();
+  if(error || !convo){ toast('Não foi possível abrir essa conversa', true); return; }
+  const { data: messages } = await sb.from('ai_messages').select('*').eq('conversation_id', id).order('created_at', { ascending:true });
+
+  currentAIConversationId = id;
+  setAIModeUnlocked(convo.mode);
+  document.getElementById('aiChatTitle').textContent = convo.title || 'Analista IA';
+  document.getElementById('aiModeBtnCompany').style.opacity = '.5';
+  document.getElementById('aiModeBtnGeneral').style.opacity = '.5';
+  const box = document.getElementById('aiChatMessages');
+  box.innerHTML = '';
+  (messages||[]).forEach(m=> appendAIMessage(m.role, m.content));
+  renderAIConversationsList();
+  closeAIHistoryPanel();
+}
+function openAIConversationMenu(evt, id, currentTitle){
+  const rect = evt.target.getBoundingClientRect();
+  const menuId = 'ai-conv-menu-'+id;
+  document.querySelectorAll('.ai-conv-dropdown').forEach(el=>el.remove());
+  const menu = document.createElement('div');
+  menu.className = 'ai-conv-dropdown';
+  menu.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${Math.max(8,rect.left-120)}px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);z-index:300;min-width:140px;overflow:hidden;`;
+  menu.innerHTML = `
+    <button onclick="closeAIConvMenu(); renameAIConversation('${id}', '${currentTitle.replace(/'/g,"\\'")}')" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">✏️ Renomear</button>
+    <button onclick="closeAIConvMenu(); deleteAIConversation('${id}')" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--danger);">🗑️ Excluir</button>
+  `;
+  document.body.appendChild(menu);
+  setTimeout(()=> document.addEventListener('click', closeAIConvMenu, { once:true }), 0);
+}
+function closeAIConvMenu(){ document.querySelectorAll('.ai-conv-dropdown').forEach(el=>el.remove()); }
+function renameAIConversation(id, currentTitle){
+  openModal(`
+    <div class="modal-head"><h3>Renomear conversa</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>Título</label><input id="ai-rename-input" value="${esc(currentTitle)}" maxlength="80"></div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveAIConversationRename('${id}')">Salvar</button></div>
+  `);
+  setTimeout(()=> document.getElementById('ai-rename-input')?.focus(), 50);
+}
+async function saveAIConversationRename(id){
+  const newTitle = (document.getElementById('ai-rename-input').value||'').trim();
+  if(!newTitle) return;
+  const { error } = await sb.from('ai_conversations').update({ title: newTitle }).eq('id', id);
+  if(error){ toast('Erro ao renomear', true); return; }
+  closeModal();
+  if(id===currentAIConversationId) document.getElementById('aiChatTitle').textContent = newTitle;
+  renderAIConversationsList();
+}
+function deleteAIConversation(id){
+  confirmModal('Excluir esta conversa? O histórico não poderá ser recuperado.', async ()=>{
+    const { error } = await sb.from('ai_conversations').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if(error){ toast('Erro ao excluir', true); return; }
+    if(id===currentAIConversationId) startNewAIConversation();
+    else renderAIConversationsList();
+    toast('Conversa excluída');
+  }, 'Excluir conversa');
 }
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrbnFxcndodGZuZW51eW5lbXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NzIyMDksImV4cCI6MjA5OTU0ODIwOX0.uBHhExWFo0qhwAUbklDyIE9V8fio3zxzU10Jbmlrw-A';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1798,6 +1959,7 @@ async function afterLogin(session){
   }
   renderSidebarUserInfo();
   renderAIQuickQuestions();
+  renderAIConversationsList();
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
   // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre
