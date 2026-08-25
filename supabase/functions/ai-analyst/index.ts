@@ -33,7 +33,7 @@ const CORS_HEADERS = {
 };
 
 const rateLimitMap = new Map<string, number[]>();
-function isRateLimited(userId: string, maxPerMinute = 8): boolean {
+function isRateLimited(userId: string, maxPerMinute = 15): boolean {
   const now = Date.now();
   const windowStart = now - 60_000;
   const hits = (rateLimitMap.get(userId) || []).filter((t) => t > windowStart);
