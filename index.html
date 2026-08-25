@@ -1644,9 +1644,14 @@ async function sendAIQuestion(presetQuestion){
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
       body: JSON.stringify({ question, mode: aiCurrentMode, conversation_id: currentAIConversationId }),
     });
-    if(res.status === 429){ updateAIMessage(loadingId, 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.'); return; }
     const data = await res.json().catch(()=>({}));
-    if(!res.ok || data.error){ updateAIMessage(loadingId, data.error || 'Não foi possível concluir a análise agora.'); return; }
+    if(!res.ok || data.error){
+      // Usa a mensagem específica que o backend manda (diferencia rate limit interno vs. do próprio
+      // Gemini) — antes esse status 429 tinha um texto genérico fixo aqui que ignorava completamente
+      // qual mensagem real o backend enviava.
+      updateAIMessage(loadingId, data.error || (res.status===429 ? 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.' : 'Não foi possível concluir a análise agora.'));
+      return;
+    }
     updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.');
     if(data.conversation_id){
       const isNewConversation = !currentAIConversationId;
