@@ -87,6 +87,12 @@ const COMPANY_TOOLS = [
       },
     },
   },
+  {
+    name: "get_company_health",
+    description:
+      "Score de saúde geral da empresa (0-100) do mês atual, com o detalhamento por dimensão (financeiro, vendas, estoque, clientes) e os números brutos que embasam cada nota. O score já vem calculado — sua função é interpretar e explicar, não recalcular.",
+    parameters: { type: "object", properties: {} },
+  },
 ];
 
 function buildSystemPrompt(mode: "company" | "general", todayStr: string): string {
@@ -121,7 +127,10 @@ Regras de período:
   período) antes de responder — nunca compare um período só com "memória" ou suposição.
 Regra de atualidade: se a pergunta pede o estado ATUAL de algo (saldo agora, estoque agora), sempre chame
 a ferramenta de novo, mesmo que você já tenha chamado antes nesta conversa — não reutilize um valor antigo
-do histórico como se fosse o valor de agora.`;
+do histórico como se fosse o valor de agora.
+Sobre o score de saúde da empresa (get_company_health): o número já vem calculado de forma determinística
+— sua função é só EXPLICAR por que o score está naquele nível, usando os "raw_metrics" que a ferramenta
+retorna, nunca recalcular ou inventar um score diferente.`;
 }
 
 Deno.serve(async (req) => {
@@ -291,6 +300,10 @@ async function runTool(supabase: any, name: string, args: Record<string, unknown
     }
     if (name === "get_inactive_customers") {
       const { data, error } = await supabase.rpc("get_inactive_customers", { p_min_days: args.min_days || 30, p_limit: 10 });
+      return { result: data, error: error?.message };
+    }
+    if (name === "get_company_health") {
+      const { data, error } = await supabase.rpc("get_company_health");
       return { result: data, error: error?.message };
     }
     return { result: null, error: `tool desconhecida: ${name}` };

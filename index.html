@@ -1460,6 +1460,11 @@ tr:last-child td{border-bottom:none;}
       <!-- CONFIGURACOES -->
       <!-- INTELIGÊNCIA (Analista IA — MVP read-only) -->
       <section class="view" id="view-inteligencia">
+        <div id="aiHealthWrap" style="margin-bottom:16px;"></div>
+        <div class="panel" id="aiAttentionPanel" style="display:none;margin-bottom:16px;">
+          <div class="panel-head"><div class="section-title" style="font-size:14px;">⚠️ Pontos de atenção</div></div>
+          <div id="aiAttentionList" class="stat-row-list"></div>
+        </div>
         <div class="ai-layout-grid">
           <div class="panel" style="margin-bottom:0;">
             <div class="panel-head">
@@ -1570,6 +1575,7 @@ let aiCurrentMode = 'company'; // 'company' | 'general'
 let currentAIConversationId = null; // null = conversa nova, ainda não persistida (só existe depois da 1a resposta)
 const AI_QUICK_QUESTIONS = {
   company: [
+    'Me dê um resumo executivo da operação',
     'Como está minha empresa este mês?',
     'Como estão minhas finanças este mês?',
     'Como estão minhas vendas este mês?',
@@ -1715,6 +1721,73 @@ function renderAIMarkdown(text){
   return html;
 }
 // ---- Painel de conversas (Fase 3) ----
+// ---- Saúde da Empresa + Pontos de Atenção (Fase 4) ----
+// Calculado 100% no banco (get_company_health, determinístico) e chamado DIRETO via RPC — sem passar
+// pelo Gemini, sem gastar cota nenhuma da IA só pra abrir a tela. O Gemini só entra se o usuário pedir
+// uma explicação no chat (ex: clicando em "Resumo executivo").
+async function renderCompanyHealth(){
+  const healthBox = document.getElementById('aiHealthWrap');
+  const attnPanel = document.getElementById('aiAttentionPanel');
+  const attnList = document.getElementById('aiAttentionList');
+  if(!healthBox) return;
+  const { data, error } = await sb.rpc('get_company_health');
+  if(error || !data){ healthBox.innerHTML = ''; if(attnPanel) attnPanel.style.display='none'; return; }
+
+  const scoreColor = data.overall_score>=75 ? 'var(--success)' : data.overall_score>=50 ? 'var(--warn)' : 'var(--danger)';
+  const dims = [
+    { key:'financial', icon:'💰', label:'Financeiro' },
+    { key:'sales', icon:'📈', label:'Vendas' },
+    { key:'inventory', icon:'📦', label:'Estoque' },
+    { key:'customers', icon:'👥', label:'Clientes' },
+  ];
+  healthBox.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">🩺 Saúde da empresa</div><button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Me explique o score de saúde da empresa e o que fazer a respeito')">💬 Pedir explicação</button></div>
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <div style="text-align:center;flex-shrink:0;">
+          <div style="font-size:36px;font-weight:800;color:${scoreColor};line-height:1;">${data.overall_score}</div>
+          <div style="font-size:11px;color:var(--muted);">de 100</div>
+          <div style="font-size:12px;font-weight:700;color:${scoreColor};margin-top:2px;">${esc(data.overall_label)}</div>
+        </div>
+        <div style="flex:1;min-width:260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;">
+          ${dims.map(d=>{
+            const dim = data.dimensions[d.key];
+            const c = dim.score>=75 ? 'var(--success)' : dim.score>=50 ? 'var(--warn)' : 'var(--danger)';
+            return `<div>
+              <div style="font-size:11px;color:var(--muted);">${d.icon} ${d.label}</div>
+              <div style="font-size:17px;font-weight:700;color:${c};">${dim.score}</div>
+              <div style="height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:2px;"><div style="height:100%;width:${dim.score}%;background:${c};"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${String(new Date(data.period.from).getMonth()+1).padStart(2,'0')} até hoje) — o número é sempre determinístico, a explicação em texto é opcional.</div>
+    </div>
+  `;
+
+  // Pontos de atenção — regras fixas, sem IA nenhuma envolvida na detecção
+  const m = data.raw_metrics;
+  const points = [];
+  if(m.coverage_days!=null && m.coverage_days < 5){
+    points.push({ icon:'📦', text:`Cobertura de estoque baixa: ${m.coverage_days.toLocaleString('pt-BR',{maximumFractionDigits:1})} dia(s) no ritmo atual de vendas.` });
+  }
+  if(m.critical_products && m.critical_products.length>0){
+    points.push({ icon:'🧊', text:`${m.critical_products.length} produto(s) com estoque abaixo do mínimo: ${m.critical_products.map(p=>esc(p.name)).join(', ')}.` });
+  }
+  if(m.payable_open > m.account_balance_total){
+    points.push({ icon:'💸', text:`Contas a pagar em aberto (${fmtMoney(m.payable_open)}) superam o saldo disponível (${fmtMoney(m.account_balance_total)}).` });
+  }
+  if(m.inactive_customers_count > 0){
+    points.push({ icon:'👥', text:`${m.inactive_customers_count} cliente(s) ativo(s) sem comprar há mais de 30 dias.` });
+  }
+  if(attnPanel && attnList){
+    if(points.length===0){ attnPanel.style.display='none'; }
+    else{
+      attnPanel.style.display='block';
+      attnList.innerHTML = points.map(p=>`<div class="stat-row"><span class="stat-row-label">${p.icon} ${p.text}</span></div>`).join('');
+    }
+  }
+}
 function toggleAIHistoryPanel(){
   document.getElementById('aiHistoryPanel').classList.toggle('open');
   document.getElementById('aiHistoryOverlay').classList.toggle('open');
@@ -1965,6 +2038,7 @@ async function afterLogin(session){
   renderSidebarUserInfo();
   renderAIQuickQuestions();
   renderAIConversationsList();
+  renderCompanyHealth();
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
   // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre
