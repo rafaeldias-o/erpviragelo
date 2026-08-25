@@ -1,18 +1,16 @@
 // supabase/functions/ai-analyst/index.ts
 //
-// FASE 2 — Assistente funcional: 2 modos (empresa / geral) + 4 tools + loop de múltiplas chamadas.
-//
-// Preserva integralmente a Fase 1 validada: get_financial_summary continua exatamente igual, mesma
-// autenticação, mesmo RLS, mesma checagem de rate limit.
+// FASE 3 — Conversas persistentes, em cima da Fase 2 (2 modos + 4 tools + loop de múltiplas chamadas)
+// e da Fase 1 (get_financial_summary validada), preservadas integralmente.
 //
 // Mudanças desta fase:
-// - Aceita "mode" no body ('company' | 'general'). Modo 'general' NUNCA recebe a lista de tools — o
-//   Gemini fisicamente não tem como chamar nada empresarial nesse modo, a decisão não é dele.
-// - System prompt diferente por modo.
-// - Loop de até MAX_TOOL_ROUNDS chamadas de ferramenta (antes só suportava 1), necessário pra perguntas
-//   de comparação de período ("compare agosto com julho" chama get_sales_summary duas vezes, uma por mês).
-// - 3 novas tools: get_sales_summary, get_inventory_status, get_inactive_customers — cada uma com uma
-//   RPC validada contra a lógica real do frontend (documentado nas próprias migrations).
+// - Aceita "conversation_id" opcional no body. Sem ele, cria uma conversa nova só depois da 1a resposta
+//   de verdade (nunca cria conversa vazia por causa de um clique em "+ Nova conversa" sem envio).
+// - Título automático por heurística (sem gastar chamada extra ao Gemini).
+// - Contexto limitado às últimas AI_CONTEXT_MESSAGE_LIMIT mensagens da conversa — não a conversa inteira.
+// - RLS de ai_conversations/ai_messages garante que cada usuário só acessa as próprias conversas — a
+//   consulta usa o client autenticado com o JWT do usuário (nunca service role), então mesmo um
+//   conversation_id de outra pessoa simplesmente não retorna nada.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -24,6 +22,9 @@ const MAX_TOOL_ROUNDS = 6; // teto de segurança: evita loop indefinido consumin
 // 4 era curto demais na prática: uma comparação de período sem domínio especificado ("compare este mês
 // com o anterior") pode legitimamente chamar 2 ferramentas diferentes (financeiro + vendas) x 2 períodos
 // cada = 4 chamadas, sem sobrar nenhuma rodada pra responder com texto no final. 6 dá essa folga.
+const AI_CONTEXT_MESSAGE_LIMIT = 10; // últimas 10 mensagens (5 turnos) da conversa — não a conversa
+// inteira, pra não estourar tokens numa conversa longa. Suficiente pra continuidade tipo "e comparado a
+// julho?" fazer sentido, sem carregar histórico de meses atrás numa conversa de 100+ mensagens.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -167,24 +168,55 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const question = body?.question;
     const mode: "company" | "general" = body?.mode === "general" ? "general" : "company";
+    let conversationId: string | null = typeof body?.conversation_id === "string" ? body.conversation_id : null;
     if (!question || typeof question !== "string" || question.length > 500) {
       return json({ error: "Pergunta inválida." }, 400);
     }
-    console.log("ai-analyst: pergunta recebida:", question.slice(0, 100), "| modo:", mode);
+    console.log("ai-analyst: pergunta recebida:", question.slice(0, 100), "| modo:", mode, "| conversa:", conversationId ?? "(nova)");
 
-    const contents: unknown[] = [{ role: "user", parts: [{ text: question }] }];
+    // Contexto: só as últimas AI_CONTEXT_MESSAGE_LIMIT mensagens da conversa (não a conversa inteira) —
+    // guarda o texto final de cada turno, não as idas-e-vindas internas de chamada de ferramenta (essas
+    // não precisam ser replayadas; o resultado de uma tool antiga não deve ser tratado como "verdade
+    // atual" de qualquer forma — se a pergunta nova precisar do dado, o Gemini chama a ferramenta de novo).
+    const contents: unknown[] = [];
+    let conversationTitle: string | null = null;
+    if (conversationId) {
+      const { data: convo } = await supabase
+        .from("ai_conversations")
+        .select("id, mode, title")
+        .eq("id", conversationId)
+        .single();
+      if (!convo) {
+        // conversa não existe ou não pertence a esse usuário (RLS já barra o acesso) — trata como nova
+        conversationId = null;
+      } else {
+        conversationTitle = convo.title;
+        const { data: history } = await supabase
+          .from("ai_messages")
+          .select("role, content")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: false })
+          .limit(AI_CONTEXT_MESSAGE_LIMIT);
+        (history || []).reverse().forEach((m: { role: string; content: string }) => {
+          contents.push({ role: m.role, parts: [{ text: m.content }] });
+        });
+      }
+    }
+    contents.push({ role: "user", parts: [{ text: question }] });
+
     const toolsUsed: string[] = [];
     let lastToolData: unknown = null;
+    let finalAnswer = "";
 
     // Loop: chama o Gemini, se ele pedir uma ferramenta, executa e devolve o resultado, repete — até
     // ele responder só com texto (sem pedir mais nada) ou atingir o teto de segurança.
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    toolLoop: for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const resp = await callGemini(contents, mode, mode === "company");
       const callPart = extractFunctionCallPart(resp);
 
       if (!callPart) {
-        const answer = extractText(resp) || "Não consegui montar uma resposta com os dados disponíveis.";
-        return json({ answer, tools_used: toolsUsed, data_used: lastToolData });
+        finalAnswer = extractText(resp) || "Não consegui montar uma resposta com os dados disponíveis.";
+        break toolLoop;
       }
 
       const call = callPart.functionCall as { name: string; args: Record<string, unknown> };
@@ -202,8 +234,35 @@ Deno.serve(async (req) => {
       contents.push({ role: "function", parts: [{ functionResponse: { name: call.name, response: { result } } }] });
     }
 
-    console.error("ai-analyst: atingiu o teto de rodadas de ferramentas sem finalizar");
-    return json({ error: "A análise ficou complexa demais pra concluir agora — tenta reformular a pergunta." }, 500);
+    if (!finalAnswer) {
+      console.error("ai-analyst: atingiu o teto de rodadas de ferramentas sem finalizar");
+      return json({ error: "A análise ficou complexa demais pra concluir agora — tenta reformular a pergunta." }, 500);
+    }
+
+    // Persiste: cria a conversa só agora (na 1a mensagem de verdade), com título automático — nunca cria
+    // conversa vazia só por causa de um clique em "+ Nova conversa" sem envio nenhum.
+    if (!conversationId) {
+      conversationTitle = generateTitle(question);
+      const { data: newConvo, error: convoErr } = await supabase
+        .from("ai_conversations")
+        .insert({ user_id: userId, mode, title: conversationTitle })
+        .select("id")
+        .single();
+      if (convoErr || !newConvo) {
+        console.error("ai-analyst: erro ao criar conversa", convoErr?.message);
+        // não impede a resposta de chegar ao usuário — só fica sem persistir esse turno
+      } else {
+        conversationId = newConvo.id;
+      }
+    }
+    if (conversationId) {
+      await supabase.from("ai_messages").insert([
+        { conversation_id: conversationId, role: "user", content: question },
+        { conversation_id: conversationId, role: "model", content: finalAnswer, metadata: { model: GEMINI_MODEL, mode, tools_used: toolsUsed } },
+      ]);
+    }
+
+    return json({ answer: finalAnswer, tools_used: toolsUsed, data_used: lastToolData, conversation_id: conversationId, conversation_title: conversationTitle });
   } catch (e) {
     console.error("ai-analyst: erro não tratado:", e instanceof Error ? e.message : String(e));
     if (e instanceof GeminiRateLimitError) {
@@ -236,6 +295,19 @@ async function runTool(supabase: any, name: string, args: Record<string, unknown
   } catch (e) {
     return { result: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+// Título automático — heurística simples (SEM chamada extra ao Gemini, pra ficar econômico). Reconhece
+// os temas mais comuns e cai num fallback truncado da própria pergunta quando não reconhece nada.
+function generateTitle(question: string): string {
+  const q = question.toLowerCase();
+  if (/compar|versus|\bvs\b/.test(q)) return "Comparação de períodos";
+  if (/venda|faturamento|ticket|pedido/.test(q)) return "Análise de vendas";
+  if (/financ|receita|despesa|saldo|caixa|pagar|receber/.test(q)) return "Análise financeira";
+  if (/estoque|cobertura|ruptura/.test(q)) return "Estoque";
+  if (/cliente/.test(q)) return "Clientes";
+  const clean = question.replace(/[?!.]+$/g, "").trim();
+  return clean.length > 40 ? clean.slice(0, 40).trim() + "…" : clean;
 }
 
 class GeminiRateLimitError extends Error {}
