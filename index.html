@@ -54,6 +54,9 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .nav-item svg{width:16px;height:16px;flex-shrink:0;}
 .nav-item:hover{background:var(--sidebar-2);color:#fff;}
 .nav-item.active{background:var(--sidebar-2);color:#fff;border-color:rgba(79,195,224,.35);box-shadow:inset 3px 0 0 var(--accent-2);}
+.nav-section{display:flex;flex-direction:column;gap:2px;}
+.nav-section+.nav-section{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.07);}
+.nav-section-label{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5E7A8C;padding:0 11px 6px;user-select:none;}
 .sidebar-foot{color:#5E7A8C;font-size:10.5px;padding:10px 8px 0 8px;border-top:1px solid rgba(255,255,255,.08);margin-top:8px;padding-top:12px;}
 .sidebar-foot #sidebarUserInfo:hover{background:rgba(255,255,255,.06);}
 .ai-mode-btn{border:none;background:none;padding:6px 12px;font-size:12.5px;font-weight:600;border-radius:7px;cursor:pointer;color:var(--muted);font-family:inherit;}
@@ -377,21 +380,40 @@ tr:last-child td{border-bottom:none;}
       <img class="brand-mark" src="logo-full.png" alt="ViraGelo ERP">
     </div>
     <nav class="nav" id="navList">
-      <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Início</span></div>
-      <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="notif-badge badge badge-danger" style="display:none;margin-left:auto;"></span></div>
-      <div class="nav-item" data-view="produtos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 9.5 L12 4 L3.4 9.5 L3.4 14.5 L12 20 L20.6 14.5 Z"/><path d="M3.4 9.5 L12 15 L20.6 9.5 M12 15 V20"/></svg><span>Produtos</span></div>
-      <div class="nav-item" data-view="producao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
-      <div class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
-      <div class="nav-item" data-view="financeiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
-      <div class="nav-item" data-view="clientes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Clientes</span></div>
-      <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
-      <div class="nav-item" data-view="crm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
-      <div class="nav-item" data-view="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10 H21 M8 3 V7 M16 3 V7"/></svg><span>Agenda de Entregas</span></div>
-      <div class="nav-item" data-view="visitas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas Comerciais</span></div>
-      <div class="nav-item" data-view="freezers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
-      <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
-      <div class="nav-item" data-view="inteligencia" onclick="switchView('inteligencia')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 0-5 5c0 1.6.7 2.5 1.5 3.4.6.6 1 1.2 1 2.1v.5a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-.5c0-.9.4-1.5 1-2.1.8-.9 1.5-1.8 1.5-3.4a5 5 0 0 0-5-5Z"/><path d="M9.5 18h5M10 21h4"/></svg><span>Inteligência</span></div>
-      <div class="nav-item" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
+      <div class="nav-section">
+        <div class="nav-section-label">Visão Geral</div>
+        <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Início</span></div>
+        <div class="nav-item" data-view="notificacoes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Notificações</span><span id="notifBadge" class="notif-badge badge badge-danger" style="display:none;margin-left:auto;"></span></div>
+        <div class="nav-item" data-view="inteligencia" onclick="switchView('inteligencia')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 0-5 5c0 1.6.7 2.5 1.5 3.4.6.6 1 1.2 1 2.1v.5a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-.5c0-.9.4-1.5 1-2.1.8-.9 1.5-1.8 1.5-3.4a5 5 0 0 0-5-5Z"/><path d="M9.5 18h5M10 21h4"/></svg><span>Inteligência</span></div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Comercial</div>
+        <div class="nav-item" data-view="crm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M16 4.5c1.7.4 3 2 3 3.9s-1.3 3.5-3 3.9"/><path d="M21 20c0-3-1.9-5.3-4.5-5.9"/></svg><span>CRM</span></div>
+        <div class="nav-item" data-view="clientes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Clientes</span></div>
+        <div class="nav-item" data-view="pedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 9 H16 M8 13 H16 M8 17 H12"/></svg><span>Pedidos</span></div>
+        <div class="nav-item" data-view="visitas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Visitas Comerciais</span></div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Operação e Logística</div>
+        <div class="nav-item" data-view="produtos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 9.5 L12 4 L3.4 9.5 L3.4 14.5 L12 20 L20.6 14.5 Z"/><path d="M3.4 9.5 L12 15 L20.6 9.5 M12 15 V20"/></svg><span>Produtos</span></div>
+        <div class="nav-item" data-view="producao"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21 V10 L12 3 L20 10 V21"/><path d="M9 21 V14 H15 V21"/></svg><span>Produção</span></div>
+        <div class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8 L12 3 L3 8 L12 13 L21 8 Z"/><path d="M3 8 V16 L12 21 L21 16 V8"/><path d="M12 13 V21"/></svg><span>Estoque</span></div>
+        <div class="nav-item" data-view="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10 H21 M8 3 V7 M16 3 V7"/></svg><span>Agenda de Entregas</span></div>
+        <div class="nav-item" data-view="freezers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 11 H20 M8 3 V7 M16 3 V7 M8 15 V19 M16 15 V19"/></svg><span>Freezers</span></div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Financeiro e Relatórios</div>
+        <div class="nav-item" data-view="financeiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7 V17 M15 9.5 C15 8 13.7 7 12 7 C10.1 7 9 8 9 9.3 C9 12 15 10.7 15 14 C15 15.5 13.7 17 12 17 C10.3 17 9 16 9 14.5"/></svg><span>Financeiro</span></div>
+        <div class="nav-item" data-view="relatorios"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19 V5 M4 19 H20"/><rect x="7" y="12" width="3" height="7"/><rect x="12" y="8" width="3" height="11"/><rect x="17" y="4" width="3" height="15"/></svg><span>Relatórios</span></div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-section-label">Sistema</div>
+        <div class="nav-item" data-view="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
+      </div>
     </nav>
     <div class="sidebar-foot">
       <div id="sidebarUserInfo" style="cursor:pointer;padding:8px;border-radius:8px;transition:background .12s;" onclick="openSidebarUserPanel()"></div>
