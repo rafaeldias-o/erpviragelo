@@ -1488,7 +1488,8 @@ tr:last-child td{border-bottom:none;}
           <div id="aiHistoryOverlay" onclick="closeAIHistoryPanel()"></div>
           <div class="panel" id="aiHistoryPanel" style="margin-bottom:0;">
             <div class="panel-head"><div class="section-title" style="font-size:14px;">Conversas</div><button class="icon-btn" onclick="closeAIHistoryPanel()" id="aiHistoryCloseBtn" style="display:none;">✕</button></div>
-            <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:12px;" onclick="startNewAIConversation()">+ Nova conversa</button>
+            <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:10px;" onclick="startNewAIConversation()">+ Nova conversa</button>
+            <input type="text" id="aiConvSearchInput" placeholder="🔎 Buscar conversa..." style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;margin-bottom:10px;" oninput="renderAIConversationsList()">
             <div id="aiConversationsList"></div>
           </div>
         </div>
@@ -1803,11 +1804,15 @@ async function renderAIConversationsList(){
   if(error){ box.innerHTML = '<div class="hint">Não foi possível carregar as conversas.</div>'; return; }
   if(!data || data.length===0){ box.innerHTML = '<div class="hint">Nenhuma conversa ainda.</div>'; return; }
 
+  const search = (document.getElementById('aiConvSearchInput')?.value || '').trim().toLowerCase();
+  const filtered = search ? data.filter(c => (c.title||'').toLowerCase().includes(search)) : data;
+  if(filtered.length===0){ box.innerHTML = '<div class="hint">Nenhuma conversa encontrada com esse termo.</div>'; return; }
+
   const today = todayStr();
   const yesterday = addDays(today, -1);
   const sevenDaysAgo = addDays(today, -7);
   const groups = { 'Hoje':[], 'Ontem':[], 'Últimos 7 dias':[], 'Anteriores':[] };
-  data.forEach(c=>{
+  filtered.forEach(c=>{
     const d = c.updated_at.slice(0,10);
     if(d===today) groups['Hoje'].push(c);
     else if(d===yesterday) groups['Ontem'].push(c);
