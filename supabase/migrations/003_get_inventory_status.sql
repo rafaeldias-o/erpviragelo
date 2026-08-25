@@ -55,13 +55,18 @@ BEGIN
   v_media_diaria := v_consumo_kg / v_window_days;
   v_cobertura_dias := CASE WHEN v_media_diaria > 0 THEN ROUND(v_estoque_kg / v_media_diaria, 1) ELSE NULL END;
 
-  -- produtos críticos: estoque abaixo do mínimo cadastrado (min_qty)
-  SELECT COALESCE(jsonb_agg(jsonb_build_object('name', name, 'qty', qty, 'min_qty', min_qty)), '[]'::jsonb)
+  -- produtos críticos: estoque abaixo do mínimo cadastrado (min_qty) — ORDER BY + LIMIT precisam vir
+  -- numa subconsulta ANTES do jsonb_agg, senão o Postgres não sabe se é pra ordenar as linhas ou o
+  -- agregado em si.
+  SELECT COALESCE(jsonb_agg(row_to_json(t)), '[]'::jsonb)
   INTO v_critical
-  FROM stock_items
-  WHERE active AND deleted_at IS NULL AND min_qty > 0 AND qty < min_qty
-  ORDER BY (qty::numeric / NULLIF(min_qty,0)) ASC
-  LIMIT 10;
+  FROM (
+    SELECT name, qty, min_qty
+    FROM stock_items
+    WHERE active AND deleted_at IS NULL AND min_qty > 0 AND qty < min_qty
+    ORDER BY (qty::numeric / NULLIF(min_qty,0)) ASC
+    LIMIT 10
+  ) t;
 
   RETURN jsonb_build_object(
     'stock_kg', ROUND(v_estoque_kg, 1),
