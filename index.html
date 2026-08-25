@@ -1478,6 +1478,7 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
             <div class="hint" id="aiModeHint" style="margin-bottom:14px;">Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.</div>
+            <div id="aiModuleDisabledBanner" style="display:none;background:var(--danger-bg);color:var(--danger);border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;">⚠️ O Analista IA está temporariamente desativado. Um administrador pode religar em Configurações.</div>
             <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
             <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
             <div style="display:flex;gap:8px;">
@@ -1542,6 +1543,21 @@ tr:last-child td{border-bottom:none;}
             </p>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">🧠 Inteligência (Analista IA)</div></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);margin-bottom:12px;">
+            <div>
+              <div style="font-size:13px;font-weight:600;">Analista IA ativo</div>
+              <div class="hint" style="margin:2px 0 0;">Desliga o módulo inteiro (chat, score de saúde, tudo) sem precisar mexer em código — útil se o Gemini tiver algum problema.</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;">
+              <input type="checkbox" id="cfg-ai-enabled" onchange="saveAIModuleEnabled()" style="opacity:0;width:0;height:0;">
+              <span id="cfg-ai-toggle-track" style="position:absolute;inset:0;background:var(--surface-2);border-radius:24px;transition:background .15s;cursor:pointer;" onclick="document.getElementById('cfg-ai-enabled').click()"></span>
+              <span id="cfg-ai-toggle-knob" style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.25);pointer-events:none;"></span>
+            </label>
+          </div>
+          <div id="aiUsageSummaryWrap"></div>
+        </div>
         </div>
       </section>
 
@@ -1580,6 +1596,7 @@ const AI_QUICK_QUESTIONS = {
     'Como está minha empresa este mês?',
     'Como estão minhas finanças este mês?',
     'Como estão minhas vendas este mês?',
+    'Minha produção acompanha a demanda?',
     'Existe risco no estoque?',
     'Quais clientes estão ficando inativos?',
     'Compare este mês com o anterior',
@@ -1659,7 +1676,7 @@ async function sendAIQuestion(presetQuestion){
       updateAIMessage(loadingId, data.error || (res.status===429 ? 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.' : 'Não foi possível concluir a análise agora.'));
       return;
     }
-    updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.');
+    updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.', data.tools_used);
     if(data.conversation_id){
       const isNewConversation = !currentAIConversationId;
       currentAIConversationId = data.conversation_id;
@@ -1693,12 +1710,19 @@ function appendAIMessage(role, text, isLoading){
   box.scrollTop = box.scrollHeight;
   return id;
 }
-function updateAIMessage(id, text){
+function updateAIMessage(id, text, toolsUsed){
   const el = document.getElementById(id);
   if(!el) return;
   el.innerHTML = renderAIMarkdown(text);
   el.style.opacity = '1';
   el.style.fontStyle = 'normal';
+  // "Dados utilizados nesta análise" — mostra de forma discreta quais fontes reais embasaram a resposta,
+  // sem repetir isso em toda mensagem (só quando alguma ferramenta foi de fato usada).
+  if(toolsUsed && toolsUsed.length>0){
+    const labels = { get_financial_summary:'Financeiro', get_sales_summary:'Vendas', get_inventory_status:'Estoque', get_inactive_customers:'Clientes', get_production_summary:'Produção', get_company_health:'Saúde da empresa' };
+    const unique = [...new Set(toolsUsed.map(t=>labels[t]||t))];
+    el.insertAdjacentHTML('beforeend', `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);font-size:10.5px;color:var(--muted);">📊 Dados utilizados: ${unique.map(l=>esc(l)).join(' • ')}</div>`);
+  }
 }
 // Markdown mínimo e seguro pras respostas do Analista IA: escapa TODO o texto primeiro (nenhum HTML do
 // modelo é confiado), e só depois aplica um punhado de padrões simples (negrito, listas, quebra de linha)
@@ -1735,6 +1759,8 @@ async function renderCompanyHealth(){
   if(error || !data){ healthBox.innerHTML = ''; if(attnPanel) attnPanel.style.display='none'; return; }
 
   const scoreColor = data.overall_score>=75 ? 'var(--success)' : data.overall_score>=50 ? 'var(--warn)' : 'var(--danger)';
+  const delta = data.score_delta;
+  const deltaHtml = delta!=null ? `<div style="font-size:11px;font-weight:700;color:${delta>=0?'var(--success)':'var(--danger)'};margin-top:2px;">${delta>=0?'↑':'↓'} ${Math.abs(delta)} pt${Math.abs(delta)!==1?'s':''} vs. mês passado</div>` : '';
   const dims = [
     { key:'financial', icon:'💰', label:'Financeiro' },
     { key:'sales', icon:'📈', label:'Vendas' },
@@ -1749,6 +1775,7 @@ async function renderCompanyHealth(){
           <div style="font-size:36px;font-weight:800;color:${scoreColor};line-height:1;">${data.overall_score}</div>
           <div style="font-size:11px;color:var(--muted);">de 100</div>
           <div style="font-size:12px;font-weight:700;color:${scoreColor};margin-top:2px;">${esc(data.overall_label)}</div>
+          ${deltaHtml}
         </div>
         <div style="flex:1;min-width:260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;">
           ${dims.map(d=>{
@@ -1762,7 +1789,7 @@ async function renderCompanyHealth(){
           }).join('')}
         </div>
       </div>
-      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${data.period.from.slice(5,7)} até hoje) — o número é sempre determinístico, a explicação em texto é opcional.</div>
+      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${data.period.from.slice(5,7)} até hoje) — o número é sempre determinístico, a explicação em texto é opcional. ${data.data_coverage_note?`<span title="${esc(data.data_coverage_note)}" style="cursor:help;text-decoration:underline dotted;">ℹ️ sobre a comparação</span>`:''}</div>
     </div>
   `;
 
@@ -1788,6 +1815,74 @@ async function renderCompanyHealth(){
       attnList.innerHTML = points.map(p=>`<div class="stat-row"><span class="stat-row-label">${p.icon} ${p.text}</span></div>`).join('');
     }
   }
+}
+// ---- Feature flag ai_module_enabled + resumo de consumo (Fase 6, tela Configurações) ----
+async function loadAIModuleSettings(){
+  const { data } = await sb.from('company_settings').select('ai_module_enabled').limit(1).single();
+  const enabled = data?.ai_module_enabled !== false; // default true se a coluna ainda não foi definida
+
+  const toggle = document.getElementById('cfg-ai-enabled');
+  if(toggle){
+    toggle.checked = enabled;
+    updateAIToggleVisual(enabled);
+    renderAIUsageSummary();
+  }
+
+  // Avisa direto no chat quando o módulo estiver desligado — não deixa o usuário só descobrir isso depois
+  // de mandar uma pergunta e receber um erro genérico.
+  aiModuleEnabled = enabled;
+  const sendBtn = document.getElementById('aiSendBtn');
+  const input = document.getElementById('aiChatInput');
+  const disabledBanner = document.getElementById('aiModuleDisabledBanner');
+  if(sendBtn) sendBtn.disabled = !enabled;
+  if(input) input.disabled = !enabled;
+  if(disabledBanner) disabledBanner.style.display = enabled ? 'none' : 'block';
+}
+let aiModuleEnabled = true;
+function updateAIToggleVisual(enabled){
+  const track = document.getElementById('cfg-ai-toggle-track');
+  const knob = document.getElementById('cfg-ai-toggle-knob');
+  if(track) track.style.background = enabled ? 'var(--accent-2)' : 'var(--surface-2)';
+  if(knob) knob.style.transform = enabled ? 'translateX(18px)' : 'translateX(0)';
+}
+async function saveAIModuleEnabled(){
+  const toggle = document.getElementById('cfg-ai-enabled');
+  const enabled = toggle.checked;
+  updateAIToggleVisual(enabled);
+  const { error } = await sb.from('company_settings').upsert({ id:true, ai_module_enabled: enabled });
+  if(error){ toast('Erro ao salvar', true); toggle.checked = !enabled; updateAIToggleVisual(!enabled); return; }
+  toast(enabled ? 'Analista IA ativado' : 'Analista IA desativado — o chat vai recusar novas perguntas até religar');
+}
+// Resumo simples de consumo — direto de ai_usage_logs, sem gráfico nenhum, só os números que já importam
+// pra decidir se vale migrar o rate limit pra algo persistente (Fase 6, item de revisão)
+async function renderAIUsageSummary(){
+  const box = document.getElementById('aiUsageSummaryWrap');
+  if(!box) return;
+  const sevenDaysAgo = new Date(Date.now() - 7*86400000).toISOString();
+  const { data, error } = await sb.from('ai_usage_logs').select('status, total_tokens, duration_ms, tools_used, created_at').gte('created_at', sevenDaysAgo);
+  if(error || !data){ box.innerHTML = '<div class="hint">Ainda sem dados de consumo.</div>'; return; }
+  if(data.length===0){ box.innerHTML = '<div class="hint">Nenhuma chamada à IA nos últimos 7 dias.</div>'; return; }
+
+  const total = data.length;
+  const success = data.filter(l=>l.status==='success').length;
+  const rateLimited = data.filter(l=>l.status==='rate_limited_gemini'||l.status==='rate_limited_internal').length;
+  const totalTokens = data.reduce((s,l)=>s+(l.total_tokens||0),0);
+  const avgDuration = Math.round(data.reduce((s,l)=>s+(l.duration_ms||0),0)/total);
+  const toolCounts = {};
+  data.forEach(l=> (l.tools_used||[]).forEach(t=> toolCounts[t]=(toolCounts[t]||0)+1));
+  const topTool = Object.entries(toolCounts).sort((a,b)=>b[1]-a[1])[0];
+
+  box.innerHTML = `
+    <div class="hint" style="margin-bottom:10px;">Últimos 7 dias — dado bruto, sem dashboard nenhum ainda (item pendente pra futuramente):</div>
+    <div class="stat-row-list">
+      <div class="stat-row"><span class="stat-row-label">Chamadas ao Analista IA</span><span class="stat-row-value">${total}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Sucesso</span><span class="stat-row-value">${success} (${Math.round(success/total*100)}%)</span></div>
+      <div class="stat-row"><span class="stat-row-label">Bloqueadas por rate limit</span><span class="stat-row-value">${rateLimited}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Tokens usados (aprox.)</span><span class="stat-row-value">${totalTokens.toLocaleString('pt-BR')}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Duração média</span><span class="stat-row-value">${avgDuration}ms</span></div>
+      <div class="stat-row"><span class="stat-row-label">Ferramenta mais usada</span><span class="stat-row-value">${topTool?esc(topTool[0])+' ('+topTool[1]+'x)':'—'}</span></div>
+    </div>
+  `;
 }
 function toggleAIHistoryPanel(){
   document.getElementById('aiHistoryPanel').classList.toggle('open');
@@ -2044,6 +2139,7 @@ async function afterLogin(session){
   renderAIQuickQuestions();
   renderAIConversationsList();
   renderCompanyHealth();
+  loadAIModuleSettings();
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
   // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre

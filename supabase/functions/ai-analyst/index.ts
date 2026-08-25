@@ -85,9 +85,22 @@ const COMPANY_TOOLS = [
     },
   },
   {
+    name: "get_production_summary",
+    description:
+      "Total produzido (kg), média diária de produção, capacidade diária das máquinas ativas, e percentual de utilização da capacidade, pra um período (YYYY-MM-DD).",
+    parameters: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Data inicial YYYY-MM-DD" },
+        to: { type: "string", description: "Data final YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
     name: "get_company_health",
     description:
-      "Score de saúde geral da empresa (0-100) do mês atual, com o detalhamento por dimensão (financeiro, vendas, estoque, clientes) e os números brutos que embasam cada nota. O score já vem calculado — sua função é interpretar e explicar, não recalcular.",
+      "Score de saúde geral da empresa (0-100) do mês atual, com o detalhamento por dimensão (financeiro, vendas, produção, estoque, clientes) e os números brutos que embasam cada nota. O score já vem calculado — sua função é interpretar e explicar, não recalcular.",
     parameters: { type: "object", properties: {} },
   },
 ];
@@ -355,6 +368,10 @@ async function runTool(supabase: any, name: string, args: Record<string, unknown
       const { data, error } = await supabase.rpc("get_inactive_customers", { p_min_days: args.min_days || 30, p_limit: 10 });
       return { result: data, error: error?.message };
     }
+    if (name === "get_production_summary") {
+      const { data, error } = await supabase.rpc("get_production_summary", { p_from: args.from, p_to: args.to });
+      return { result: data, error: error?.message };
+    }
     if (name === "get_company_health") {
       const { data, error } = await supabase.rpc("get_company_health");
       return { result: data, error: error?.message };
@@ -374,6 +391,7 @@ function generateTitle(question: string): string {
   if (/financ|receita|despesa|saldo|caixa|pagar|receber/.test(q)) return "Análise financeira";
   if (/estoque|cobertura|ruptura/.test(q)) return "Estoque";
   if (/cliente/.test(q)) return "Clientes";
+  if (/produç|produz|capacidade/.test(q)) return "Produção";
   const clean = question.replace(/[?!.]+$/g, "").trim();
   return clean.length > 40 ? clean.slice(0, 40).trim() + "…" : clean;
 }
