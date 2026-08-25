@@ -56,6 +56,8 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .nav-item.active{background:var(--sidebar-2);color:#fff;border-color:rgba(79,195,224,.35);box-shadow:inset 3px 0 0 var(--accent-2);}
 .sidebar-foot{color:#5E7A8C;font-size:10.5px;padding:10px 8px 0 8px;border-top:1px solid rgba(255,255,255,.08);margin-top:8px;padding-top:12px;}
 .sidebar-foot #sidebarUserInfo:hover{background:rgba(255,255,255,.06);}
+.ai-mode-btn{border:none;background:none;padding:6px 12px;font-size:12.5px;font-weight:600;border-radius:7px;cursor:pointer;color:var(--muted);font-family:inherit;}
+.ai-mode-btn.active{background:var(--accent-2);color:#fff;}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 26px;display:flex;align-items:center;justify-content:space-between;}
@@ -1442,15 +1444,18 @@ tr:last-child td{border-bottom:none;}
       <!-- INTELIGÊNCIA (Analista IA — MVP read-only) -->
       <section class="view" id="view-inteligencia">
         <div class="panel">
-          <div class="panel-head"><div class="section-title">🧠 Analista IA</div></div>
-          <div class="hint" style="margin-bottom:14px;">Pergunte sobre a operação da empresa. Ele só consulta e interpreta dados reais — nunca altera nada no sistema.</div>
-          <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
-          <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-            <button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Como estão minhas finanças este mês?')">Como estão minhas finanças este mês?</button>
-            <button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Compare este mês com o anterior')">Compare este mês com o anterior</button>
+          <div class="panel-head">
+            <div class="section-title">🧠 Analista IA</div>
+            <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;">
+              <button id="aiModeBtnCompany" class="ai-mode-btn active" onclick="setAIMode('company')">🏢 Empresa</button>
+              <button id="aiModeBtnGeneral" class="ai-mode-btn" onclick="setAIMode('general')">💬 Geral</button>
+            </div>
           </div>
+          <div class="hint" id="aiModeHint" style="margin-bottom:14px;">Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.</div>
+          <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
+          <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
           <div style="display:flex;gap:8px;">
-            <input type="text" id="aiChatInput" placeholder="Pergunte qualquer coisa sobre sua empresa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;" onkeydown="if(event.key==='Enter'){event.preventDefault(); sendAIQuestion();}">
+            <textarea id="aiChatInput" rows="1" placeholder="Pergunte qualquer coisa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;resize:none;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendAIQuestion();}"></textarea>
             <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
           </div>
         </div>
@@ -1528,11 +1533,43 @@ document.addEventListener('wheel', function(e){
 
 // ================= SUPABASE =================
 const SUPABASE_URL = 'https://iknqqrwhtfnenuynemve.supabase.co';
-// ---- Analista IA (MVP read-only, Fase 1) ----
+// ---- Analista IA (Fase 2 — dois modos: Empresa / Geral) ----
 // Chama a Edge Function "ai-analyst" com o JWT da sessão atual (nunca com a anon key sozinha nem com
 // nenhuma chave do Gemini — essa fica só como Secret da função, do lado do servidor). Se a Edge Function
 // ainda não estiver deployada, mostra um erro amigável em vez de quebrar a tela.
 let aiChatBusy = false;
+let aiCurrentMode = 'company'; // 'company' | 'general' — Fase 2 ainda não persiste conversa (isso é Fase 3);
+                                 // por enquanto o modo só vale pra sessão atual da aba, reseta ao recarregar.
+const AI_QUICK_QUESTIONS = {
+  company: [
+    'Como está minha empresa este mês?',
+    'Como estão minhas finanças este mês?',
+    'Como estão minhas vendas este mês?',
+    'Existe risco no estoque?',
+    'Quais clientes estão ficando inativos?',
+    'Compare este mês com o anterior',
+  ],
+  general: [
+    'Me ajude a criar uma mensagem comercial',
+    'Me dê ideias para o Instagram',
+    'Explique margem de contribuição',
+    'Me ajude com uma estratégia comercial',
+  ],
+};
+function setAIMode(mode){
+  aiCurrentMode = mode;
+  document.getElementById('aiModeBtnCompany').classList.toggle('active', mode==='company');
+  document.getElementById('aiModeBtnGeneral').classList.toggle('active', mode==='general');
+  document.getElementById('aiModeHint').textContent = mode==='company'
+    ? 'Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.'
+    : 'Conversa sem acesso aos dados da empresa — pra isso, use o modo Empresa.';
+  renderAIQuickQuestions();
+}
+function renderAIQuickQuestions(){
+  const box = document.getElementById('aiQuickQuestions');
+  if(!box) return;
+  box.innerHTML = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion(${JSON.stringify(q)})">${esc(q)}</button>`).join('');
+}
 async function sendAIQuestion(presetQuestion){
   if(aiChatBusy) return;
   const input = document.getElementById('aiChatInput');
@@ -1540,7 +1577,7 @@ async function sendAIQuestion(presetQuestion){
   if(!question) return;
   if(input) input.value = '';
   appendAIMessage('user', question);
-  const loadingId = appendAIMessage('model', 'Analisando os dados da sua operação...', true);
+  const loadingId = appendAIMessage('model', aiCurrentMode==='company' ? 'Analisando os dados da sua operação...' : 'Pensando...', true);
   aiChatBusy = true;
   const sendBtn = document.getElementById('aiSendBtn');
   if(sendBtn){ sendBtn.disabled = true; }
@@ -1551,7 +1588,7 @@ async function sendAIQuestion(presetQuestion){
     const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-analyst`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, mode: aiCurrentMode }),
     });
     if(res.status === 429){ updateAIMessage(loadingId, 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.'); return; }
     const data = await res.json().catch(()=>({}));
@@ -1571,7 +1608,7 @@ function appendAIMessage(role, text, isLoading){
   const id = 'aimsg-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
   const isUser = role==='user';
   box.insertAdjacentHTML('beforeend', `
-    <div id="${id}" style="align-self:${isUser?'flex-end':'flex-start'};max-width:80%;background:${isUser?'var(--accent-2)':'var(--surface-2)'};color:${isUser?'#fff':'var(--ink)'};border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.5;white-space:pre-line;${isLoading?'opacity:.7;font-style:italic;':''}">${esc(text)}</div>
+    <div id="${id}" style="align-self:${isUser?'flex-end':'flex-start'};max-width:80%;background:${isUser?'var(--accent-2)':'var(--surface-2)'};color:${isUser?'#fff':'var(--ink)'};border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;${isLoading?'opacity:.7;font-style:italic;':''}">${isLoading?esc(text):renderAIMarkdown(text)}</div>
   `);
   box.scrollTop = box.scrollHeight;
   return id;
@@ -1579,9 +1616,30 @@ function appendAIMessage(role, text, isLoading){
 function updateAIMessage(id, text){
   const el = document.getElementById(id);
   if(!el) return;
-  el.textContent = text;
+  el.innerHTML = renderAIMarkdown(text);
   el.style.opacity = '1';
   el.style.fontStyle = 'normal';
+}
+// Markdown mínimo e seguro pras respostas do Analista IA: escapa TODO o texto primeiro (nenhum HTML do
+// modelo é confiado), e só depois aplica um punhado de padrões simples (negrito, listas, quebra de linha)
+// em cima do texto já escapado — não existe caminho pra injeção de HTML/script vindo da resposta do Gemini.
+function renderAIMarkdown(text){
+  let safe = esc(text);
+  safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const lines = safe.split('\n');
+  let html = '', inList = false;
+  lines.forEach(line=>{
+    const bullet = line.match(/^[\-\*]\s+(.*)/);
+    if(bullet){
+      if(!inList){ html += '<ul style="margin:4px 0 4px 18px;padding:0;">'; inList = true; }
+      html += `<li>${bullet[1]}</li>`;
+    } else {
+      if(inList){ html += '</ul>'; inList = false; }
+      html += line ? `<div>${line}</div>` : '<div style="height:6px;"></div>';
+    }
+  });
+  if(inList) html += '</ul>';
+  return html;
 }
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrbnFxcndodGZuZW51eW5lbXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NzIyMDksImV4cCI6MjA5OTU0ODIwOX0.uBHhExWFo0qhwAUbklDyIE9V8fio3zxzU10Jbmlrw-A';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1736,6 +1794,7 @@ async function afterLogin(session){
     minhaContaEl.textContent = [displayName, myUser.email||'', roleLabel(profile.role)].filter(Boolean).join(' · ');
   }
   renderSidebarUserInfo();
+  renderAIQuickQuestions();
   document.querySelectorAll('.nav-item').forEach(n=>{ if(n.dataset.view==='config' && myProfile.role!=='admin') n.style.display='none'; });
   // Combustível/taxa de entrega e modo de cálculo de distância ficam visíveis só pro seu usuário
   // específico (por e-mail), mesmo pra outros administradores — decisão intencional, não é sobre
