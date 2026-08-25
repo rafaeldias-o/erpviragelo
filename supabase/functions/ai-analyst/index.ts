@@ -66,6 +66,9 @@ Sempre que precisar de dados financeiros, chame a ferramenta get_financial_summa
 corrido, sem repetir o JSON.`;
 
 Deno.serve(async (req) => {
+  // Responde a requisição de pre-flight do navegador ANTES de qualquer outra checagem
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
+
   try {
     console.log("ai-analyst: request recebida", req.method);
 
@@ -189,6 +192,15 @@ async function callGemini(contents: unknown[], withTools: boolean) {
   return res.json();
 }
 
+// CORS: o navegador manda uma requisição OPTIONS de "pre-flight" antes do POST de verdade, e exige que
+// TODA resposta (inclusive as de erro) tenha o header Access-Control-Allow-Origin — sem isso, o fetch()
+// do navegador é bloqueado antes mesmo de chegar aqui, mesmo que a function funcione perfeitamente.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 // deno-lint-ignore no-explicit-any
 function extractFunctionCall(resp: any) {
   const part = resp?.candidates?.[0]?.content?.parts?.find((p: any) => p.functionCall);
@@ -202,6 +214,6 @@ function extractText(resp: any) {
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
