@@ -162,7 +162,8 @@ Deno.serve(async (req) => {
     }
 
     if (isRateLimited(userId)) {
-      return json({ error: "O limite temporário do Analista IA foi atingido. Tente novamente em instantes." }, 429);
+      console.log("ai-analyst: rate limit INTERNO atingido pro usuário", userId);
+      return json({ error: "Você atingiu o limite de perguntas por minuto do Analista IA. Espera um pouco e tenta de novo." }, 429);
     }
 
     const body = await req.json().catch(() => ({}));
@@ -266,7 +267,8 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("ai-analyst: erro não tratado:", e instanceof Error ? e.message : String(e));
     if (e instanceof GeminiRateLimitError) {
-      return json({ error: "O limite temporário do Analista IA foi atingido. Tente novamente em instantes." }, 429);
+      console.log("ai-analyst: rate limit DO PRÓPRIO GEMINI atingido (free tier)");
+      return json({ error: "O provedor de IA (Gemini) atingiu o limite do plano gratuito nesse minuto. Espera um pouco — costuma liberar rápido." }, 429);
     }
     return json({ error: "Não foi possível concluir a análise agora." }, 500);
   }
