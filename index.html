@@ -58,20 +58,37 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .sidebar-foot #sidebarUserInfo:hover{background:rgba(255,255,255,.06);}
 .ai-mode-btn{border:none;background:none;padding:6px 12px;font-size:12.5px;font-weight:600;border-radius:7px;cursor:pointer;color:var(--muted);font-family:inherit;}
 .ai-mode-btn.active{background:var(--accent-2);color:#fff;}
-.ai-layout-grid{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start;}
+.ai-assistant-layout{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:stretch;height:calc(100vh - 230px);min-height:460px;}
+.ai-chat-panel{display:flex;flex-direction:column;margin-bottom:0;overflow:hidden;}
+.ai-chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:6px 2px;}
+.ai-chat-empty{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;}
+.ai-msg-user{align-self:flex-end;max-width:75%;background:var(--accent-2);color:#fff;border-radius:14px 14px 3px 14px;padding:10px 14px;font-size:13.5px;line-height:1.6;}
+.ai-msg-ai{align-self:stretch;max-width:100%;padding:0 2px;font-size:13.5px;line-height:1.7;color:var(--ink);}
+.ai-msg-system{align-self:center;max-width:90%;background:var(--warn-bg);border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:9px 16px;font-size:12.5px;text-align:center;}
+.ai-msg-system.error{background:var(--danger-bg);border-color:var(--danger);color:var(--danger);}
+.ai-sources-toggle{font-size:11px;color:var(--accent-2);cursor:pointer;margin-top:8px;display:inline-block;user-select:none;}
+.ai-sources-content{display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);}
+.ai-sources-content.open{display:block;}
+.ai-history-panel{display:flex;flex-direction:column;overflow:hidden;margin-bottom:0;}
 #aiHistoryToggleBtn{display:none;}
 #aiHistoryOverlay{display:none;}
 .ai-conv-item{padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
 .ai-conv-item:hover{background:var(--surface-2);}
-.ai-conv-item.active{background:var(--info-bg);font-weight:600;}
+.ai-conv-item.active{background:var(--info-bg);font-weight:600;border-left:3px solid var(--accent-2);padding-left:7px;}
 .ai-conv-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.ai-conv-meta{font-size:10px;color:var(--muted);margin-top:1px;}
 .ai-conv-menu-btn{opacity:0;flex-shrink:0;background:none;border:none;cursor:pointer;padding:2px 4px;font-size:13px;color:var(--muted);}
 .ai-conv-item:hover .ai-conv-menu-btn{opacity:1;}
+.attn-card{border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--surface);}
+.attn-card+.attn-card{margin-top:10px;}
+.attn-severity{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:20px;}
+.attn-severity.warn{background:var(--warn-bg);color:var(--warn);}
+.attn-severity.critical{background:var(--danger-bg);color:var(--danger);}
 @media(max-width:920px){
-  .ai-layout-grid{grid-template-columns:1fr;}
+  .ai-assistant-layout{grid-template-columns:1fr;height:calc(100vh - 280px);}
   #aiHistoryToggleBtn{display:inline-flex;}
   #aiHistoryPanel{display:none;position:fixed;top:0;right:0;bottom:0;width:85vw;max-width:320px;z-index:200;border-radius:0;overflow-y:auto;margin:0;box-shadow:-4px 0 16px rgba(0,0,0,.18);}
-  #aiHistoryPanel.open{display:block;}
+  #aiHistoryPanel.open{display:flex;}
   #aiHistoryOverlay.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;}
   #aiHistoryCloseBtn{display:inline-flex !important;}
 }
@@ -1460,38 +1477,61 @@ tr:last-child td{border-bottom:none;}
       <!-- CONFIGURACOES -->
       <!-- INTELIGÊNCIA (Analista IA — MVP read-only) -->
       <section class="view" id="view-inteligencia">
-        <div id="aiHealthWrap" style="margin-bottom:16px;"></div>
-        <div class="panel" id="aiAttentionPanel" style="display:none;margin-bottom:16px;">
-          <div class="panel-head"><div class="section-title" style="font-size:14px;">⚠️ Pontos de atenção</div></div>
-          <div id="aiAttentionList" class="stat-row-list"></div>
+        <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;width:fit-content;margin-bottom:18px;">
+          <button id="aiViewTabOverview" class="ai-mode-btn active" onclick="setAIViewTab('overview')">📊 Visão Geral</button>
+          <button id="aiViewTabAssistant" class="ai-mode-btn" onclick="setAIViewTab('assistant')">💬 Assistente</button>
         </div>
-        <div class="ai-layout-grid">
-          <div class="panel" style="margin-bottom:0;">
-            <div class="panel-head">
-              <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-                <button class="btn btn-ghost btn-sm" id="aiHistoryToggleBtn" onclick="toggleAIHistoryPanel()">☰</button>
-                <div class="section-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🧠 <span id="aiChatTitle">Analista IA</span></div>
-              </div>
-              <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-shrink:0;">
-                <button id="aiModeBtnCompany" class="ai-mode-btn active" onclick="setAIMode('company')">🏢 Empresa</button>
-                <button id="aiModeBtnGeneral" class="ai-mode-btn" onclick="setAIMode('general')">💬 Geral</button>
-              </div>
-            </div>
-            <div class="hint" id="aiModeHint" style="margin-bottom:14px;">Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.</div>
-            <div id="aiModuleDisabledBanner" style="display:none;background:var(--danger-bg);color:var(--danger);border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:14px;">⚠️ O Analista IA está temporariamente desativado. Um administrador pode religar em Configurações.</div>
-            <div id="aiChatMessages" style="min-height:200px;max-height:50vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"></div>
-            <div id="aiQuickQuestions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
-            <div style="display:flex;gap:8px;">
-              <textarea id="aiChatInput" rows="1" placeholder="Pergunte qualquer coisa..." style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;font-family:inherit;resize:none;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendAIQuestion();}"></textarea>
-              <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
+
+        <!-- ===== VISÃO GERAL ===== -->
+        <div id="aiOverviewTab">
+          <div id="aiHealthWrap"></div>
+          <div id="aiAttentionWrap" style="margin-top:16px;"></div>
+          <div class="panel" style="margin-top:16px;">
+            <div class="panel-head"><div class="section-title" style="font-size:14px;">📝 Resumo executivo</div></div>
+            <div id="aiExecSummaryContent">
+              <div class="hint" style="margin-bottom:10px;">Gera uma análise em texto a partir dos dados acima, usando IA — não é chamado automaticamente, só quando você pedir (evita gastar cota à toa).</div>
+              <button class="btn btn-ghost btn-sm" onclick="generateExecutiveSummary()">✨ Gerar resumo com IA</button>
             </div>
           </div>
-          <div id="aiHistoryOverlay" onclick="closeAIHistoryPanel()"></div>
-          <div class="panel" id="aiHistoryPanel" style="margin-bottom:0;">
-            <div class="panel-head"><div class="section-title" style="font-size:14px;">Conversas</div><button class="icon-btn" onclick="closeAIHistoryPanel()" id="aiHistoryCloseBtn" style="display:none;">✕</button></div>
-            <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:10px;" onclick="startNewAIConversation()">+ Nova conversa</button>
-            <input type="text" id="aiConvSearchInput" placeholder="🔎 Buscar conversa..." style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;margin-bottom:10px;" oninput="renderAIConversationsList()">
-            <div id="aiConversationsList"></div>
+        </div>
+
+        <!-- ===== ASSISTENTE ===== -->
+        <div id="aiAssistantTab" style="display:none;">
+          <div class="ai-assistant-layout">
+            <div class="panel ai-chat-panel">
+              <div class="panel-head" style="flex-shrink:0;">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+                  <button class="btn btn-ghost btn-sm" id="aiHistoryToggleBtn" onclick="toggleAIHistoryPanel()">☰</button>
+                  <div class="section-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;">🧠 <span id="aiChatTitle">Analista IA</span></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                  <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;" title="Empresa: usa dados do ERP · Geral: conversa sem acesso ao ERP">
+                    <button id="aiModeBtnCompany" class="ai-mode-btn active" onclick="setAIMode('company')">🏢 Empresa</button>
+                    <button id="aiModeBtnGeneral" class="ai-mode-btn" onclick="setAIMode('general')">💬 Geral</button>
+                  </div>
+                </div>
+              </div>
+              <div id="aiModuleDisabledBanner" style="display:none;flex-shrink:0;background:var(--danger-bg);color:var(--danger);border-radius:8px;padding:10px 12px;font-size:12.5px;margin:0 0 10px;">⚠️ O Analista IA está temporariamente desativado. Um administrador pode religar em Configurações.</div>
+              <div id="aiChatMessages" class="ai-chat-messages"></div>
+              <div id="aiChatEmptyState" class="ai-chat-empty">
+                <div style="font-size:26px;">✦</div>
+                <div style="font-size:16px;font-weight:700;">Como posso ajudar?</div>
+                <div class="hint" style="max-width:340px;">Pergunte sobre sua operação (modo Empresa) ou use como assistente geral (modo Geral).</div>
+                <div id="aiQuickQuestionsEmpty" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:460px;"></div>
+              </div>
+              <div id="aiQuickQuestions" style="display:none;gap:8px;flex-wrap:wrap;margin:10px 0 0;flex-shrink:0;"></div>
+              <div style="display:flex;gap:8px;flex-shrink:0;margin-top:12px;">
+                <textarea id="aiChatInput" rows="1" placeholder="Pergunte qualquer coisa..." style="flex:1;border:1px solid var(--border);border-radius:10px;padding:11px 14px;font-size:13px;font-family:inherit;resize:none;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendAIQuestion();}"></textarea>
+                <button class="btn btn-primary" id="aiSendBtn" onclick="sendAIQuestion()">Enviar</button>
+              </div>
+            </div>
+            <div id="aiHistoryOverlay" onclick="closeAIHistoryPanel()"></div>
+            <div class="panel ai-history-panel" id="aiHistoryPanel">
+              <div class="panel-head" style="flex-shrink:0;"><div class="section-title" style="font-size:14px;">Conversas</div><button class="icon-btn" onclick="closeAIHistoryPanel()" id="aiHistoryCloseBtn" style="display:none;">✕</button></div>
+              <button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:10px;flex-shrink:0;" onclick="startNewAIConversation()">+ Nova conversa</button>
+              <input type="text" id="aiConvSearchInput" placeholder="🔎 Buscar conversa..." style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;margin-bottom:10px;flex-shrink:0;" oninput="renderAIConversationsList()">
+              <div id="aiConversationsList" style="flex:1;overflow-y:auto;"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -1608,6 +1648,12 @@ const AI_QUICK_QUESTIONS = {
     'Me ajude com uma estratégia comercial',
   ],
 };
+function setAIViewTab(tab){
+  document.getElementById('aiViewTabOverview').classList.toggle('active', tab==='overview');
+  document.getElementById('aiViewTabAssistant').classList.toggle('active', tab==='assistant');
+  document.getElementById('aiOverviewTab').style.display = tab==='overview' ? 'block' : 'none';
+  document.getElementById('aiAssistantTab').style.display = tab==='assistant' ? 'block' : 'none';
+}
 function setAIMode(mode){
   // Uma conversa já persistida (com id) tem o modo travado na criação — evita que uma conversa que
   // começou como "Geral" (sem acesso a dado nenhum) passe silenciosamente a ter acesso a dado
@@ -1616,15 +1662,24 @@ function setAIMode(mode){
   aiCurrentMode = mode;
   document.getElementById('aiModeBtnCompany').classList.toggle('active', mode==='company');
   document.getElementById('aiModeBtnGeneral').classList.toggle('active', mode==='general');
-  document.getElementById('aiModeHint').textContent = mode==='company'
-    ? 'Respostas baseadas nos dados reais do ERP. Só consulta e interpreta — nunca altera nada no sistema.'
-    : 'Conversa sem acesso aos dados da empresa — pra isso, use o modo Empresa.';
   renderAIQuickQuestions();
 }
 function renderAIQuickQuestions(){
-  const box = document.getElementById('aiQuickQuestions');
-  if(!box) return;
-  box.innerHTML = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${q.replace(/'/g,"\\'")}')">${esc(q)}</button>`).join('');
+  const html = AI_QUICK_QUESTIONS[aiCurrentMode].map(q=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${q.replace(/'/g,"\\'")}')">${esc(q)}</button>`).join('');
+  const emptyBox = document.getElementById('aiQuickQuestionsEmpty');
+  const belowBox = document.getElementById('aiQuickQuestions');
+  if(emptyBox) emptyBox.innerHTML = html;
+  if(belowBox) belowBox.innerHTML = html;
+}
+function updateAIChatEmptyState(){
+  const box = document.getElementById('aiChatMessages');
+  const empty = document.getElementById('aiChatEmptyState');
+  const quickBelow = document.getElementById('aiQuickQuestions');
+  if(!box || !empty) return;
+  const hasMessages = box.children.length > 0;
+  empty.style.display = hasMessages ? 'none' : 'flex';
+  box.style.display = hasMessages ? 'flex' : 'none';
+  if(quickBelow) quickBelow.style.display = hasMessages ? 'flex' : 'none';
 }
 function startNewAIConversation(){
   currentAIConversationId = null;
@@ -1633,8 +1688,10 @@ function startNewAIConversation(){
   document.getElementById('aiModeBtnCompany').style.opacity = '1';
   document.getElementById('aiModeBtnGeneral').style.opacity = '1';
   setAIModeUnlocked('company');
+  updateAIChatEmptyState();
   renderAIConversationsList();
   closeAIHistoryPanel();
+  setAIViewTab('assistant');
 }
 // setAIMode trava quando já existe conversation_id — esse helper força a troca mesmo assim, só pra
 // resetar a UI ao estado inicial (nova conversa, sem id ainda).
@@ -1651,7 +1708,7 @@ async function sendAIQuestion(presetQuestion){
   if(!question) return;
   if(input) input.value = '';
   appendAIMessage('user', question);
-  const loadingId = appendAIMessage('model', aiCurrentMode==='company' ? 'Analisando os dados da sua operação...' : 'Pensando...', true);
+  const loadingId = appendAIMessage('ai', aiCurrentMode==='company' ? 'Analisando os dados da sua operação...' : 'Pensando...', true);
   aiChatBusy = true;
   // Trava o seletor de modo assim que a 1a mensagem é enviada, mesmo antes da resposta voltar — evita
   // trocar de modo no meio de uma pergunta em andamento.
@@ -1662,7 +1719,7 @@ async function sendAIQuestion(presetQuestion){
   try{
     const { data: sessionData } = await sb.auth.getSession();
     const jwt = sessionData?.session?.access_token;
-    if(!jwt){ updateAIMessage(loadingId, 'Sessão expirada — atualize a página e tente de novo.'); return; }
+    if(!jwt){ updateAIMessage(loadingId, 'Sessão expirada — atualize a página e tente de novo.', null, true); return; }
     const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-analyst`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
@@ -1671,12 +1728,11 @@ async function sendAIQuestion(presetQuestion){
     const data = await res.json().catch(()=>({}));
     if(!res.ok || data.error){
       // Usa a mensagem específica que o backend manda (diferencia rate limit interno vs. do próprio
-      // Gemini) — antes esse status 429 tinha um texto genérico fixo aqui que ignorava completamente
-      // qual mensagem real o backend enviava.
-      updateAIMessage(loadingId, data.error || (res.status===429 ? 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.' : 'Não foi possível concluir a análise agora.'));
+      // Gemini) — e renderiza como estado TÉCNICO, não como se fosse uma resposta/opinião do assistente.
+      updateAIMessage(loadingId, data.error || (res.status===429 ? 'O limite temporário do Analista IA foi atingido. Tente novamente em instantes.' : 'Não foi possível concluir a análise agora.'), null, true);
       return;
     }
-    updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.', data.tools_used);
+    updateAIMessage(loadingId, data.answer || 'Não consegui montar uma resposta com os dados disponíveis.', data.tools_used, false);
     if(data.conversation_id){
       const isNewConversation = !currentAIConversationId;
       currentAIConversationId = data.conversation_id;
@@ -1687,7 +1743,7 @@ async function sendAIQuestion(presetQuestion){
     }
   }catch(e){
     console.error(e);
-    updateAIMessage(loadingId, 'Não foi possível concluir a análise agora — tente de novo em instantes.');
+    updateAIMessage(loadingId, 'Não foi possível concluir a análise agora — tente de novo em instantes.', null, true);
   }finally{
     aiChatBusy = false;
     if(sendBtn) sendBtn.disabled = false;
@@ -1703,26 +1759,40 @@ function appendAIMessage(role, text, isLoading){
   const box = document.getElementById('aiChatMessages');
   if(!box) return null;
   const id = 'aimsg-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
-  const isUser = role==='user';
-  box.insertAdjacentHTML('beforeend', `
-    <div id="${id}" style="align-self:${isUser?'flex-end':'flex-start'};max-width:80%;background:${isUser?'var(--accent-2)':'var(--surface-2)'};color:${isUser?'#fff':'var(--ink)'};border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;${isLoading?'opacity:.7;font-style:italic;':''}">${isLoading?esc(text):renderAIMarkdown(text)}</div>
-  `);
+  const cls = role==='user' ? 'ai-msg-user' : 'ai-msg-ai';
+  box.insertAdjacentHTML('beforeend', `<div id="${id}" class="${cls}" ${isLoading?'style="opacity:.7;font-style:italic;"':''}>${isLoading?esc(text):renderAIMarkdown(text)}</div>`);
+  updateAIChatEmptyState();
   box.scrollTop = box.scrollHeight;
   return id;
 }
-function updateAIMessage(id, text, toolsUsed){
+// isSystem=true trata rate limit/erro como um estado TÉCNICO separado (fundo de alerta, sem parecer
+// resposta/opinião do assistente) — antes essas mensagens apareciam iguaizinhas a uma resposta normal.
+function updateAIMessage(id, text, toolsUsed, isSystem){
   const el = document.getElementById(id);
   if(!el) return;
-  el.innerHTML = renderAIMarkdown(text);
   el.style.opacity = '1';
   el.style.fontStyle = 'normal';
-  // "Dados utilizados nesta análise" — mostra de forma discreta quais fontes reais embasaram a resposta,
-  // sem repetir isso em toda mensagem (só quando alguma ferramenta foi de fato usada).
+  if(isSystem){
+    el.className = 'ai-msg-system' + (/não foi possível|erro/i.test(text) ? ' error' : '');
+    el.innerHTML = `⚠️ ${esc(text)}`;
+    const box = document.getElementById('aiChatMessages');
+    if(box) box.scrollTop = box.scrollHeight;
+    return;
+  }
+  el.className = 'ai-msg-ai';
+  el.innerHTML = renderAIMarkdown(text);
+  // "Dados utilizados nesta análise" — recolhível, só aparece quando alguma ferramenta foi de fato usada.
   if(toolsUsed && toolsUsed.length>0){
     const labels = { get_financial_summary:'Financeiro', get_sales_summary:'Vendas', get_inventory_status:'Estoque', get_inactive_customers:'Clientes', get_production_summary:'Produção', get_company_health:'Saúde da empresa' };
     const unique = [...new Set(toolsUsed.map(t=>labels[t]||t))];
-    el.insertAdjacentHTML('beforeend', `<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);font-size:10.5px;color:var(--muted);">📊 Dados utilizados: ${unique.map(l=>esc(l)).join(' • ')}</div>`);
+    const sourcesId = id+'-sources';
+    el.insertAdjacentHTML('beforeend', `
+      <span class="ai-sources-toggle" onclick="document.getElementById('${sourcesId}').classList.toggle('open')">📊 Ver fontes da análise</span>
+      <div class="ai-sources-content" id="${sourcesId}">Dados utilizados: ${unique.map(l=>esc(l)).join(' • ')}</div>
+    `);
   }
+  const box = document.getElementById('aiChatMessages');
+  if(box) box.scrollTop = box.scrollHeight;
 }
 // Markdown mínimo e seguro pras respostas do Analista IA: escapa TODO o texto primeiro (nenhum HTML do
 // modelo é confiado), e só depois aplica um punhado de padrões simples (negrito, listas, quebra de linha)
@@ -1752,69 +1822,133 @@ function renderAIMarkdown(text){
 // uma explicação no chat (ex: clicando em "Resumo executivo").
 async function renderCompanyHealth(){
   const healthBox = document.getElementById('aiHealthWrap');
-  const attnPanel = document.getElementById('aiAttentionPanel');
-  const attnList = document.getElementById('aiAttentionList');
+  const attnWrap = document.getElementById('aiAttentionWrap');
   if(!healthBox) return;
   const { data, error } = await sb.rpc('get_company_health');
-  if(error || !data){ healthBox.innerHTML = ''; if(attnPanel) attnPanel.style.display='none'; return; }
+  if(error || !data){ healthBox.innerHTML = ''; if(attnWrap) attnWrap.innerHTML = ''; return; }
 
   const scoreColor = data.overall_score>=75 ? 'var(--success)' : data.overall_score>=50 ? 'var(--warn)' : 'var(--danger)';
   const delta = data.score_delta;
-  const deltaHtml = delta!=null ? `<div style="font-size:11px;font-weight:700;color:${delta>=0?'var(--success)':'var(--danger)'};margin-top:2px;">${delta>=0?'↑':'↓'} ${Math.abs(delta)} pt${Math.abs(delta)!==1?'s':''} vs. mês passado</div>` : '';
+  const deltaHtml = delta!=null ? `<div style="font-size:12px;font-weight:700;color:${delta>=0?'var(--success)':'var(--danger)'};margin-top:6px;">${delta>=0?'↑':'↓'} ${Math.abs(delta)} pt${Math.abs(delta)!==1?'s':''} vs. mês anterior</div>` : '';
+  const m = data.raw_metrics;
+  // Cobertura de dados — determinística, nunca inventada: se faltam métricas-chave (estoque/produção sem
+  // dado suficiente pra calcular), a leitura é "limitada"; senão, "boa".
+  const dataLimited = m.coverage_days==null || m.capacity_utilization_pct==null;
+  const coverageLabel = dataLimited ? 'Dados limitados' : 'Boa cobertura';
+  const coverageColor = dataLimited ? 'var(--warn)' : 'var(--success)';
+  // Frase-resumo determinística (não é gerada por IA) — combina o nível geral com quantos pontos de
+  // atenção existem, só pra dar contexto rápido sem precisar clicar em nada.
   const dims = [
     { key:'financial', icon:'💰', label:'Financeiro' },
     { key:'sales', icon:'📈', label:'Vendas' },
+    { key:'production', icon:'🏭', label:'Produção' },
     { key:'inventory', icon:'📦', label:'Estoque' },
     { key:'customers', icon:'👥', label:'Clientes' },
-  ];
+  ].filter(d=>data.dimensions[d.key]);
+
+  // Pontos de atenção — regras fixas, sem IA nenhuma envolvida na detecção. Cada um vira um card com
+  // severidade, contexto e ações reais (navega pro módulo, ou manda a pergunta certa pro Assistente).
+  const points = [];
+  if(m.coverage_days!=null && m.coverage_days < 5){
+    points.push({ area:'Estoque', severity: m.coverage_days<2?'critical':'warn', title:'Cobertura de estoque baixa',
+      detail:`No ritmo atual de vendas, o estoque dura cerca de ${m.coverage_days.toLocaleString('pt-BR',{maximumFractionDigits:1})} dia(s).`,
+      actionLabel:'Ver estoque', action:"switchView('estoque')", aiQuestion:'Existe risco no estoque?' });
+  }
+  if(m.critical_products && m.critical_products.length>0){
+    points.push({ area:'Estoque', severity:'critical', title:`${m.critical_products.length} produto(s) abaixo do mínimo`,
+      detail: m.critical_products.map(p=>esc(p.name)).join(', ')+'.',
+      actionLabel:'Ver estoque', action:"switchView('estoque')", aiQuestion:'Existe risco no estoque?' });
+  }
+  if(m.payable_open > m.account_balance_total){
+    points.push({ area:'Financeiro', severity:'critical', title:'Contas a pagar superam o saldo disponível',
+      detail:`${fmtMoney(m.payable_open)} a pagar — ${fmtMoney(m.account_balance_total)} disponíveis. Diferença: ${fmtMoney(m.payable_open-m.account_balance_total)}.`,
+      actionLabel:'Ver financeiro', action:"switchView('financeiro')", aiQuestion:'Como estão minhas finanças este mês?' });
+  }
+  if(m.inactive_customers_count > 0){
+    points.push({ area:'Clientes', severity:'warn', title:`${m.inactive_customers_count} cliente(s) sem comprar há mais de 30 dias`,
+      detail:'Podem estar esfriando o relacionamento — vale uma ação de reativação.',
+      actionLabel:'Ver clientes', action:"switchView('clientes')", aiQuestion:'Quais clientes estão ficando inativos?' });
+  }
+
+  const summarySentence = points.length===0
+    ? 'Nenhum ponto de atenção identificado neste momento.'
+    : `${points.length} ponto${points.length!==1?'s':''} de atenção identificado${points.length!==1?'s':''} — veja abaixo.`;
+
   healthBox.innerHTML = `
     <div class="panel">
-      <div class="panel-head"><div class="section-title" style="font-size:14px;">🩺 Saúde da empresa</div><button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('Me explique o score de saúde da empresa e o que fazer a respeito')">💬 Pedir explicação</button></div>
-      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-        <div style="text-align:center;flex-shrink:0;">
-          <div style="font-size:36px;font-weight:800;color:${scoreColor};line-height:1;">${data.overall_score}</div>
-          <div style="font-size:11px;color:var(--muted);">de 100</div>
-          <div style="font-size:12px;font-weight:700;color:${scoreColor};margin-top:2px;">${esc(data.overall_label)}</div>
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">🩺 Saúde da empresa</div><span style="font-size:11px;font-weight:600;color:${coverageColor};">● ${coverageLabel}</span></div>
+      <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:center;">
+        <div style="text-align:center;flex-shrink:0;min-width:110px;">
+          <div style="font-size:52px;font-weight:800;color:${scoreColor};line-height:1;">${data.overall_score}</div>
+          <div style="font-size:13px;font-weight:700;color:${scoreColor};margin-top:4px;">${esc(data.overall_label)}</div>
           ${deltaHtml}
         </div>
-        <div style="flex:1;min-width:260px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;">
-          ${dims.map(d=>{
-            const dim = data.dimensions[d.key];
-            const c = dim.score>=75 ? 'var(--success)' : dim.score>=50 ? 'var(--warn)' : 'var(--danger)';
-            return `<div>
-              <div style="font-size:11px;color:var(--muted);">${d.icon} ${d.label}</div>
-              <div style="font-size:17px;font-weight:700;color:${c};">${dim.score}</div>
-              <div style="height:5px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:2px;"><div style="height:100%;width:${dim.score}%;background:${c};"></div></div>
-            </div>`;
-          }).join('')}
+        <div style="flex:1;min-width:240px;">
+          <div class="hint" style="margin-bottom:10px;">${summarySentence}</div>
+          <button class="btn btn-ghost btn-sm" onclick="askHealthExplanation()">💬 Entender meu score</button>
         </div>
       </div>
-      <div class="hint" style="margin-top:10px;">Calculado com dados reais do mês atual (01/${data.period.from.slice(5,7)} até hoje) — o número é sempre determinístico, a explicação em texto é opcional. ${data.data_coverage_note?`<span title="${esc(data.data_coverage_note)}" style="cursor:help;text-decoration:underline dotted;">ℹ️ sobre a comparação</span>`:''}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+        ${dims.map(d=>{
+          const dim = data.dimensions[d.key];
+          const c = dim.score>=75 ? 'var(--success)' : dim.score>=50 ? 'var(--warn)' : 'var(--danger)';
+          return `<div style="text-align:center;">
+            <div style="font-size:10.5px;color:var(--muted);margin-bottom:4px;">${d.icon} ${d.label}</div>
+            <div style="font-size:16px;font-weight:700;color:${c};">${dim.score}</div>
+            <div style="height:4px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:4px;"><div style="height:100%;width:${dim.score}%;background:${c};"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="hint" style="margin-top:12px;">Mês atual (01/${data.period.from.slice(5,7)} até hoje) — determinístico, recalculado a cada abertura.${data.data_coverage_note?` <span title="${esc(data.data_coverage_note)}" style="cursor:help;text-decoration:underline dotted;">sobre a comparação ℹ️</span>`:''}</div>
     </div>
   `;
 
-  // Pontos de atenção — regras fixas, sem IA nenhuma envolvida na detecção
-  const m = data.raw_metrics;
-  const points = [];
-  if(m.coverage_days!=null && m.coverage_days < 5){
-    points.push({ icon:'📦', text:`Cobertura de estoque baixa: ${m.coverage_days.toLocaleString('pt-BR',{maximumFractionDigits:1})} dia(s) no ritmo atual de vendas.` });
-  }
-  if(m.critical_products && m.critical_products.length>0){
-    points.push({ icon:'🧊', text:`${m.critical_products.length} produto(s) com estoque abaixo do mínimo: ${m.critical_products.map(p=>esc(p.name)).join(', ')}.` });
-  }
-  if(m.payable_open > m.account_balance_total){
-    points.push({ icon:'💸', text:`Contas a pagar em aberto (${fmtMoney(m.payable_open)}) superam o saldo disponível (${fmtMoney(m.account_balance_total)}).` });
-  }
-  if(m.inactive_customers_count > 0){
-    points.push({ icon:'👥', text:`${m.inactive_customers_count} cliente(s) ativo(s) sem comprar há mais de 30 dias.` });
-  }
-  if(attnPanel && attnList){
-    if(points.length===0){ attnPanel.style.display='none'; }
-    else{
-      attnPanel.style.display='block';
-      attnList.innerHTML = points.map(p=>`<div class="stat-row"><span class="stat-row-label">${p.icon} ${p.text}</span></div>`).join('');
+  if(attnWrap){
+    if(points.length===0){
+      attnWrap.innerHTML = '';
+    } else {
+      attnWrap.innerHTML = `
+        <div class="panel">
+          <div class="panel-head"><div class="section-title" style="font-size:14px;">⚠️ Pontos de atenção</div></div>
+          ${points.map(p=>`
+            <div class="attn-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;">${esc(p.area)}</span>
+                <span class="attn-severity ${p.severity}">${p.severity==='critical'?'Importante':'Atenção'}</span>
+              </div>
+              <div style="font-weight:700;font-size:13.5px;margin-bottom:4px;">${esc(p.title)}</div>
+              <div class="hint" style="margin-bottom:10px;">${p.detail}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="${p.action}">${esc(p.actionLabel)}</button>
+                <button class="btn btn-ghost btn-sm" onclick="askAttentionPoint(${JSON.stringify(p.aiQuestion).replace(/"/g,'&quot;')})">💬 Analisar com IA</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
     }
   }
+}
+function askHealthExplanation(){
+  setAIViewTab('assistant');
+  sendAIQuestion('Me explique o score de saúde da empresa e o que fazer a respeito');
+}
+function askAttentionPoint(question){
+  setAIViewTab('assistant');
+  sendAIQuestion(question);
+}
+// Resumo executivo — só gerado quando pedido explicitamente (nunca automático ao abrir a tela, pra não
+// gastar cota do Gemini à toa).
+function generateExecutiveSummary(){
+  const box = document.getElementById('aiExecSummaryContent');
+  box.innerHTML = '<div class="hint">Gerando com IA...</div>';
+  setAIViewTab('assistant');
+  sendAIQuestion('Me dê um resumo executivo da operação, cobrindo financeiro, vendas, estoque e clientes.').finally(()=>{
+    box.innerHTML = `
+      <div class="hint" style="margin-bottom:10px;">Gera uma análise em texto a partir dos dados acima, usando IA — não é chamado automaticamente, só quando você pedir (evita gastar cota à toa).</div>
+      <button class="btn btn-ghost btn-sm" onclick="generateExecutiveSummary()">✨ Gerar resumo com IA</button>
+    `;
+  });
 }
 // ---- Feature flag ai_module_enabled + resumo de consumo (Fase 6, tela Configurações) ----
 async function loadAIModuleSettings(){
@@ -1917,12 +2051,17 @@ async function renderAIConversationsList(){
 
   box.innerHTML = Object.entries(groups).filter(([,list])=>list.length>0).map(([label, list])=>`
     <div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:12px 0 4px 4px;">${label}</div>
-    ${list.map(c=>`
+    ${list.map(c=>{
+      const time = new Date(c.updated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+      return `
       <div class="ai-conv-item ${c.id===currentAIConversationId?'active':''}" onclick="openAIConversation('${c.id}')">
-        <span class="ai-conv-title">${c.mode==='general'?'💬':'🏢'} ${esc(c.title||'Nova conversa')}</span>
+        <div style="min-width:0;flex:1;">
+          <div class="ai-conv-title">${esc(c.title||'Nova conversa')}</div>
+          <div class="ai-conv-meta">${c.mode==='general'?'💬 Geral':'🏢 Empresa'} · ${time}</div>
+        </div>
         <button class="ai-conv-menu-btn" onclick="event.stopPropagation(); openAIConversationMenu(event, '${c.id}', ${JSON.stringify(c.title||'').replace(/"/g,'&quot;')})">⋯</button>
       </div>
-    `).join('')}
+    `;}).join('')}
   `).join('');
 }
 async function openAIConversation(id){
@@ -1939,8 +2078,10 @@ async function openAIConversation(id){
   const box = document.getElementById('aiChatMessages');
   box.innerHTML = '';
   (messages||[]).forEach(m=> appendAIMessage(m.role, m.content));
+  updateAIChatEmptyState();
   renderAIConversationsList();
   closeAIHistoryPanel();
+  setAIViewTab('assistant');
 }
 function openAIConversationMenu(evt, id, currentTitle){
   const rect = evt.target.getBoundingClientRect();
@@ -2137,6 +2278,7 @@ async function afterLogin(session){
   }
   renderSidebarUserInfo();
   renderAIQuickQuestions();
+  updateAIChatEmptyState();
   renderAIConversationsList();
   renderCompanyHealth();
   loadAIModuleSettings();
