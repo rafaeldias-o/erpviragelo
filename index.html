@@ -28,6 +28,7 @@
   --danger:#D64545; --danger-bg:#FBE6E6;
   --info:#6E5FC9; --info-bg:#EBE7FB;
   --border:#CDDEE6;
+  --ai-chat-bg:#F4F5F6;
 }
 [data-theme="dark"]{
   --bg:#0D1A24; --surface:#132534; --surface-2:#1B3346;
@@ -39,6 +40,7 @@
   --danger:#E5695F; --danger-bg:#331313;
   --info:#9184E0; --info-bg:#241E42;
   --border:#233C4E;
+  --ai-chat-bg:#0F2130;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -63,10 +65,10 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .ai-mode-btn.active{background:var(--accent-2);color:#fff;}
 .ai-assistant-layout{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:stretch;height:calc(100vh - 230px);min-height:460px;}
 .ai-chat-panel{display:flex;flex-direction:column;margin-bottom:0;overflow:hidden;}
-.ai-chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:6px 2px;}
+.ai-chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:14px;background:var(--ai-chat-bg);border-radius:10px;}
 .ai-chat-empty{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;}
 .ai-msg-user{align-self:flex-end;max-width:75%;background:var(--accent-2);color:#fff;border-radius:14px 14px 3px 14px;padding:10px 14px;font-size:13.5px;line-height:1.6;}
-.ai-msg-ai{align-self:stretch;max-width:100%;padding:0 2px;font-size:13.5px;line-height:1.7;color:var(--ink);}
+.ai-msg-ai{align-self:flex-start;max-width:85%;background:var(--surface);color:var(--ink);border-radius:14px 14px 14px 3px;padding:10px 14px;font-size:13.5px;line-height:1.7;box-shadow:0 1px 2px rgba(0,0,0,.06);}
 .ai-msg-system{align-self:center;max-width:90%;background:var(--warn-bg);border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:9px 16px;font-size:12.5px;text-align:center;}
 .ai-msg-system.error{background:var(--danger-bg);border-color:var(--danger);color:var(--danger);}
 .ai-sources-toggle{font-size:11px;color:var(--accent-2);cursor:pointer;margin-top:8px;display:inline-block;user-select:none;}
