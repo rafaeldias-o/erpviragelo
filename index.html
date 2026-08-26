@@ -2147,15 +2147,60 @@ async function saveAIModuleEnabled(){
   if(error){ toast('Erro ao salvar', true); toggle.checked = !enabled; updateAIToggleVisual(!enabled); return; }
   toast(enabled ? 'Analista IA ativado' : 'Analista IA desativado — o chat vai recusar novas perguntas até religar');
 }
+async function saveGeminiDailyLimit(){
+  const val = parseInt(document.getElementById('cfg-gemini-rpd').value) || 1500;
+  const { error } = await sb.from('company_settings').upsert({ id:true, gemini_daily_request_limit: val });
+  if(error){ toast('Erro ao salvar', true); return; }
+  toast('Limite diário atualizado');
+  renderAIUsageSummary();
+}
 // Resumo simples de consumo — direto de ai_usage_logs, sem gráfico nenhum, só os números que já importam
 // pra decidir se vale migrar o rate limit pra algo persistente (Fase 6, item de revisão)
 async function renderAIUsageSummary(){
   const box = document.getElementById('aiUsageSummaryWrap');
   if(!box) return;
+
+  // ---- Cota diária de HOJE ----
+  // Importante: o Gemini não tem cota diária de TOKENS — o limite diário dele (RPD) é por NÚMERO DE
+  // REQUISIÇÕES. Tokens só têm limite por MINUTO (TPM), que reseta a cada 60s, não acumula o dia todo.
+  // Por isso mostramos "requisições hoje vs. limite diário" como a cota de verdade, e tokens de hoje só
+  // como informação complementar (não é "quanto falta", porque não existe teto diário de token).
+  const todayIso = new Date(); todayIso.setHours(0,0,0,0);
+  const { data: todayLogs } = await sb.from('ai_usage_logs').select('tools_used, total_tokens').gte('created_at', todayIso.toISOString());
+  // Cada "turno" salvo em ai_usage_logs pode ter feito MAIS de 1 chamada real ao Gemini (uma por
+  // ferramenta usada, mais a chamada final de texto) — por isso a requisição real não é 1 por linha.
+  const requestsToday = (todayLogs||[]).reduce((s,l)=> s + ((l.tools_used||[]).length + 1), 0);
+  const tokensToday = (todayLogs||[]).reduce((s,l)=> s + (l.total_tokens||0), 0);
+  const { data: settingsData } = await sb.from('company_settings').select('gemini_daily_request_limit').limit(1).single();
+  const dailyLimit = settingsData?.gemini_daily_request_limit || 1500; // valor padrão do free tier — confirme no seu painel do Google AI Studio, isso muda com o tempo
+  const remaining = Math.max(0, dailyLimit - requestsToday);
+  const pctUsed = Math.min(100, Math.round(requestsToday/dailyLimit*100));
+  const barColor = pctUsed>=90 ? 'var(--danger)' : pctUsed>=70 ? 'var(--warn)' : 'var(--success)';
+
+  const quotaHtml = `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head"><div class="section-title" style="font-size:14px;">📶 Cota do Gemini hoje</div></div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;">
+        <span>${requestsToday} de ${dailyLimit} requisições usadas</span>
+        <span style="font-weight:700;color:${barColor};">${remaining} restantes</span>
+      </div>
+      <div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${pctUsed}%;background:${barColor};"></div>
+      </div>
+      <div class="hint" style="margin-top:8px;">Tokens usados hoje: ${tokensToday.toLocaleString('pt-BR')} — só informativo. O Gemini não tem limite diário de tokens, só por minuto (reseta sozinho a cada 60s). O limite diário (RPD) é o número de requisições acima.</div>
+      <div style="margin-top:8px;">
+        <label style="font-size:11px;color:var(--muted);">Limite diário (RPD) — confira no seu painel do <a href="https://aistudio.google.com" target="_blank" rel="noopener">Google AI Studio</a>, muda de tempos em tempos:</label>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <input type="number" id="cfg-gemini-rpd" value="${dailyLimit}" style="width:100px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;">
+          <button class="btn btn-ghost btn-sm" onclick="saveGeminiDailyLimit()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
   const sevenDaysAgo = new Date(Date.now() - 7*86400000).toISOString();
   const { data, error } = await sb.from('ai_usage_logs').select('status, total_tokens, duration_ms, tools_used, created_at').gte('created_at', sevenDaysAgo);
-  if(error || !data){ box.innerHTML = '<div class="hint">Ainda sem dados de consumo.</div>'; return; }
-  if(data.length===0){ box.innerHTML = '<div class="hint">Nenhuma chamada à IA nos últimos 7 dias.</div>'; return; }
+  if(error || !data || data.length===0){ box.innerHTML = quotaHtml + '<div class="hint">Ainda sem dados de consumo nos últimos 7 dias.</div>'; return; }
 
   const total = data.length;
   const success = data.filter(l=>l.status==='success').length;
@@ -2166,7 +2211,7 @@ async function renderAIUsageSummary(){
   data.forEach(l=> (l.tools_used||[]).forEach(t=> toolCounts[t]=(toolCounts[t]||0)+1));
   const topTool = Object.entries(toolCounts).sort((a,b)=>b[1]-a[1])[0];
 
-  box.innerHTML = `
+  box.innerHTML = quotaHtml + `
     <div class="hint" style="margin-bottom:10px;">Últimos 7 dias — dado bruto, sem dashboard nenhum ainda (item pendente pra futuramente):</div>
     <div class="stat-row-list">
       <div class="stat-row"><span class="stat-row-label">Chamadas ao Analista IA</span><span class="stat-row-value">${total}</span></div>
