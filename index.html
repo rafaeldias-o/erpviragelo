@@ -1668,8 +1668,8 @@ async function getAssistantSuggestions(){
   const suggestions = [];
   const m = lastHealthData?.raw_metrics;
   if(m){
-    if(m.payable_open > m.account_balance_total){
-      suggestions.push({ label:'Entender meu risco de caixa', prompt:'Analise meu risco de caixa: contas a pagar, saldo disponível, e o que fazer a respeito.', priority:1 });
+    if(m.payable_due_this_period > m.account_balance_total){
+      suggestions.push({ label:'Entender meu risco de caixa', prompt:'Analise meu risco de caixa: contas a pagar vencendo neste mês, saldo disponível, e o que fazer a respeito.', priority:1 });
     }
     if(m.coverage_days!=null && m.coverage_days < 5){
       suggestions.push({ label:'Quanto tempo meu estoque ainda dura?', prompt:'Quanto tempo meu estoque atual deve durar no ritmo de vendas de agora?', priority:1 });
@@ -2020,10 +2020,19 @@ async function renderCompanyHealth(){
       detail: m.critical_products.map(p=>esc(p.name)).join(', ')+'.',
       actionLabel:'Ver estoque', action:"switchView('estoque')", aiQuestion:'Existe risco no estoque?' });
   }
-  if(m.payable_open > m.account_balance_total){
-    points.push({ area:'Financeiro', severity:'critical', title:'Contas a pagar superam o saldo disponível',
-      detail:`${fmtMoney(m.payable_open)} a pagar — ${fmtMoney(m.account_balance_total)} disponíveis. Diferença: ${fmtMoney(m.payable_open-m.account_balance_total)}.`,
+  // Compara o saldo contra o que VENCE nesse mês (urgência real), não contra o total em aberto pro ano
+  // inteiro — antes comparava com o total, o que soava um alarme desproporcional (ex: R$1.401,87 "em
+  // aberto" incluindo parcelas de meses futuros, quando só uma fração pequena vencia de fato esse mês).
+  if(m.payable_due_this_period > m.account_balance_total){
+    points.push({ area:'Financeiro', severity:'critical', title:'Contas a pagar deste mês superam o saldo disponível',
+      detail:`${fmtMoney(m.payable_due_this_period)} vencendo este mês — ${fmtMoney(m.account_balance_total)} disponíveis. Diferença: ${fmtMoney(m.payable_due_this_period-m.account_balance_total)}.`,
       actionLabel:'Ver financeiro', action:"switchView('financeiro')", aiQuestion:'Como estão minhas finanças este mês?' });
+  } else if(m.payable_open_total > m.account_balance_total && m.payable_open_total > m.payable_due_this_period * 1.5){
+    // Não é urgência de caixa DESTE mês, mas o total (incluindo meses futuros) já supera o saldo atual —
+    // vale saber pra planejar, com severidade menor por não ser algo pra resolver agora.
+    points.push({ area:'Financeiro', severity:'warn', title:'Compromissos futuros somam mais que o saldo atual',
+      detail:`No total (incluindo meses seguintes), há ${fmtMoney(m.payable_open_total)} em contas a pagar — mas só ${fmtMoney(m.payable_due_this_period)} vence este mês. Vale planejar com antecedência, sem urgência imediata.`,
+      actionLabel:'Ver financeiro', action:"switchView('financeiro')", aiQuestion:'Como está meu planejamento financeiro considerando os próximos meses?' });
   }
   if(m.inactive_customers_count > 0){
     points.push({ area:'Clientes', severity:'warn', title:`${m.inactive_customers_count} cliente(s) sem comprar há mais de 30 dias`,

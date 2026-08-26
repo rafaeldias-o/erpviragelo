@@ -9,6 +9,12 @@
 --    frontend SEMPRE filtra isso na hora de carregar os dados (soft delete), e minha função estava
 --    contando 2 despesas excluídas (R$85 + R$30 = R$115) que a tela corretamente ignora. Foi assim que
 --    achamos a divergência real: R$306 (SQL, errado) vs R$421 (tela, certo) na conta Caixa.
+-- 3) "payable_open"/"receivable_open" somavam TODO o futuro (inclusive parcelas/recorrências de meses
+--    seguintes), sem filtrar por vencimento — isso fazia o Analista IA soar um alarme de liquidez
+--    desproporcional (ex: R$1.401,87 "em aberto" quando só ~R$90 vencia de fato dentro do mês em
+--    análise, o resto era compromisso do resto do ano). Agora existem dois números pra cada lado:
+--    "*_due_this_period" (vence dentro do p_from/p_to perguntado — a urgência real) e "*_open_total"
+--    (todo o saldo em aberto, qualquer vencimento — bom pra planejamento, não pra alarme de caixa do mês).
 
 CREATE OR REPLACE FUNCTION get_financial_summary(p_from date, p_to date)
 RETURNS jsonb
@@ -20,8 +26,10 @@ DECLARE
   v_saldo_total numeric;
   v_receita_total numeric;
   v_despesa_total numeric;
-  v_receivable_open numeric;
-  v_payable_open numeric;
+  v_receivable_open_total numeric;
+  v_payable_open_total numeric;
+  v_receivable_due_this_period numeric;
+  v_payable_due_this_period numeric;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'not authenticated';
@@ -49,11 +57,20 @@ BEGIN
   FROM transactions
   WHERE type='despesa' AND status='pago' AND payment_date BETWEEN p_from AND p_to AND deleted_at IS NULL;
 
-  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_receivable_open
+  -- Totais (qualquer vencimento, presente ou futuro) — bom pra planejamento de longo prazo
+  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_receivable_open_total
   FROM transactions WHERE type='receita' AND status NOT IN ('pago','cancelado') AND deleted_at IS NULL;
 
-  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_payable_open
+  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_payable_open_total
   FROM transactions WHERE type='despesa' AND status NOT IN ('pago','cancelado') AND deleted_at IS NULL;
+
+  -- Só o que vence DENTRO do período perguntado (p_from/p_to) — é isso que representa urgência real de
+  -- caixa nesse mês, não o compromisso do ano inteiro
+  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_receivable_due_this_period
+  FROM transactions WHERE type='receita' AND status NOT IN ('pago','cancelado') AND due_date BETWEEN p_from AND p_to AND deleted_at IS NULL;
+
+  SELECT COALESCE(SUM((amount - COALESCE(discount,0) + COALESCE(interest,0) + COALESCE(fine,0)) - COALESCE(paid_amount,0)),0) INTO v_payable_due_this_period
+  FROM transactions WHERE type='despesa' AND status NOT IN ('pago','cancelado') AND due_date BETWEEN p_from AND p_to AND deleted_at IS NULL;
 
   RETURN jsonb_build_object(
     'period', jsonb_build_object('from', p_from, 'to', p_to),
@@ -61,8 +78,14 @@ BEGIN
     'revenue', v_receita_total,
     'expenses', v_despesa_total,
     'result', v_receita_total - v_despesa_total,
-    'receivable_open', v_receivable_open,
-    'payable_open', v_payable_open
+    -- mantidos com o nome antigo por compatibilidade com quem já lia esses campos — continuam sendo o
+    -- TOTAL (qualquer vencimento), nunca só o do período
+    'receivable_open', v_receivable_open_total,
+    'payable_open', v_payable_open_total,
+    'receivable_open_total', v_receivable_open_total,
+    'payable_open_total', v_payable_open_total,
+    'receivable_due_this_period', v_receivable_due_this_period,
+    'payable_due_this_period', v_payable_due_this_period
   );
 END;
 $$;

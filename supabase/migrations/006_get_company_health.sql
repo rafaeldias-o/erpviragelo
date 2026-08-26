@@ -35,7 +35,10 @@ BEGIN
 
   v_result := (v_fin->>'result')::numeric;
   v_balance := (v_fin->>'account_balance_total')::numeric;
-  v_payable := (v_fin->>'payable_open')::numeric;
+  -- Liquidez compara o saldo contra o que VENCE nesse mês, não contra o total em aberto pro ano inteiro
+  -- inteiro — comparar saldo do mês com compromisso do ano todo soava um alarme desproporcional (ex: só
+  -- ~R$90 vencendo no mês, mas R$1.401,87 no total incluindo meses futuros).
+  v_payable := (v_fin->>'payable_due_this_period')::numeric;
   v_fscore := CASE WHEN v_result >= 0 THEN 60 ELSE 30 END;
   IF v_payable > 0 THEN
     v_liquidity_ratio := v_balance / v_payable;
@@ -73,6 +76,7 @@ DECLARE
   v_inv jsonb;
   v_cust jsonb;
   v_prod jsonb;
+  v_fin_current jsonb;
   v_financial_score numeric;
   v_sales_score numeric;
   v_inventory_score numeric;
@@ -92,6 +96,7 @@ BEGIN
   v_inv := get_inventory_status();
   v_cust := get_inactive_customers(30, 1);
   v_prod := get_production_summary(v_from, v_to);
+  v_fin_current := get_financial_summary(v_from, v_to); -- 1 chamada só, reaproveitada abaixo (evitava 3 chamadas repetidas da mesma função)
 
   DECLARE
     v_coverage numeric := (v_inv->>'coverage_days')::numeric;
@@ -149,9 +154,11 @@ BEGIN
       'customers', jsonb_build_object('score', ROUND(v_customer_score), 'weight', 15)
     ),
     'raw_metrics', jsonb_build_object(
-      'result', (get_financial_summary(v_from, v_to)->>'result')::numeric,
-      'account_balance_total', (get_financial_summary(v_from, v_to)->>'account_balance_total')::numeric,
-      'payable_open', (get_financial_summary(v_from, v_to)->>'payable_open')::numeric,
+      'result', (v_fin_current->>'result')::numeric,
+      'account_balance_total', (v_fin_current->>'account_balance_total')::numeric,
+      'payable_due_this_period', (v_fin_current->>'payable_due_this_period')::numeric,
+      'payable_open_total', (v_fin_current->>'payable_open_total')::numeric,
+      'receivable_due_this_period', (v_fin_current->>'receivable_due_this_period')::numeric,
       'orders_delivered', (get_sales_summary(v_from, v_to)->>'orders_delivered')::int,
       'coverage_days', (v_inv->>'coverage_days')::numeric,
       'critical_products', v_inv->'critical_products',

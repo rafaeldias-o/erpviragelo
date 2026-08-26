@@ -44,7 +44,7 @@ const COMPANY_TOOLS = [
   {
     name: "get_financial_summary",
     description:
-      "Receita, despesa, saldo em contas, contas a receber e a pagar em aberto, pra um período (YYYY-MM-DD). Pra 'este mês', use do dia 01 até o último dia do mês corrente — nunca um único dia.",
+      "Receita, despesa, saldo em contas, e contas a pagar/receber — com dois números para cada: o que vence dentro do período pedido (due_this_period, a urgência real) e o total em aberto incluindo meses futuros (open_total, só pra planejamento). Pra 'este mês', use do dia 01 até o último dia do mês corrente — nunca um único dia.",
     parameters: {
       type: "object",
       properties: {
@@ -165,7 +165,13 @@ do histórico como se fosse o valor de agora. Isso vale inclusive pra perguntas 
 o dado atualizado, nunca reaproveite um número antigo do histórico como se ainda fosse válido.
 Sobre o score de saúde da empresa (get_company_health): o número já vem calculado de forma determinística
 — sua função é só EXPLICAR por que o score está naquele nível, usando os "raw_metrics" que a ferramenta
-retorna, nunca recalcular ou inventar um score diferente.`;
+retorna, nunca recalcular ou inventar um score diferente.
+Sobre contas a pagar/receber: get_financial_summary distingue "payable_due_this_period" (vence dentro do
+período perguntado — a urgência real de caixa) de "payable_open_total" (todo o saldo em aberto, incluindo
+parcelas/recorrências de meses futuros — bom pra planejamento, não é alarme do mês). NUNCA trate o total
+geral como se fosse tudo urgente agora — isso exagera o risco de caixa. Se o total for bem maior que o
+valor do período, deixe claro que é um compromisso distribuído no tempo, não uma cobrança imediata. O
+mesmo vale pro lado de receitas (receivable_due_this_period vs. o total).`;
 }
 
 Deno.serve(async (req) => {
