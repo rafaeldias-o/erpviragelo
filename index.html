@@ -1325,6 +1325,10 @@ tr:last-child td{border-bottom:none;}
           <div class="panel">
             <div class="panel-head"><div class="section-title">Prospects de Campo</div><div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openBulkImportModal()">📋 Importar em massa</button><button class="btn btn-primary btn-sm" onclick="openProspectModal()">+ Novo prospect</button></div></div>
             <div class="hint" style="margin-bottom:10px;">Possíveis clientes encontrados em campo, ainda sem virar Lead. Reaproveita as cidades/bairros cadastrados em Regiões.</div>
+            <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;width:fit-content;margin-bottom:14px;">
+              <button id="prospectsViewBtnList" class="ai-mode-btn active" onclick="setProspectsViewMode('list')">📋 Lista</button>
+              <button id="prospectsViewBtnSegment" class="ai-mode-btn" onclick="setProspectsViewMode('segment')">🏪 Por tipo de negócio</button>
+            </div>
             <div id="prospectsTableWrap" class="table-scroll"></div>
           </div>
         </div>
@@ -11304,10 +11308,106 @@ async function convertProspectToLead(id){
   if(linkErr){ dbErr(linkErr, 'Erro ao vincular prospect ao lead'); return; }
   toast('Prospect convertido em lead!'); await loadAll(); renderVisitas();
 }
+// ---- Visualização "Por tipo de negócio" — agrupa por segmento, sempre ordenado do prospect mais
+// próximo da fábrica pro mais longe, com opção de gerar rota comercial direto desse grupo ----
+let prospectsViewMode = 'list'; // 'list' | 'segment'
+let expandedProspectSegment = null;
+function setProspectsViewMode(mode){
+  prospectsViewMode = mode;
+  document.getElementById('prospectsViewBtnList').classList.toggle('active', mode==='list');
+  document.getElementById('prospectsViewBtnSegment').classList.toggle('active', mode==='segment');
+  renderProspectsTable();
+}
+function buildProspectsBySegment(){
+  const origin = companyOrigin();
+  const groups = {}; // chave normalizada (minúscula) -> lista; evita "Mercado" e "mercado" virarem 2 grupos
+  const displayNames = {}; // chave normalizada -> nome bonito pra mostrar (mantém a 1ª grafia encontrada)
+  state.fieldProspects.filter(p=>!p.convertedLeadId && !p.convertedClientId).forEach(p=>{
+    const raw = (p.segment||'').trim() || 'Sem tipo definido';
+    const key = raw.toLowerCase();
+    if(!displayNames[key]) displayNames[key] = raw;
+    (groups[key] = groups[key] || []).push(p);
+  });
+  Object.values(groups).forEach(list=>{
+    list.forEach(p=>{ p._dist = (origin && p.lat!=null && p.lng!=null) ? haversineKm(origin, {lat:p.lat, lng:p.lng}) : null; });
+    // mais próximo primeiro; sem coordenada (não geocodificado ainda) vai pro final, não pro topo
+    list.sort((a,b)=>{
+      if(a._dist==null && b._dist==null) return 0;
+      if(a._dist==null) return 1;
+      if(b._dist==null) return -1;
+      return a._dist - b._dist;
+    });
+  });
+  // Reconstrói os grupos usando o nome de exibição como chave final (o que o resto da tela usa) — assim
+  // quem chama essa função não precisa saber da normalização interna.
+  const displayGroups = {};
+  Object.entries(groups).forEach(([key, list])=>{ displayGroups[displayNames[key]] = list; });
+  const segmentNames = Object.keys(displayGroups).sort((a,b)=>displayGroups[b].length-displayGroups[a].length);
+  return { groups: displayGroups, segmentNames };
+}
+function toggleProspectSegment(seg){
+  expandedProspectSegment = expandedProspectSegment===seg ? null : seg;
+  renderProspectsTable();
+}
+function renderProspectsSegmentView(wrap){
+  const { groups, segmentNames } = buildProspectsBySegment();
+  if(segmentNames.length===0){ wrap.innerHTML = '<div class="hint">Nenhum prospect disponível pra agrupar (todos já viraram lead/cliente, ou não há nenhum cadastrado).</div>'; return; }
+  wrap.innerHTML = segmentNames.map(seg=>{
+    const list = groups[seg];
+    const isOpen = expandedProspectSegment===seg;
+    const semLocalizacao = list.filter(p=>p._dist==null).length;
+    return `
+      <div class="panel" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;flex-wrap:wrap;gap:8px;" onclick="toggleProspectSegment(${JSON.stringify(seg).replace(/"/g,'&quot;')})">
+          <div style="font-weight:700;font-size:13.5px;">🏪 ${esc(seg)} <span class="badge badge-muted">${list.length}</span></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); generateRouteFromSegment(${JSON.stringify(seg).replace(/"/g,'&quot;')})">🗺️ Gerar rota com esse tipo</button>
+            <span style="color:var(--muted);">${isOpen?'▲':'▼'}</span>
+          </div>
+        </div>
+        ${isOpen ? `
+          ${semLocalizacao>0?`<div class="hint" style="margin-top:8px;">${semLocalizacao} prospect(s) ainda sem localização geocodificada — aparecem no final da lista.</div>`:''}
+          <div style="margin-top:8px;">
+          ${list.map(p=>{
+            const city = state.visitCities.find(c=>c.id===p.cityId);
+            const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+            return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px;">
+              <div style="min-width:0;"><strong>${esc(p.name)}</strong><div style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${city?esc(city.name):''}${neighborhood?' · '+esc(neighborhood.name):''} — ${esc(p.address||'—')}</div></div>
+              <div style="color:var(--muted);white-space:nowrap;flex-shrink:0;font-weight:600;">${p._dist!=null ? p._dist.toLocaleString('pt-BR',{maximumFractionDigits:1})+' km' : 'sem localização'}</div>
+            </div>`;
+          }).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+// Reaproveita o mesmo assistente de rota comercial de 4 passos já existente (Passos 2-4) — só monta a
+// lista de candidatos de um jeito diferente (por tipo de negócio + distância, em vez de bairro), sem
+// duplicar nenhuma lógica de geocodificação, matriz de distância ou criação de rota.
+function generateRouteFromSegment(segment){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para criar rotas comerciais', true); return; }
+  const { groups } = buildProspectsBySegment();
+  const list = groups[segment] || [];
+  if(list.length===0){ toast('Nenhum prospect disponível desse tipo', true); return; }
+  crWizardCandidates = list.map(p=>{
+    const city = state.visitCities.find(c=>c.id===p.cityId);
+    const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+    return { type:'prospect', id:p.id, name:p.name, address:p.address, neighborhood: neighborhood?neighborhood.name:'', city: city?city.name:'', state: city?city.state:'', cep:null, lat:p.lat, lng:p.lng, distanceKm:null, freightValue:null, selected:true };
+  });
+  crWizardCityId = null;
+  crWizardNeighborhoodId = null;
+  crWizardMaxVisits = 10;
+  const now = new Date();
+  crWizardStartTime = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  crWizardStep = 2; // pula o passo 1 (cidade/bairro) — já vem filtrado por tipo de negócio e ordenado por distância
+  renderCommercialRouteWizard();
+}
 function renderProspectsTable(){
   const wrap = document.getElementById('prospectsTableWrap');
   if(!wrap) return;
   if(state.fieldProspects.length===0){ wrap.innerHTML = emptyState('Nenhum prospect de campo cadastrado ainda.','Novo prospect','openProspectModal()'); return; }
+  if(prospectsViewMode==='segment'){ renderProspectsSegmentView(wrap); return; }
   wrap.innerHTML = `<table><thead><tr><th>Nome</th><th>Ramo</th><th>Cidade / Bairro</th><th>Endereço</th><th>Status</th><th></th></tr></thead><tbody>
     ${state.fieldProspects.map(p=>{
       const city = state.visitCities.find(c=>c.id===p.cityId);
