@@ -11448,6 +11448,8 @@ function openCommercialRouteWizard(){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para criar rotas comerciais', true); return; }
   if(state.visitCities.length===0){ toast('Cadastre ao menos uma cidade e um bairro em Regiões antes', true); return; }
   crWizardStep = 1;
+  crWizardMode = 'neighborhood';
+  crWizardSearchSelected = new Set();
   crWizardCityId = null;
   crWizardNeighborhoodId = null;
   crWizardCandidates = [];
@@ -11463,30 +11465,100 @@ function renderCommercialRouteWizard(){
   if(crWizardStep===4) return renderCRWizardStep4();
 }
 
-// ---- Passo 1: cidade -> bairro ----
+// ---- Passo 1: cidade -> bairro (ou busca manual de clientes, cruzando bairros diferentes) ----
+let crWizardMode = 'neighborhood'; // 'neighborhood' | 'search'
+let crWizardSearchSelected = new Set(); // chaves "type:id" dos itens marcados na busca
+function setCRWizardMode(mode){
+  crWizardMode = mode;
+  renderCommercialRouteWizard();
+}
 function renderCRWizardStep1(){
   const neighborhoods = crWizardCityId ? state.visitNeighborhoods.filter(n=>n.cityId===crWizardCityId) : [];
   openModal(`
     <div class="modal-head"><h3>Nova Rota Comercial — Passo 1 de 4</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
-    <div class="section-title" style="font-size:13px;margin-bottom:10px;">Selecione a região</div>
-    <div class="field"><label>Cidade</label><select id="crw-city" onchange="crWizardCityId=this.value; crWizardNeighborhoodId=null; renderCommercialRouteWizard();">
-      <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}" ${c.id===crWizardCityId?'selected':''}>${esc(c.name)}</option>`).join('')}
-    </select></div>
-    <div class="field"><label>Bairro</label><select id="crw-neighborhood" onchange="crWizardNeighborhoodId=this.value" ${!crWizardCityId?'disabled':''}>
-      <option value="">—</option>${neighborhoods.map(n=>`<option value="${n.id}" ${n.id===crWizardNeighborhoodId?'selected':''}>${esc(n.name)}</option>`).join('')}
-    </select></div>
-    ${crWizardCityId && neighborhoods.length===0?'<div class="hint" style="color:var(--warn);">Essa cidade ainda não tem bairro cadastrado.</div>':''}
-    ${crWizardCityId && neighborhoods.length>0?`
-    <div class="subhead">💡 Prospecção Inteligente</div>
-    <div class="hint" style="margin-bottom:8px;">Ajuda a escolher onde vale mais a pena focar a próxima rota.</div>
-    <div id="prospeccaoInteligenteWrap" class="table-scroll modal-inner-scroll"></div>
-    ` : ''}
+    <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;width:fit-content;margin-bottom:14px;">
+      <button class="ai-mode-btn ${crWizardMode==='neighborhood'?'active':''}" onclick="setCRWizardMode('neighborhood')">📍 Por bairro</button>
+      <button class="ai-mode-btn ${crWizardMode==='search'?'active':''}" onclick="setCRWizardMode('search')">🔎 Buscar clientes</button>
+    </div>
+    ${crWizardMode==='neighborhood' ? `
+      <div class="section-title" style="font-size:13px;margin-bottom:10px;">Selecione a região</div>
+      <div class="field"><label>Cidade</label><select id="crw-city" onchange="crWizardCityId=this.value; crWizardNeighborhoodId=null; renderCommercialRouteWizard();">
+        <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}" ${c.id===crWizardCityId?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Bairro</label><select id="crw-neighborhood" onchange="crWizardNeighborhoodId=this.value" ${!crWizardCityId?'disabled':''}>
+        <option value="">—</option>${neighborhoods.map(n=>`<option value="${n.id}" ${n.id===crWizardNeighborhoodId?'selected':''}>${esc(n.name)}</option>`).join('')}
+      </select></div>
+      ${crWizardCityId && neighborhoods.length===0?'<div class="hint" style="color:var(--warn);">Essa cidade ainda não tem bairro cadastrado.</div>':''}
+      ${crWizardCityId && neighborhoods.length>0?`
+      <div class="subhead">💡 Prospecção Inteligente</div>
+      <div class="hint" style="margin-bottom:8px;">Ajuda a escolher onde vale mais a pena focar a próxima rota.</div>
+      <div id="prospeccaoInteligenteWrap" class="table-scroll modal-inner-scroll"></div>
+      ` : ''}
+    ` : `
+      <div class="field"><label>Buscar por nome ou endereço</label><input type="text" id="crw-search-input" placeholder="Ex: João, Rua das Flores, Mercado Central..." oninput="renderCRWizardSearchResults()"></div>
+      <div class="hint" style="margin-bottom:6px;">Busca em qualquer bairro/cidade — monta a rota com quem você escolher, mesmo vindo de regiões diferentes. <strong><span id="crwSearchSelectedCount">0</span> selecionado(s)</strong>.</div>
+      <div id="crwSearchResultsWrap" class="table-scroll modal-inner-scroll"></div>
+    `}
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="crWizardGoStep2()">Próximo →</button>
+      <button class="btn btn-primary" onclick="${crWizardMode==='neighborhood'?'crWizardGoStep2()':'crWizardGoStep2FromSearch()'}">Próximo →</button>
     </div>
   `, 'wide');
-  if(crWizardCityId && neighborhoods.length>0) renderProspeccaoInteligente(neighborhoods);
+  if(crWizardMode==='neighborhood' && crWizardCityId && neighborhoods.length>0) renderProspeccaoInteligente(neighborhoods);
+  if(crWizardMode==='search') renderCRWizardSearchResults();
+}
+// Lista completa de candidatos pesquisáveis (clientes ativos + prospects ainda não convertidos) — montada
+// inteira uma vez, pra selagem sobreviver entre buscas diferentes (sem isso, filtrar de novo por outro
+// termo faria "esquecer" quem já tinha sido marcado antes).
+function getCRWizardSearchableItems(){
+  const clientItems = state.clients.filter(c=>c.status==='ativo').map(c=>({type:'client', id:c.id, name:c.name, address:c.address, city:c.city, neighborhood:c.neighborhood, lat:c.lat, lng:c.lng, freightValue:c.freightValue}));
+  const prospectItems = state.fieldProspects.filter(p=>!p.convertedLeadId && !p.convertedClientId).map(p=>{
+    const city = state.visitCities.find(ci=>ci.id===p.cityId);
+    const nb = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+    return { type:'prospect', id:p.id, name:p.name, address:p.address, city: city?city.name:'', neighborhood: nb?nb.name:'', lat:p.lat, lng:p.lng, freightValue:null };
+  });
+  return [...clientItems, ...prospectItems];
+}
+function renderCRWizardSearchResults(){
+  const wrap = document.getElementById('crwSearchResultsWrap');
+  if(!wrap) return;
+  const term = (document.getElementById('crw-search-input')?.value || '').trim().toLowerCase();
+  const allItems = getCRWizardSearchableItems();
+  const filtered = term
+    ? allItems.filter(item => (item.name||'').toLowerCase().includes(term) || (item.address||'').toLowerCase().includes(term) || (item.city||'').toLowerCase().includes(term) || (item.neighborhood||'').toLowerCase().includes(term))
+    : allItems.slice(0, 50); // sem termo de busca, mostra os 50 primeiros pra não travar a tela com listas grandes
+  if(filtered.length===0){ wrap.innerHTML = '<div class="hint">Nenhum cliente ou prospect encontrado.</div>'; updateCRWizardSearchSelectedCount(); return; }
+  wrap.innerHTML = `<table><thead><tr><th></th><th>Nome</th><th>Endereço</th><th>Cidade/Bairro</th></tr></thead><tbody>
+    ${filtered.map(item=>{
+      const key = item.type+':'+item.id;
+      const checked = crWizardSearchSelected.has(key);
+      return `<tr style="cursor:pointer;" onclick="toggleCRWizardSearchItem('${key}')">
+        <td><input type="checkbox" ${checked?'checked':''} onclick="event.stopPropagation(); toggleCRWizardSearchItem('${key}')"></td>
+        <td><strong>${esc(item.name)}</strong> ${item.type==='prospect'?'<span class="badge badge-muted" style="font-size:9px;">prospect</span>':''}</td>
+        <td>${esc(item.address||'—')}</td>
+        <td style="color:var(--muted);">${esc(item.city||'')}${item.neighborhood?' · '+esc(item.neighborhood):''}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+  updateCRWizardSearchSelectedCount();
+}
+function toggleCRWizardSearchItem(key){
+  if(crWizardSearchSelected.has(key)) crWizardSearchSelected.delete(key); else crWizardSearchSelected.add(key);
+  renderCRWizardSearchResults();
+}
+function updateCRWizardSearchSelectedCount(){
+  const el = document.getElementById('crwSearchSelectedCount');
+  if(el) el.textContent = crWizardSearchSelected.size;
+}
+function crWizardGoStep2FromSearch(){
+  if(crWizardSearchSelected.size===0){ toast('Selecione ao menos um cliente ou prospect', true); return; }
+  const allItems = getCRWizardSearchableItems();
+  const chosen = allItems.filter(item => crWizardSearchSelected.has(item.type+':'+item.id));
+  crWizardCandidates = chosen.map(item=>({ type:item.type, id:item.id, name:item.name, address:item.address, neighborhood:item.neighborhood||'', city:item.city||'', state:'', cep:null, lat:item.lat, lng:item.lng, distanceKm:null, freightValue:item.freightValue||null, selected:true }));
+  crWizardCityId = null;
+  crWizardNeighborhoodId = null;
+  crWizardStep = 2;
+  renderCommercialRouteWizard();
 }
 // ---- 💡 Prospecção Inteligente ----
 // Extrai o nome da rua do endereço (tudo antes do primeiro número) — usado pra comparar quais ruas
