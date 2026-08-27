@@ -4745,7 +4745,7 @@ function renderPedidos(){
         : `<select style="border:1px solid var(--border);border-left:4px solid ${STATUS_COLORS[o.status]||'var(--border)'};border-radius:7px;padding:4px 6px;font-size:12px;font-family:inherit;font-weight:600;" onchange="updateOrderStatus('${o.id}', this.value)">${ORDER_STATUSES.map(s=>`<option value="${s.v}" ${s.v===o.status?'selected':''}>${s.label}</option>`).join('')}</select>`
       }</td>
       <td style="color:var(--muted);font-size:12px">📅 ${fmtDate(o.createdAt)}</td>
-      <td class="row-actions"><button class="icon-btn" onclick="openOrderModal('${o.id}')">${iconEdit}</button></td>
+      <td class="row-actions">${(o.status!=='entregue' && o.status!=='cancelado' && o.status!=='orcamento' && !state.deliveries.some(d=>d.orderId===o.id)) ? `<button class="icon-btn" title="Agendar entrega desse pedido" onclick="promptScheduleDeliveryAfterOrder('${o.id}', '${o.clientId}')">📅</button>` : ''}<button class="icon-btn" onclick="openOrderModal('${o.id}')">${iconEdit}</button></td>
     </tr>`;
   }).join('')}</tbody></table>`;
 }
