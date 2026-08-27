@@ -4066,6 +4066,54 @@ function refreshOrderTotals(){
 // lista de Pedidos, seja salvando o pedido com status Entregue). Primeiro pergunta se foi uma entrega
 // avulsa ou parte de uma saída com várias entregas — isso evita o bug de contar "fábrica -> cliente" do
 // zero pra cada uma quando na verdade foi uma viagem só (fábrica -> cliente A -> cliente B -> ...).
+// Prompt de "agendar entrega" logo depois de criar um pedido NOVO (não edição) que ainda não foi
+// entregue — reaproveita os mesmos campos/lógica de agendamento já usados na tela do cliente
+// (renderDeliveryItemRows/addDeliveryItemRow), só num modal próprio, já que aqui não existe o container
+// #deliveryFormWrap que showDeliveryForm() normalmente usa.
+function promptScheduleDeliveryAfterOrder(orderId, clientId){
+  const client = state.clients.find(c=>c.id===clientId);
+  const order = state.orders.find(o=>o.id===orderId);
+  const finished = state.stockItems.filter(p=>p.category==='produto_acabado');
+  deliveryDraftItems = order ? order.items.map(i=>({name:i.name, qty:i.qty})) : [];
+  openModal(`
+    <div class="modal-head"><h3>📅 Agendar entrega</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:12px;">Pedido de <strong>${esc(client?client.name:'—')}</strong> confirmado. Quer já agendar a entrega?</div>
+    <div class="field-row3">
+      <div class="field"><label>Data</label><input id="dv-date" type="date" value="${todayStr()}"></div>
+      <div class="field"><label>Horário</label><input id="dv-time" type="time"></div>
+      <div class="field"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
+    </div>
+    <input type="hidden" id="dv-order" value="${orderId}">
+    <div id="deliveryItemsWrap"></div>
+    <button class="btn btn-ghost btn-sm" onclick="addDeliveryItemRow('${clientId}')" ${finished.length===0?'disabled':''}>+ Adicionar produto</button>
+    <div class="field" style="margin-top:8px;"><label>Observações</label><input id="dv-notes"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Agendar depois</button>
+      <button class="btn btn-primary" onclick="saveDeliveryFromOrderPrompt('${clientId}')">Agendar entrega</button>
+    </div>
+  `, 'wide');
+  renderDeliveryItemRows(clientId);
+}
+async function saveDeliveryFromOrderPrompt(clientId){
+  const date = document.getElementById('dv-date').value || todayStr();
+  const time = document.getElementById('dv-time').value || null;
+  const status = document.getElementById('dv-status').value;
+  const notes = document.getElementById('dv-notes').value.trim();
+  const orderId = document.getElementById('dv-order')?.value || null;
+  const { data: created, error } = await sb.from('deliveries').insert({ client_id: clientId, date, time, status, notes, order_id: orderId }).select().single();
+  if(error){ dbErr(error, 'Erro ao agendar entrega'); return; }
+  if(deliveryDraftItems.length){
+    const rows = deliveryDraftItems.map(it=>{
+      const stockItem = state.stockItems.find(s=>s.name===it.name && s.category==='produto_acabado');
+      return { delivery_id: created.id, stock_item_id: stockItem?stockItem.id:null, qty: it.qty };
+    });
+    const { error: itErr } = await sb.from('delivery_items').insert(rows);
+    if(itErr){ dbErr(itErr, 'Erro ao salvar itens da entrega'); return; }
+  }
+  closeModal();
+  await loadAll(); renderAll();
+  toast('Entrega agendada');
+}
 function askIfDeliveredAlone(orderId){
   pendingDeliveryConfirmOrderIds = [orderId]; // arma a trava: se fechar sem resolver, estorna sozinho
   const order = state.orders.find(o=>o.id===orderId);
@@ -4516,7 +4564,12 @@ async function saveOrder(id){
     }
   }
   closeModal(); toast('Pedido salvo — estoque, financeiro e dashboard atualizados'); await loadAll(); renderAll();
-  if(justFulfilled) askIfDeliveredAlone(orderId);
+  if(justFulfilled){ askIfDeliveredAlone(orderId); }
+  else if(!id && ['confirmado','em_producao','separando','saiu_entrega'].includes(desiredStatus)){
+    // Pedido NOVO (não edição) e ainda não entregue — antes só o assistente de "primeiro pedido" de um
+    // lead novo abria essa etapa; pedidos de clientes já existentes nunca ofereciam agendar a entrega.
+    promptScheduleDeliveryAfterOrder(orderId, clientId);
+  }
 }
 async function updateOrderStatus(id, newStatus){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para editar pedidos', true); return; }
