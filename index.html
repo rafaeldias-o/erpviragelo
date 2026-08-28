@@ -2995,8 +2995,12 @@ async function loadAll(){
         sb.from('freezers').select('*').order('name'),
         sb.from('production_machines').select('*').eq('active', true).order('created_at'),
       ]);
-      // Salva a cópia local em segundo plano (fire-and-forget) — nunca atrasa quem está online.
-      persistLoadAllToLocalDB({
+      // Salva a cópia local — AGORA com await. Antes era fire-and-forget "pra não atrasar quem está
+      // online", mas isso criava uma corrida real: se a internet caísse rápido demais logo depois do
+      // 1º carregamento (exatamente o teste que revelou o bug), a gravação em segundo plano podia não
+      // ter terminado ainda, deixando o cache incompleto bem na hora que mais precisava dele. IndexedDB
+      // é rápido o suficiente (poucos ms) pra esse pequeno atraso valer a pena pela garantia.
+      await persistLoadAllToLocalDB({
         suppliers: supRes.data, stock_items: stockRes.data, stock_movements: movRes.data, production: prodRes.data,
         production_packs: packsRes.data, orders: ordRes.data, order_items: itemsRes.data, transactions: txRes.data,
         clients: cliRes.data, leads: leadRes.data, lead_history: histRes.data, tasks: taskRes.data, deliveries: delRes.data,
@@ -3962,9 +3966,25 @@ async function renderStockCharts(items, isFinished){
   const targetDates = targetDays.map(d=>monthPrefix+String(d).padStart(2,'0'));
 
   const itemIds = new Set(items.map(i=>i.id));
-  const { data, error } = await sb.from('stock_movements').select('*').gte('date', monthPrefix+'01').order('date');
-  if(error){ dbErr(error, 'Erro ao carregar movimentações do mês'); return; }
-  const monthMovements = (data||[]).filter(m => itemIds.has(m.stock_item_id));
+  // Offline: essa consulta específica (por "date", sem limite) é diferente da que o loadAll() já cacheia
+  // (por "created_at", limitada a 300) — não são intercambiáveis com 100% de precisão, mas usar o cache
+  // já carregado em state.movements como aproximação é MUITO melhor do que travar o gráfico inteiro
+  // com um erro de rede, que era o que acontecia antes (chamada direta ao Supabase, ignorando o cache).
+  // Atenção ao formato: state.movements já vem em camelCase (stockItemId), diferente do raw do Supabase
+  // (stock_item_id) — por isso o filtro abaixo usa o nome de campo certo pra cada uma das duas origens.
+  let monthMovements;
+  if(appIsOnline){
+    const { data, error } = await sb.from('stock_movements').select('*').gte('date', monthPrefix+'01').order('date');
+    if(error){ dbErr(error, 'Erro ao carregar movimentações do mês'); return; }
+    monthMovements = (data||[]).filter(m => itemIds.has(m.stock_item_id));
+  } else {
+    // O resto desta função usa "stock_item_id" (snake_case, formato bruto do Supabase) — normaliza o
+    // registro do cache (que vem em camelCase, stockItemId) pra esse mesmo formato, em vez de mudar o
+    // resto da função ou arriscar os dois formatos convivendo inconsistentemente.
+    monthMovements = (state.movements||[])
+      .filter(m => m.date >= monthPrefix+'01' && itemIds.has(m.stockItemId))
+      .map(m => ({ ...m, stock_item_id: m.stockItemId }));
+  }
 
   // Reconstrói, pra cada data-alvo, a quantidade de CADA item — desfazendo as movimentações mais recentes
   // primeiro, partindo do saldo de hoje. Serve tanto pro gráfico de quantidade quanto pro de valor.
@@ -14482,9 +14502,40 @@ function renderAll(){
   if(notifMasterTab==='gestao') safe('Gestão de Alertas', renderGestaoAlertas);
 }
 
+// Lê a sessão direto do localStorage — o supabase-js grava sozinho numa chave no formato
+// "sb-<project-ref>-auth-token", sem eu precisar saber o nome exato de antemão (descobre procurando).
+// Usado só como fallback quando getSession() falha em devolver uma sessão que sabemos que existe
+// (cenário offline).
+function tryReadPersistedSessionFromStorage(){
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const key = localStorage.key(i);
+      if(key && key.startsWith('sb-') && key.endsWith('-auth-token')){
+        const parsed = JSON.parse(localStorage.getItem(key));
+        if(parsed?.user && parsed?.access_token) return parsed;
+      }
+    }
+  }catch(e){ console.error('Falha ao ler sessão persistida do localStorage:', e); }
+  return null;
+}
 // ================= INIT =================
 (async function init(){
-  const { data: { session } } = await sb.auth.getSession();
+  let session = null;
+  try{
+    const { data } = await sb.auth.getSession();
+    session = data?.session || null;
+  }catch(e){ console.error('sb.auth.getSession() falhou:', e); }
+
+  if(!session){
+    // getSession() pode devolver null quando offline, mesmo com uma sessão local ainda válida — o SDK
+    // tenta renovar o token em segundo plano via rede, e se isso falhar (sem internet), às vezes não
+    // devolve a sessão que já estava guardada. Antes de assumir "ninguém logado" e mandar pra tela de
+    // login, tenta ler a sessão direto do localStorage (onde o supabase-js já persiste sozinho) como
+    // último recurso — é exatamente o que causava "sai do sistema e não entra" ao recarregar offline.
+    session = tryReadPersistedSessionFromStorage();
+    if(session) console.warn('getSession() não devolveu sessão — usando fallback do localStorage (provavelmente offline)');
+  }
+
   if(session){ await afterLogin(session); }
   else { document.getElementById('splashScreen').classList.add('hidden'); document.getElementById('loginOverlay').classList.remove('hidden'); }
 })();
