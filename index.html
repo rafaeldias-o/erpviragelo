@@ -3341,6 +3341,26 @@ async function loadAll(){
     driver: d.driver || null, distanceKm: d.distance_km!=null ? Number(d.distance_km) : null,
     homeLegKm: d.home_leg_km!=null ? Number(d.home_leg_km) : null,
   }));
+  // Rede de segurança: se um pedido está "entregue" mas a entrega vinculada a ele ainda diz "agendada"
+  // (ou outro status diferente de entregue/cancelada), sincroniza sozinho em segundo plano. Isso pode
+  // acontecer se o status do pedido for alterado por fora do fluxo normal do app (ex: edição direta no
+  // banco) — nesse caso só o gatilho do banco roda (baixa estoque/gera receita), mas a atualização da
+  // entrega vive inteiramente aqui no frontend, então nunca dispara sozinha. Corrige o dado (não é só
+  // visual) pra próxima carga já vir certa, e atualiza em memória agora mesmo pra tela não mostrar errado
+  // enquanto isso.
+  if(appIsOnline){
+    const toReconcile = state.deliveries.filter(d=>{
+      if(!d.orderId || d.status==='entregue' || d.status==='cancelada') return false;
+      const order = state.orders.find(o=>o.id===d.orderId);
+      return order && order.status==='entregue';
+    });
+    if(toReconcile.length>0){
+      toReconcile.forEach(d=> d.status = 'entregue'); // corrige em memória já, sem esperar o round-trip
+      Promise.all(toReconcile.map(d=> sb.from('deliveries').update({ status:'entregue' }).eq('id', d.id)))
+        .then(()=> console.log(`Reconciliação automática: ${toReconcile.length} entrega(s) sincronizada(s) com o status do pedido já entregue.`))
+        .catch(e=> console.error('Falha na reconciliação automática de entregas:', e));
+    }
+  }
 
   const co = (coRes.data||[])[0];
   state.company = co ? { name:co.name, cnpj:co.cnpj, phone:co.phone, email:co.email, address:co.address, lat:co.lat, lng:co.lng, geocodedAddress:co.geocoded_address,
@@ -10399,10 +10419,21 @@ async function deleteClient(id){
 function renderClientCommercialSummary(clientId){
   const wrap = document.getElementById('clientCommercialSummaryWrap');
   if(!wrap) return;
+  const client = state.clients.find(c=>c.id===clientId);
+  // Tipo de cliente e periodicidade são definidos no cadastro (mais embaixo, no formulário de edição),
+  // mas é informação importante o bastante pra não ficar escondida — mostra aqui em cima também, junto
+  // do resto do resumo comercial, sem precisar rolar até o formulário pra lembrar o que foi definido.
+  const clientTypeLabel = client?.clientType==='pontual' ? '🎯 Pontual' : '🔁 Recorrente';
+  const freqLabels = { semanal:'Semanal', quinzenal:'Quinzenal (15 em 15 dias)', mensal:'Mensal', personalizada:`A cada ${client?.orderFrequencyDays||'?'} dias` };
+  const freqTypeLabel = client?.clientType==='pontual' ? '—' : (freqLabels[client?.orderFrequencyType] || 'Não definida');
+  const clientTypeCard = `
+    <div class="stat-card"><div class="stat-label">Tipo de cliente</div><div class="stat-value" style="font-size:14px;">${clientTypeLabel}</div></div>
+    <div class="stat-card"><div class="stat-label">Periodicidade esperada</div><div class="stat-value" style="font-size:14px;">${esc(freqTypeLabel)}</div></div>
+  `;
   const validOrders = state.orders.filter(o=>o.clientId===clientId && o.status==='entregue' && o.deliveredAt)
     .sort((a,b)=> a.deliveredAt.localeCompare(b.deliveredAt));
   if(validOrders.length===0){
-    wrap.innerHTML = `<div class="stat-card" style="background:var(--surface-2);"><div class="hint" style="margin:0;">📊 Esse cliente ainda não tem nenhum pedido entregue — o resumo comercial aparece aqui assim que a primeira compra for concluída.</div></div>`;
+    wrap.innerHTML = `<div class="stat-grid" style="margin-bottom:0;">${clientTypeCard}</div><div class="stat-card" style="background:var(--surface-2);margin-top:10px;"><div class="hint" style="margin:0;">📊 Esse cliente ainda não tem nenhum pedido entregue — o resumo comercial aparece aqui assim que a primeira compra for concluída.</div></div>`;
     return;
   }
   const faturamentoTotal = validOrders.reduce((s,o)=>s+o.total,0);
@@ -10427,12 +10458,13 @@ function renderClientCommercialSummary(clientId){
 
   wrap.innerHTML = `
     <div class="stat-grid" style="margin-bottom:0;">
+      ${clientTypeCard}
       <div class="stat-card"><div class="stat-label">Faturamento total</div><div class="stat-value" style="font-size:16px;">${fmtMoney(faturamentoTotal)}</div></div>
       <div class="stat-card"><div class="stat-label">Pedidos</div><div class="stat-value" style="font-size:16px;">${validOrders.length}</div></div>
       <div class="stat-card"><div class="stat-label">Ticket médio</div><div class="stat-value" style="font-size:16px;">${fmtMoney(ticketMedio)}</div></div>
       <div class="stat-card"><div class="stat-label">Última compra</div><div class="stat-value" style="font-size:16px;">${fmtDate(ultimaCompra)}</div><div class="hint" style="margin:2px 0 0;color:${diasSemComprar>30?'var(--danger)':'var(--muted)'};">${diasSemComprar} dia${diasSemComprar!==1?'s':''} sem comprar</div></div>
       <div class="stat-card"><div class="stat-label">Produto mais comprado</div><div class="stat-value" style="font-size:14px;">${topProduct?esc(topProduct[0]):'—'}</div>${topProduct?`<div class="hint" style="margin:2px 0 0;">${topProduct[1]} un. no total</div>`:''}</div>
-      <div class="stat-card"><div class="stat-label">Frequência de compra</div><div class="stat-value" style="font-size:14px;">${freqLabel}</div></div>
+      <div class="stat-card"><div class="stat-label">Frequência real observada</div><div class="stat-value" style="font-size:14px;">${freqLabel}</div></div>
     </div>
   `;
 }
