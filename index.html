@@ -423,6 +423,10 @@ tr:last-child td{border-bottom:none;}
     </nav>
     <div class="sidebar-foot">
       <div id="sidebarUserInfo" style="cursor:pointer;padding:8px;border-radius:8px;transition:background .12s;" onclick="openSidebarUserPanel()"></div>
+      <div style="padding:0 8px;display:flex;align-items:center;justify-content:space-between;gap:6px;">
+        <span style="font-size:9.5px;color:#4A6478;" title="Versão do app realmente carregada nesta aba — se estiver desatualizada, o service worker antigo pode estar servindo uma cópia velha da página">v17-2f04fab</span>
+        <button onclick="forceAppUpdate()" style="background:none;border:none;color:#4A6478;font-size:9.5px;text-decoration:underline;cursor:pointer;padding:0;" title="Apaga o service worker antigo e recarrega — use se suspeitar que está numa versão desatualizada">forçar atualização</button>
+      </div>
     </div>
   </aside>
 
@@ -14561,6 +14565,10 @@ function tryReadPersistedSessionFromStorage(){
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(reg => {
+      // Se já existe uma versão nova "esperando" de uma visita anterior (o updatefound só dispara
+      // durante o carregamento em que a atualização foi detectada — reabrir o app depois não repete o
+      // aviso sozinho), mostra o banner imediatamente, sem esperar detectar de novo.
+      if(reg.waiting) showUpdateBanner(reg);
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if(!newWorker) return;
@@ -14584,6 +14592,27 @@ function showUpdateBanner(reg){
     navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
   };
   document.body.appendChild(bar);
+}
+// Escape hatch pra debug: desregistra o(s) service worker(s) e apaga o Cache Storage inteiro, garantindo
+// que o próximo carregamento vem 100% da rede (versão mais nova de verdade), sem depender do fluxo
+// passivo do banner de atualização. Só funciona online (precisa buscar a página nova depois).
+async function forceAppUpdate(){
+  if(!appIsOnline){ toast('Precisa estar online pra forçar a atualização — sem internet não tem como buscar a versão nova.', true); return; }
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    toast('Atualizando...');
+    setTimeout(()=> location.reload(true), 300);
+  }catch(e){
+    console.error('Falha ao forçar atualização:', e);
+    location.reload(true);
+  }
 }
 </script>
 
