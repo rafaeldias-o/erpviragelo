@@ -424,7 +424,7 @@ tr:last-child td{border-bottom:none;}
     <div class="sidebar-foot">
       <div id="sidebarUserInfo" style="cursor:pointer;padding:8px;border-radius:8px;transition:background .12s;" onclick="openSidebarUserPanel()"></div>
       <div style="padding:0 8px;display:flex;align-items:center;justify-content:space-between;gap:6px;">
-        <span style="font-size:9.5px;color:#4A6478;" title="Versão do app realmente carregada nesta aba — se estiver desatualizada, o service worker antigo pode estar servindo uma cópia velha da página">v17-2f04fab</span>
+        <span style="font-size:9.5px;color:#4A6478;" title="Versão do app realmente carregada nesta aba — se estiver desatualizada, o service worker antigo pode estar servindo uma cópia velha da página"><span id="appVersionSpan1">…</span></span>
         <button onclick="forceAppUpdate()" style="background:none;border:none;color:#4A6478;font-size:9.5px;text-decoration:underline;cursor:pointer;padding:0;" title="Apaga o service worker antigo e recarrega — use se suspeitar que está numa versão desatualizada">forçar atualização</button>
       </div>
     </div>
@@ -466,7 +466,7 @@ tr:last-child td{border-bottom:none;}
           <div class="nav-item" data-view="config" onclick="switchView('config'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
         </div>
         <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 4px;border-top:1px solid var(--border);margin-top:10px;">
-          <span style="font-size:10.5px;color:var(--muted);" title="Versão do app realmente carregada neste dispositivo">v17-2f04fab</span>
+          <span style="font-size:10.5px;color:var(--muted);" title="Versão do app realmente carregada neste dispositivo"><span id="appVersionSpan2">…</span></span>
           <button onclick="forceAppUpdate()" style="background:none;border:none;color:var(--accent-2);font-size:10.5px;text-decoration:underline;cursor:pointer;padding:0;">forçar atualização</button>
         </div>
       </div>
@@ -2522,6 +2522,7 @@ async function afterLogin(session){
     profile = result.data; error = result.error;
   }catch(e){ error = e; }
 
+  let cacheAttemptDetail = null;
   if(error || !profile){
     // Antes de desistir e DESLOGAR o usuário, tenta achar o perfil no cache local — sem isso, qualquer
     // falha de REDE aqui (não só "perfil realmente não existe") deslogava de verdade, mesmo com uma
@@ -2529,14 +2530,19 @@ async function afterLogin(session){
     try{
       const db = await openLocalDB();
       const cachedProfile = await getRecordFromLocalDB(db, 'profiles', myUser.id);
+      const allCachedProfiles = await readTableFromLocalDB(db, 'profiles');
       db.close();
+      cacheAttemptDetail = `cache tem ${allCachedProfiles.length} perfil(s) salvo(s); id procurado: ${myUser.id.slice(0,8)}...; achou: ${cachedProfile?'sim':'não'}`;
       if(cachedProfile){ profile = cachedProfile; error = null; }
-    }catch(e){ console.error('Falha ao buscar perfil em cache local:', e); }
+    }catch(e){ cacheAttemptDetail = 'erro ao ler cache: ' + (e?.message||e); console.error('Falha ao buscar perfil em cache local:', e); }
   }
 
   if(error || !profile){
     const errBox = document.getElementById('loginError');
-    errBox.textContent = 'Login feito, mas não encontrei seu perfil na tabela profiles. Peça para o administrador conferir.';
+    // Mensagem com detalhe técnico visível (sem precisar abrir o console) — pra diagnosticar sem
+    // precisar de mais uma rodada só pra descobrir ONDE exatamente está falhando.
+    const liveErrorDetail = error ? (error.message || String(error)) : 'sem erro (perfil veio vazio)';
+    errBox.innerHTML = `Login feito, mas não encontrei seu perfil.<br><span style="font-size:11px;opacity:.85;">Busca online: ${esc(liveErrorDetail)}<br>${cacheAttemptDetail?esc(cacheAttemptDetail):'(cache não foi tentado)'}</span>`;
     errBox.style.display = 'block';
     await sb.auth.signOut();
     document.getElementById('splashScreen').classList.add('hidden');
@@ -14583,7 +14589,23 @@ if('serviceWorker' in navigator){
         });
       });
     }).catch(err => console.warn('Falha ao registrar service worker:', err));
+    displayAppVersion();
   });
+} else {
+  // Sem suporte a service worker: nada pra perguntar, mas os spans continuam existindo na tela.
+  document.addEventListener('DOMContentLoaded', displayAppVersion);
+}
+// Pergunta ao service worker que está REALMENTE controlando esta aba qual versão ele é — não confia em
+// nenhum texto fixo no HTML, porque é exatamente essa dúvida (código novo vs. antigo servido pelo cache)
+// que estamos tentando eliminar.
+function displayAppVersion(){
+  const spans = [document.getElementById('appVersionSpan1'), document.getElementById('appVersionSpan2')].filter(Boolean);
+  if(spans.length===0) return;
+  if(!navigator.serviceWorker.controller){ spans.forEach(s=> s.textContent = 'sem SW ativo'); return; }
+  const channel = new MessageChannel();
+  channel.port1.onmessage = (ev) => { spans.forEach(s=> s.textContent = ev.data || '?'); };
+  navigator.serviceWorker.controller.postMessage('GET_VERSION', [channel.port2]);
+  setTimeout(()=>{ spans.forEach(s=>{ if(s.textContent==='…') s.textContent = 'sem resposta'; }); }, 3000);
 }
 function showUpdateBanner(reg){
   if(document.getElementById('swUpdateBar')) return;

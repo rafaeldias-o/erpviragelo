@@ -6,7 +6,7 @@
 // - Versão do cache abaixo: mude o número sempre que publicar uma atualização. Isso invalida o cache antigo
 //   automaticamente e dispara o aviso de "nova versão disponível" no app, sem quebrar a sessão de quem já está usando.
 
-const CACHE_VERSION = 'viragelo-v17';
+const CACHE_VERSION = 'viragelo-v18';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -36,6 +36,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'skipWaiting') self.skipWaiting();
+  if (event.data === 'GET_VERSION') event.ports[0]?.postMessage(CACHE_VERSION);
 });
 
 // ---- Push de verdade (funciona com o app/navegador fechado) ----
