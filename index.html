@@ -5080,16 +5080,27 @@ async function confirmOrderDriver(orderId){
 async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId, homeLegKm){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return;
+  // Sanitiza a distância antes de mandar pro banco — um cálculo de rota com múltiplas paradas pode
+  // devolver NaN/undefined pra um trecho específico (ex: geocodificação falhou só pra esse cliente).
+  // Mandar NaN direto pro Postgres pode rejeitar a linha inteira — melhor virar null (sem distância
+  // registrada, editável depois) do que travar a atualização inteira da entrega.
+  const safeDistanceKm = (typeof distanceKm === 'number' && isFinite(distanceKm)) ? distanceKm : null;
   const existingDelivery = state.deliveries.find(d=>d.orderId===orderId);
   let deliveryId;
   if(existingDelivery){
-    const patch = { driver, distance_km: distanceKm, status:'entregue' };
-    if(homeLegKm !== undefined) patch.home_leg_km = homeLegKm;
-    await sb.from('deliveries').update(patch).eq('id', existingDelivery.id);
+    const patch = { driver, distance_km: safeDistanceKm, status:'entregue' };
+    if(homeLegKm !== undefined) patch.home_leg_km = (typeof homeLegKm === 'number' && isFinite(homeLegKm)) ? homeLegKm : null;
+    // Faltava checar erro aqui — diferente do branch de criar entrega nova (abaixo), que sempre checou.
+    // Isso deixava a atualização falhar EM SILÊNCIO: o pedido virava "entregue" normalmente (é uma
+    // chamada separada, em confirmRouteBatch/confirmOrderDriver), mas se ESSA atualização específica
+    // desse erro (ex: distância NaN vinda do cálculo de rota pra um trecho específico), a entrega
+    // continuava com o status antigo pra sempre, sem avisar ninguém — a causa real do caso relatado.
+    const { error: updErr } = await sb.from('deliveries').update(patch).eq('id', existingDelivery.id);
+    if(updErr){ dbErr(updErr, 'Erro ao atualizar a entrega — o pedido foi marcado como entregue, mas a entrega agendada não foi sincronizada. Corrija manualmente na ficha do cliente.'); }
     deliveryId = existingDelivery.id;
   } else {
-    const insertData = { client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: distanceKm };
-    if(homeLegKm !== undefined) insertData.home_leg_km = homeLegKm;
+    const insertData = { client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: safeDistanceKm };
+    if(homeLegKm !== undefined) insertData.home_leg_km = (typeof homeLegKm === 'number' && isFinite(homeLegKm)) ? homeLegKm : null;
     const { data: createdDelivery, error: delErr } = await sb.from('deliveries').insert(insertData).select().single();
     if(delErr){ dbErr(delErr, 'Erro ao registrar a entrega'); return; }
     deliveryId = createdDelivery.id;
