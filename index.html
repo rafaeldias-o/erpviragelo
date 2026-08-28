@@ -4731,9 +4731,12 @@ function toggleRouteConfirmOrder(orderId){
   renderRouteConfirmModal();
 }
 function renderRouteConfirmModal(){
-  // Pool de pedidos elegíveis pra entrar na rota: confirmados ainda não entregues, mais o(s) que já foram
-  // selecionados (o pedido que disparou o fluxo já pode estar com status "entregue" nesse ponto).
-  const pool = state.orders.filter(o => o.status==='confirmado' || routeConfirmSelectedIds.includes(o.id));
+  // Pool de pedidos elegíveis pra entrar na rota: qualquer pedido ativo ainda não entregue (Confirmado,
+  // Em produção, Separando ou Saiu para entrega), mais o(s) que já foram selecionados (o pedido que
+  // disparou o fluxo já pode estar com status "entregue" nesse ponto). Antes só aceitava "Confirmado"
+  // — um pedido que já tivesse avançado de status (ex: Separando) nunca aparecia como opção aqui,
+  // obrigando a confirmar essas entregas fora da rota, uma por vez.
+  const pool = state.orders.filter(o => ['confirmado','em_producao','separando','saiu_entrega'].includes(o.status) || routeConfirmSelectedIds.includes(o.id));
   const rows = pool.map(o=>{
     const c = state.clients.find(x=>x.id===o.clientId);
     const selected = routeConfirmSelectedIds.includes(o.id);
