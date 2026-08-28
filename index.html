@@ -5016,9 +5016,14 @@ function renderOdpMap(clientCoord, driverHomeCoord){
     L.polyline(geometry, { color:'#1C7FA3', weight:4, opacity:0.85 }).addTo(odpLeafletMap);
   });
 }
-// Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco, Cartão -> Maquininha.
+// Sugestão automática de conta com base na forma de pagamento: Dinheiro -> Caixa, Pix -> Banco,
+// Cartão -> Maquininha, Boleto/A prazo -> Banco (é onde normalmente cai quando compensa/é pago depois).
+// Antes só cobria 4 das 6 formas de pagamento existentes (PAYMENT_METHODS) — Boleto e A prazo ficavam
+// sem sugestão nenhuma, com o campo de conta em branco por padrão na hora de confirmar a entrega. Se
+// isso passasse despercebido, o pedido seguia "pago" mas sem conta vinculada — exatamente o padrão que
+// a Conciliação aponta como "Pago sem conta". Continua editável manualmente se a sugestão não servir.
 function suggestedAccountForPaymentMethod(paymentMethod){
-  const typeMap = { 'Dinheiro':'caixa', 'Pix':'banco', 'Cartão de crédito':'maquininha', 'Cartão de débito':'maquininha' };
+  const typeMap = { 'Dinheiro':'caixa', 'Pix':'banco', 'Cartão de crédito':'maquininha', 'Cartão de débito':'maquininha', 'Boleto':'banco', 'A prazo':'banco' };
   const type = typeMap[paymentMethod];
   if(!type) return null;
   return state.financialAccounts.find(a=>a.type===type && a.status!=='inativo') || null;
