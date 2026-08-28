@@ -2831,6 +2831,7 @@ async function processOutbox(){
 const OFFLINE_ENTITY_CONFIG = {
   clients: { table:'clients', label:'cliente', notFoundMsg:'Este cliente foi excluído no servidor enquanto você editava offline.', conflictMsg:'Este cliente foi alterado por outro dispositivo/usuário enquanto você editava offline.' },
   financial_accounts: { table:'financial_accounts', label:'conta financeira', notFoundMsg:'Esta conta financeira foi excluída no servidor enquanto você editava offline.', conflictMsg:'Esta conta financeira foi alterada por outro dispositivo/usuário enquanto você editava offline.' },
+  orders: { table:'orders', label:'status do pedido', notFoundMsg:'Este pedido foi excluído no servidor enquanto você estava offline.', conflictMsg:'Este pedido foi alterado por outro dispositivo/usuário enquanto você estava offline.' },
 };
 async function syncOutboxOp(op){
   const cfg = OFFLINE_ENTITY_CONFIG[op.entity];
@@ -2843,6 +2844,19 @@ async function syncOutboxOp(op){
     return;
   }
   if(op.op === 'update'){
+    // Proteção ESPECÍFICA pra pedidos: um pedido marcado "entregue" é uma regra de negócio imutável
+    // (já baixou estoque/gerou receita) — não dá pra confiar só no updated_at pra pegar essa mudança,
+    // porque fulfill_order() (o trigger que baixa estoque) não atualiza updated_at explicitamente ao
+    // marcar como entregue. Por isso, pra pedidos, sempre confere o status atual antes de aplicar
+    // qualquer mudança offline, mesmo que a checagem de updated_at genérica abaixo não pegasse isso.
+    if(op.entity === 'orders'){
+      const { data: currentOrder, error: checkErr } = await sb.from('orders').select('status').eq('id', op.recordId).single();
+      if(checkErr && checkErr.code === 'PGRST116') throw Object.assign(new Error(cfg.notFoundMsg), { isConflict:true });
+      if(checkErr) throw new Error(checkErr.message);
+      if(currentOrder?.status === 'entregue' && op.payload.status !== 'entregue'){
+        throw Object.assign(new Error('Este pedido já foi marcado como entregue (por outro dispositivo/usuário) enquanto você estava offline — não é mais possível mudar o status por aqui. Use "Estornar" se for engano.'), { isConflict:true });
+      }
+    }
     // Concorrência otimista: se alguém (outro dispositivo/usuário) mudou esse registro depois que
     // capturamos o updated_at base, não sobrescreve às cegas — marca como conflito pra revisão manual.
     if(op.baseUpdatedAt){
@@ -5015,6 +5029,33 @@ async function updateOrderStatus(id, newStatus){
   // receita pro mesmo pedido — a causa real das receitas duplicadas encontradas.
   if(current?.status==='entregue' && newStatus!=='entregue'){
     toast('Pedido entregue está travado — use "Estornar" na tela do pedido pra corrigir com segurança', true);
+    return;
+  }
+  if(newStatus==='entregue' && !appIsOnline){
+    // Marcar como "Entregue" baixa estoque e gera receita automaticamente no servidor (via trigger) —
+    // não dá pra replicar esse efeito localmente sem arriscar os números do estoque/financeiro ficarem
+    // errados até sincronizar (violaria a regra de nunca duplicar/perder movimentação de estoque ou
+    // dinheiro). Por isso, especificamente essa transição continua exigindo internet — as demais
+    // (confirmado, em produção, separando, saiu para entrega) já funcionam offline normalmente abaixo.
+    toast('Marcar como "Entregue" baixa o estoque e gera a receita automaticamente — essa ação específica precisa de internet. As outras mudanças de status já funcionam offline.', true);
+    return;
+  }
+  if(!appIsOnline){
+    const nowIso = new Date().toISOString();
+    const db = await openLocalDB();
+    const existingRaw = await getRecordFromLocalDB(db, 'orders', id);
+    const baseUpdatedAt = existingRaw?.updated_at || null;
+    const patch = { status: newStatus };
+    const fullRecord = { ...(existingRaw||{}), ...patch, id, updated_at: nowIso, _pendingSync: true };
+    await putRecordToLocalDB(db, 'orders', fullRecord);
+    db.close();
+    state.orders = state.orders.map(o=> o.id===id ? { ...o, status:newStatus, _pendingSync:true } : o);
+    await enqueueOutboxOp({
+      id: crypto.randomUUID(), entity:'orders', op:'update', recordId:id, payload: patch,
+      baseUpdatedAt, createdAt: nowIso, attempts:0, status:'pending', errorMessage:null, lastAttemptAt:null, nextRetryAt:null,
+    });
+    toast('Status salvo neste dispositivo — sincroniza quando a internet voltar');
+    renderAll();
     return;
   }
   const wasAlreadyDelivered = current?.status === 'entregue';
