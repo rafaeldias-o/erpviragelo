@@ -423,11 +423,6 @@ tr:last-child td{border-bottom:none;}
     </nav>
     <div class="sidebar-foot">
       <div id="sidebarUserInfo" style="cursor:pointer;padding:8px;border-radius:8px;transition:background .12s;" onclick="openSidebarUserPanel()"></div>
-      <div style="padding:0 8px;display:flex;align-items:center;justify-content:space-between;gap:6px;">
-        <span style="font-size:9.5px;color:#4A6478;" title="Versão do app realmente carregada nesta aba — se estiver desatualizada, o service worker antigo pode estar servindo uma cópia velha da página"><span id="appVersionSpan1">…</span></span>
-        <button onclick="forceAppUpdate()" style="background:none;border:none;color:#4A6478;font-size:9.5px;text-decoration:underline;cursor:pointer;padding:0;" title="Apaga o service worker antigo e recarrega — use se suspeitar que está numa versão desatualizada">forçar atualização</button>
-      </div>
-      <div style="padding:2px 8px 0;"><span id="cacheStatusSpan1" style="font-size:9px;color:#4A6478;" title="Status da última tentativa de salvar os dados offline neste dispositivo">⏳ carregando...</span></div>
     </div>
   </aside>
 
@@ -466,11 +461,6 @@ tr:last-child td{border-bottom:none;}
           <div class="nav-item" data-view="inteligencia" onclick="switchView('inteligencia'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 0-5 5c0 1.6.7 2.5 1.5 3.4.6.6 1 1.2 1 2.1v.5a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-.5c0-.9.4-1.5 1-2.1.8-.9 1.5-1.8 1.5-3.4a5 5 0 0 0-5-5Z"/><path d="M9.5 18h5M10 21h4"/></svg><span>Inteligência</span></div>
           <div class="nav-item" data-view="config" onclick="switchView('config'); closeMoreSheet();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Configurações</span></div>
         </div>
-        <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 4px;border-top:1px solid var(--border);margin-top:10px;">
-          <span style="font-size:10.5px;color:var(--muted);" title="Versão do app realmente carregada neste dispositivo"><span id="appVersionSpan2">…</span></span>
-          <button onclick="forceAppUpdate()" style="background:none;border:none;color:var(--accent-2);font-size:10.5px;text-decoration:underline;cursor:pointer;padding:0;">forçar atualização</button>
-        </div>
-        <div style="text-align:center;padding:0 0 8px;"><span id="cacheStatusSpan2" style="font-size:10px;color:var(--muted);" title="Status da última tentativa de salvar os dados offline neste dispositivo">⏳ carregando...</span></div>
       </div>
     </div>
 
@@ -1642,6 +1632,15 @@ tr:last-child td{border-bottom:none;}
           </div>
           <div id="aiUsageSummaryWrap"></div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><div class="section-title">📱 Sobre / Atualizações</div></div>
+          <div class="stat-row-list" style="margin-bottom:12px;">
+            <div class="stat-row"><span class="stat-row-label">Versão carregada neste dispositivo</span><span class="stat-row-value" id="appVersionSpan1">…</span></div>
+            <div class="stat-row"><span class="stat-row-label">Último salvamento offline</span><span class="stat-row-value" id="cacheStatusSpan1">⏳ carregando...</span></div>
+          </div>
+          <div class="hint" style="margin-bottom:10px;">Se suspeitar que está numa versão desatualizada (ex: uma correção não parece ter aplicado), toque no botão abaixo — isso apaga a cópia antiga guardada pelo navegador e busca a versão mais nova de verdade. Só funciona online.</div>
+          <button class="btn btn-ghost btn-sm" onclick="forceAppUpdate()">🔄 Forçar atualização</button>
+        </div>
         </div>
       </section>
 
@@ -2757,10 +2756,10 @@ async function persistLoadAllToLocalDB(resultsByTable){
   updateCacheStatusDisplay();
 }
 function updateCacheStatusDisplay(){
-  [document.getElementById('cacheStatusSpan1'), document.getElementById('cacheStatusSpan2')].filter(Boolean).forEach(el=>{
-    el.textContent = (lastCacheSaveStatus.ok===null?'⏳ ':lastCacheSaveStatus.ok?'✅ ':'❌ ') + lastCacheSaveStatus.detail;
-    el.style.color = lastCacheSaveStatus.ok===false ? 'var(--danger)' : 'inherit';
-  });
+  const el = document.getElementById('cacheStatusSpan1');
+  if(!el) return;
+  el.textContent = (lastCacheSaveStatus.ok===null?'⏳ ':lastCacheSaveStatus.ok?'✅ ':'❌ ') + lastCacheSaveStatus.detail;
+  el.style.color = lastCacheSaveStatus.ok===false ? 'var(--danger)' : 'inherit';
 }
 async function loadAllFromLocalDB(){
   const db = await openLocalDB();
@@ -14648,13 +14647,13 @@ if('serviceWorker' in navigator){
 // nenhum texto fixo no HTML, porque é exatamente essa dúvida (código novo vs. antigo servido pelo cache)
 // que estamos tentando eliminar.
 function displayAppVersion(){
-  const spans = [document.getElementById('appVersionSpan1'), document.getElementById('appVersionSpan2')].filter(Boolean);
-  if(spans.length===0) return;
-  if(!navigator.serviceWorker.controller){ spans.forEach(s=> s.textContent = 'sem SW ativo'); return; }
+  const span = document.getElementById('appVersionSpan1');
+  if(!span) return;
+  if(!navigator.serviceWorker.controller){ span.textContent = 'sem SW ativo'; return; }
   const channel = new MessageChannel();
-  channel.port1.onmessage = (ev) => { spans.forEach(s=> s.textContent = ev.data || '?'); };
+  channel.port1.onmessage = (ev) => { span.textContent = ev.data || '?'; };
   navigator.serviceWorker.controller.postMessage('GET_VERSION', [channel.port2]);
-  setTimeout(()=>{ spans.forEach(s=>{ if(s.textContent==='…') s.textContent = 'sem resposta'; }); }, 3000);
+  setTimeout(()=>{ if(span.textContent==='…') span.textContent = 'sem resposta'; }, 3000);
 }
 function showUpdateBanner(reg){
   if(document.getElementById('swUpdateBar')) return;
