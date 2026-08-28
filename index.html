@@ -2678,8 +2678,26 @@ function saveTableToLocalDB(db, table, rows){
     const tx = db.transaction(table, 'readwrite');
     const store = tx.objectStore(table);
     store.clear();
-    (rows||[]).forEach(r=>{ if(r && r.id!=null) store.put(r); });
+    (rows||[]).forEach(r=>{
+      if(!r || r.id==null) return;
+      // IndexedDB só aceita string/número/data/binário/array como chave — booleano (ex: company_settings
+      // usa id:true, linha única) NÃO é um tipo de chave válido e travava o put() com "DataError" logo
+      // no meio da lista de 35 tabelas, abortando TUDO que vinha depois (foi assim que profiles, bem
+      // depois de company_settings na ordem, nunca chegava a ser salvo — a causa real do "0 perfis
+      // salvos"). Normaliza pra string nesse caso, em vez de deixar o put() explodir.
+      const safeRow = (typeof r.id === 'boolean') ? { ...r, id: String(r.id) } : r;
+      try{
+        const req = store.put(safeRow);
+        // Alguns erros de put() só aparecem depois, no request individual (não na hora da chamada) —
+        // sem isso, um registro problemático poderia abortar a transação inteira mesmo passando pelo
+        // try/catch síncrono acima.
+        req.onerror = (ev)=>{ console.error(`saveTableToLocalDB: falha assíncrona ao gravar registro em "${table}" (id=${r.id}):`, req.error); ev.preventDefault(); };
+      }
+      catch(e){ console.error(`saveTableToLocalDB: falha ao gravar 1 registro em "${table}" (id=${r.id}), pulando esse registro:`, e); }
+    });
     tx.oncomplete = ()=>resolve();
+    // Erro na TRANSAÇÃO inteira (não num registro específico) ainda é reportado — mas registros
+    // individuais com problema agora só são pulados, não derrubam a tabela toda nem as seguintes.
     tx.onerror = ()=>reject(tx.error);
   });
 }
