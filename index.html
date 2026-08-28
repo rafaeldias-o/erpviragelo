@@ -2857,6 +2857,7 @@ let _syncInProgress = false;
 async function processOutbox(){
   if(_syncInProgress || !appIsOnline || !myUser) return;
   _syncInProgress = true;
+  let didProcessSomething = false;
   try{
     const ops = (await getOutboxOps()).filter(o=>{
       if(!['pending','error'].includes(o.status)) return false;
@@ -2864,6 +2865,7 @@ async function processOutbox(){
       return true;
     }).sort((a,b)=> a.createdAt.localeCompare(b.createdAt)); // ordem de criação — respeita dependências simples
     if(ops.length===0){ updateSyncBadge(); return; }
+    didProcessSomething = true;
 
     let i = 0;
     for(const op of ops){
@@ -2891,8 +2893,14 @@ async function processOutbox(){
     }
   } finally {
     _syncInProgress = false;
-    await loadAll().catch(()=>{}); // traz a versão oficial do servidor pros registros que acabaram de sincronizar
-    renderAll();
+    // Recarrega e re-renderiza a tela SÓ se algo de verdade foi sincronizado — antes, isso rodava
+    // sempre (a cada 30s, mesmo sem nada pendente), porque "return" dentro do try ainda dispara o
+    // finally. Na prática, isso resetava o scroll de qualquer lista/kanban que o usuário estivesse
+    // rolando naquele momento, de 30 em 30 segundos, mesmo sem nenhuma mudança real pra mostrar.
+    if(didProcessSomething){
+      await loadAll().catch(()=>{}); // traz a versão oficial do servidor pros registros que acabaram de sincronizar
+      renderAll();
+    }
     updateSyncBadge();
   }
 }
