@@ -103,6 +103,10 @@ h1,h2,h3,.brand,.nav-item span,.stat-label,.section-title{font-family:'Space Gro
 .page-title{font-size:19px;font-weight:700;}
 .page-sub{font-size:12px;color:var(--muted);margin-top:2px;}
 .topbar-right{display:flex;align-items:center;gap:14px;}
+.connectivity-badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:20px;cursor:default;}
+.connectivity-badge.online{background:var(--success-bg);color:var(--success);}
+.connectivity-badge.offline{background:var(--danger-bg);color:var(--danger);cursor:pointer;}
+.connectivity-badge.syncing{background:var(--info-bg);color:var(--info);}
 .today{font-size:12px;color:var(--muted);text-align:right;}
 .theme-btn{background:var(--surface-2);border:none;width:34px;height:34px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink);}
 .theme-btn svg{width:16px;height:16px;}
@@ -426,6 +430,7 @@ tr:last-child td{border-bottom:none;}
     <header class="topbar">
       <div><div class="page-title" id="pageTitle">Início</div><div class="page-sub" id="pageSub">Visão geral da fábrica</div></div>
       <div class="topbar-right">
+        <span id="connectivityBadge" class="connectivity-badge" title="" onclick="manualRetrySync()"></span>
         <div class="today" id="todayLabel"></div>
         <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sair</button>
         <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Alternar tema"></button>
@@ -2488,6 +2493,16 @@ async function doLogin(){
   btn.disabled = false; btn.textContent = 'Entrar';
 }
 async function doLogout(){
+  // Apaga o cache local dessa conta ao sair — escolha deliberada por segurança (não só bloquear o
+  // acesso): se o dispositivo for compartilhado, ninguém mais consegue ver esses dados depois do logout,
+  // nem offline. O próximo login (online, obrigatoriamente) reconstrói o cache do zero.
+  try{
+    const dbName = localDBName();
+    if(dbName) await new Promise((resolve)=>{
+      const req = indexedDB.deleteDatabase(dbName);
+      req.onsuccess = resolve; req.onerror = resolve; req.onblocked = resolve;
+    });
+  }catch(e){ console.error('Falha ao limpar cache local no logout (não impede o logout):', e); }
   await sb.auth.signOut();
   location.reload();
 }
@@ -2532,7 +2547,20 @@ async function afterLogin(session){
   document.documentElement.setAttribute('data-theme','light');
   renderThemeIcon('light');
   document.getElementById('coberturaBox').innerHTML = '<div class="hint" style="padding:14px 4px;">Carregando dados...</div>';
-  await loadAll();
+  try{
+    await loadAll();
+  }catch(e){
+    // Sem rede E sem nenhum cache local ainda (1º acesso deste dispositivo offline) — sem isso, a tela de
+    // splash ficaria travada em branco pra sempre, sem explicação nenhuma pro usuário.
+    document.getElementById('splashScreen').classList.add('hidden');
+    document.body.insertAdjacentHTML('beforeend', `<div style="position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:500;text-align:center;padding:24px;">
+      <div style="font-size:40px;">📡</div>
+      <div style="font-size:16px;font-weight:700;">Sem conexão e sem dados salvos neste dispositivo</div>
+      <div style="font-size:13px;color:var(--muted);max-width:340px;">Conecte-se à internet pelo menos uma vez neste dispositivo antes de usar o ERP offline.</div>
+      <button class="btn btn-primary" onclick="location.reload()">Tentar de novo</button>
+    </div>`);
+    return;
+  }
   renderAll();
   checkAndSendNotifications();
   if(!window._virageloNotifInterval){
@@ -2544,44 +2572,214 @@ async function afterLogin(session){
 }
 
 // ================= DATA LAYER (Supabase) =================
+// ================= FASE 1 — CACHE OFFLINE (IndexedDB) =================
+// Escolha técnica: IndexedDB NATIVO, sem Dexie.js nem nenhuma biblioteca externa. Justificativa:
+// 1) O requisito explícito é não depender de CDN indisponível offline — a forma mais segura de garantir
+//    isso é não ter dependência externa nenhuma, em vez de empacotar uma lib e ter que mantê-la em dia.
+// 2) O app inteiro é um único arquivo index.html — adicionar uma biblioteca de terceiros mudaria essa
+//    arquitetura (precisaria de bundler ou de um segundo arquivo servido junto, ambos fora do padrão
+//    atual do projeto).
+// 3) O uso aqui é simples o suficiente (guardar/ler listas inteiras por tabela, sem query complexa) que
+//    o "boilerplate" do IndexedDB nativo é gerenciável sem virar um problema de manutenção.
+//
+// Escopo desta fase: SÓ LEITURA. Grava uma cópia local de cada tabela toda vez que loadAll() busca do
+// Supabase com sucesso; se a rede falhar (mesmo que navigator.onLine diga que está tudo bem — por isso
+// checkRealConnectivity() faz uma checagem de verdade, não só o sinal do navegador), lê dessa cópia
+// local em vez de travar a tela. Escrita offline (criar/editar pedidos, clientes etc. sem internet) é a
+// Fase 2, ainda não implementada — motivo detalhado na auditoria que apresentei antes de começar isto.
+//
+// Isolamento por usuário: o nome do banco IndexedDB inclui o ID do usuário logado
+// (`viragelo-cache-<uuid>`), então trocar de conta no mesmo navegador nunca lê o cache de outra pessoa —
+// cada usuário tem seu próprio banco local, fisicamente separado pelo navegador.
+const LOADALL_TABLES = ['suppliers','stock_items','stock_movements','production','production_packs','orders','order_items','transactions','clients','leads','lead_history','tasks','deliveries','delivery_items','company_settings','freight_tiers','visit_cities','visit_neighborhoods','field_prospects','commercial_routes','commercial_route_stops','profiles','commitments','assets','asset_history','asset_maintenance_plans','alert_dismissals','custom_alerts','financial_accounts','financial_categories','cost_centers','recurring_expense_templates','account_transfers','freezers','production_machines'];
+function localDBName(){ return myUser ? `viragelo-cache-${myUser.id}` : null; }
+function openLocalDB(){
+  return new Promise((resolve, reject)=>{
+    const name = localDBName();
+    if(!name){ reject(new Error('sem usuário logado ainda')); return; }
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = (ev)=>{
+      const db = ev.target.result;
+      LOADALL_TABLES.forEach(t=>{ if(!db.objectStoreNames.contains(t)) db.createObjectStore(t, {keyPath:'id'}); });
+      if(!db.objectStoreNames.contains('_meta')) db.createObjectStore('_meta', {keyPath:'key'});
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+function saveTableToLocalDB(db, table, rows){
+  return new Promise((resolve,reject)=>{
+    if(!db.objectStoreNames.contains(table)){ resolve(); return; }
+    const tx = db.transaction(table, 'readwrite');
+    const store = tx.objectStore(table);
+    store.clear();
+    (rows||[]).forEach(r=>{ if(r && r.id!=null) store.put(r); });
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+function readTableFromLocalDB(db, table){
+  return new Promise((resolve,reject)=>{
+    if(!db.objectStoreNames.contains(table)){ resolve([]); return; }
+    const tx = db.transaction(table, 'readonly');
+    const req = tx.objectStore(table).getAll();
+    req.onsuccess = ()=>resolve(req.result||[]);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function persistLoadAllToLocalDB(resultsByTable){
+  // Fire-and-forget deliberado: salvar o cache nunca deve atrasar nem quebrar a tela pra quem está online.
+  try{
+    const db = await openLocalDB();
+    for(const table of LOADALL_TABLES){ await saveTableToLocalDB(db, table, resultsByTable[table]); }
+    await new Promise((resolve)=>{
+      const tx = db.transaction('_meta','readwrite');
+      tx.objectStore('_meta').put({ key:'lastSync', value: new Date().toISOString() });
+      tx.oncomplete = resolve; tx.onerror = resolve;
+    });
+    db.close();
+  }catch(e){ console.error('Falha ao salvar cache local (sessão online não é afetada):', e); }
+}
+async function loadAllFromLocalDB(){
+  const db = await openLocalDB();
+  const out = {};
+  for(const table of LOADALL_TABLES){ out[table] = { data: await readTableFromLocalDB(db, table), error: null }; }
+  const lastSync = await new Promise((resolve)=>{
+    const tx = db.transaction('_meta','readonly');
+    const req = tx.objectStore('_meta').get('lastSync');
+    req.onsuccess = ()=>resolve(req.result?.value||null);
+    req.onerror = ()=>resolve(null);
+  });
+  db.close();
+  return { out, lastSync };
+}
+// navigator.onLine sozinho não prova nada (fica "true" mesmo com wifi conectado numa rede sem internet de
+// verdade) — por isso essa checagem faz uma consulta real e leve contra o próprio Supabase, com timeout
+// curto, em vez de confiar só no sinal do navegador.
+async function checkRealConnectivity(){
+  if(!navigator.onLine) return false;
+  try{
+    const result = await Promise.race([
+      sb.from('company_settings').select('id').limit(1),
+      new Promise((_,reject)=> setTimeout(()=>reject(new Error('timeout')), 4000)),
+    ]);
+    return !result.error;
+  }catch(e){ return false; }
+}
+let appIsOnline = true;
+let appUsingCache = false;
+function updateConnectivityBadge(online, usedCache, cacheTimestamp){
+  appIsOnline = online; appUsingCache = usedCache;
+  const el = document.getElementById('connectivityBadge');
+  if(!el) return;
+  if(online){
+    el.className = 'connectivity-badge online';
+    el.textContent = '🟢 Online';
+    el.title = 'Conectado — dados em tempo real';
+  } else {
+    el.className = 'connectivity-badge offline';
+    const when = cacheTimestamp ? new Date(cacheTimestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    el.textContent = `🔴 Offline — dados de ${when}`;
+    el.title = 'Sem conexão — mostrando a última cópia salva neste dispositivo. Toque pra tentar de novo.';
+  }
+}
+function manualRetrySync(){ if(!appIsOnline) loadAll().then(renderAll); }
+// Reconecta automaticamente quando o navegador avisa que a rede voltou, sem precisar recarregar a página
+window.addEventListener('online', ()=>{ if(myUser) loadAll().then(renderAll); });
+
 async function loadAll(){
-  const [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes, machinesRes] = await Promise.all([
-    sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
-    sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
-    sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
-    sb.from('production').select('*').is('deleted_at', null).order('date', {ascending:false}),
-    sb.from('production_packs').select('*'),
-    sb.from('orders').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
-    sb.from('order_items').select('*'),
-    sb.from('transactions').select('*').is('deleted_at', null).order('due_date', {ascending:false}),
-    sb.from('clients').select('*').is('deleted_at', null).order('name'),
-    sb.from('leads').select('*').is('deleted_at', null),
-    sb.from('lead_history').select('*').order('created_at', {ascending:false}),
-    sb.from('tasks').select('*').is('deleted_at', null),
-    sb.from('deliveries').select('*').is('deleted_at', null),
-    sb.from('delivery_items').select('*'),
-    sb.from('company_settings').select('*').limit(1),
-    sb.from('freight_tiers').select('*').is('deleted_at', null).order('min_km'),
-    sb.from('visit_cities').select('*').is('deleted_at', null).order('name'),
-    sb.from('visit_neighborhoods').select('*').is('deleted_at', null).order('name'),
-    sb.from('field_prospects').select('*').is('deleted_at', null).order('name'),
-    sb.from('commercial_routes').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
-    sb.from('commercial_route_stops').select('*').order('sequence'),
-    sb.from('profiles').select('*'),
-    sb.from('commitments').select('*').is('deleted_at', null).order('date'),
-    sb.from('assets').select('*').is('deleted_at', null).order('name'),
-    sb.from('asset_history').select('*').order('created_at', {ascending:false}),
-    sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
-    sb.from('alert_dismissals').select('*'),
-    sb.from('custom_alerts').select('*').is('deleted_at', null).order('date'),
-    sb.from('financial_accounts').select('*').is('deleted_at', null).order('name'),
-    sb.from('financial_categories').select('*').is('deleted_at', null).order('name'),
-    sb.from('cost_centers').select('*').is('deleted_at', null).order('name'),
-    sb.from('recurring_expense_templates').select('*').is('deleted_at', null).order('description'),
-    sb.from('account_transfers').select('*').is('deleted_at', null).order('date', {ascending:false}),
-    sb.from('freezers').select('*').order('name'),
-    sb.from('production_machines').select('*').eq('active', true).order('created_at'),
-  ]);
+  let supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes, machinesRes;
+  let online = await checkRealConnectivity();
+  let cacheTimestamp = null;
+
+  if(online){
+    try{
+      [supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes, machinesRes] = await Promise.all([
+        sb.from('suppliers').select('*').is('deleted_at', null).order('name'),
+        sb.from('stock_items').select('*').is('deleted_at', null).order('name'),
+        sb.from('stock_movements').select('*').order('created_at', {ascending:false}).limit(300),
+        sb.from('production').select('*').is('deleted_at', null).order('date', {ascending:false}),
+        sb.from('production_packs').select('*'),
+        sb.from('orders').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
+        sb.from('order_items').select('*'),
+        sb.from('transactions').select('*').is('deleted_at', null).order('due_date', {ascending:false}),
+        sb.from('clients').select('*').is('deleted_at', null).order('name'),
+        sb.from('leads').select('*').is('deleted_at', null),
+        sb.from('lead_history').select('*').order('created_at', {ascending:false}),
+        sb.from('tasks').select('*').is('deleted_at', null),
+        sb.from('deliveries').select('*').is('deleted_at', null),
+        sb.from('delivery_items').select('*'),
+        sb.from('company_settings').select('*').limit(1),
+        sb.from('freight_tiers').select('*').is('deleted_at', null).order('min_km'),
+        sb.from('visit_cities').select('*').is('deleted_at', null).order('name'),
+        sb.from('visit_neighborhoods').select('*').is('deleted_at', null).order('name'),
+        sb.from('field_prospects').select('*').is('deleted_at', null).order('name'),
+        sb.from('commercial_routes').select('*').is('deleted_at', null).order('created_at', {ascending:false}),
+        sb.from('commercial_route_stops').select('*').order('sequence'),
+        sb.from('profiles').select('*'),
+        sb.from('commitments').select('*').is('deleted_at', null).order('date'),
+        sb.from('assets').select('*').is('deleted_at', null).order('name'),
+        sb.from('asset_history').select('*').order('created_at', {ascending:false}),
+        sb.from('asset_maintenance_plans').select('*').is('deleted_at', null).order('next_date'),
+        sb.from('alert_dismissals').select('*'),
+        sb.from('custom_alerts').select('*').is('deleted_at', null).order('date'),
+        sb.from('financial_accounts').select('*').is('deleted_at', null).order('name'),
+        sb.from('financial_categories').select('*').is('deleted_at', null).order('name'),
+        sb.from('cost_centers').select('*').is('deleted_at', null).order('name'),
+        sb.from('recurring_expense_templates').select('*').is('deleted_at', null).order('description'),
+        sb.from('account_transfers').select('*').is('deleted_at', null).order('date', {ascending:false}),
+        sb.from('freezers').select('*').order('name'),
+        sb.from('production_machines').select('*').eq('active', true).order('created_at'),
+      ]);
+      // Salva a cópia local em segundo plano (fire-and-forget) — nunca atrasa quem está online.
+      persistLoadAllToLocalDB({
+        suppliers: supRes.data, stock_items: stockRes.data, stock_movements: movRes.data, production: prodRes.data,
+        production_packs: packsRes.data, orders: ordRes.data, order_items: itemsRes.data, transactions: txRes.data,
+        clients: cliRes.data, leads: leadRes.data, lead_history: histRes.data, tasks: taskRes.data, deliveries: delRes.data,
+        delivery_items: delItemsRes.data, company_settings: coRes.data, freight_tiers: freightRes.data, visit_cities: cityRes.data,
+        visit_neighborhoods: neighRes.data, field_prospects: prospRes.data, commercial_routes: crRes.data,
+        commercial_route_stops: crStopsRes.data, profiles: profRes.data, commitments: commitRes.data, assets: assetRes.data,
+        asset_history: assetHistRes.data, asset_maintenance_plans: maintRes.data, alert_dismissals: dismissRes.data,
+        custom_alerts: customAlertRes.data, financial_accounts: finAccRes.data, financial_categories: finCatRes.data,
+        cost_centers: costCenterRes.data, recurring_expense_templates: recurTplRes.data, account_transfers: transferRes.data,
+        freezers: freezerRes.data, production_machines: machinesRes.data,
+      });
+    }catch(e){
+      // navigator.onLine dizia que tinha rede, mas a chamada de verdade falhou (ex: wifi conectado sem
+      // internet de fato) — trata como offline e cai pro cache local também.
+      console.error('loadAll: falha de rede apesar de navigator.onLine=true, usando cache local:', e);
+      online = false;
+    }
+  }
+
+  if(!online){
+    try{
+      const { out, lastSync } = await loadAllFromLocalDB();
+      supRes=out.suppliers; stockRes=out.stock_items; movRes=out.stock_movements;
+      prodRes=out.production; packsRes=out.production_packs; ordRes=out.orders; itemsRes=out.order_items; txRes=out.transactions;
+      cliRes=out.clients; leadRes=out.leads; histRes=out.lead_history; taskRes=out.tasks; delRes=out.deliveries;
+      delItemsRes=out.delivery_items; coRes=out.company_settings; freightRes=out.freight_tiers; cityRes=out.visit_cities;
+      neighRes=out.visit_neighborhoods; prospRes=out.field_prospects; crRes=out.commercial_routes; crStopsRes=out.commercial_route_stops;
+      profRes=out.profiles; commitRes=out.commitments; assetRes=out.assets; assetHistRes=out.asset_history;
+      maintRes=out.asset_maintenance_plans; dismissRes=out.alert_dismissals; customAlertRes=out.custom_alerts;
+      finAccRes=out.financial_accounts; finCatRes=out.financial_categories; costCenterRes=out.cost_centers;
+      recurTplRes=out.recurring_expense_templates; transferRes=out.account_transfers; freezerRes=out.freezers; machinesRes=out.production_machines;
+      cacheTimestamp = lastSync;
+      if(!lastSync){
+        // Cache existe (banco IndexedDB foi criado), mas está vazio — nunca sincronizou neste
+        // dispositivo. Sem essa checagem, a tela renderizaria silenciosamente como se a empresa não
+        // tivesse nenhum cliente/pedido/nada, sem explicar que é falta de sincronização, não falta de dado.
+        throw new Error('cache local vazio — nunca sincronizou neste dispositivo');
+      }
+    }catch(e){
+      console.error('loadAll: sem cache local disponível (provavelmente 1º acesso deste dispositivo, offline):', e);
+      toast('Sem conexão e sem dados salvos neste dispositivo ainda — conecte à internet pelo menos uma vez antes.', true);
+      updateConnectivityBadge(false, true, null);
+      throw e;
+    }
+  }
+  updateConnectivityBadge(online, !online, cacheTimestamp);
+
   for(const [label, res] of [['fornecedores',supRes],['estoque',stockRes],['movimentações',movRes],['produção',prodRes],
     ['embalagens de produção',packsRes],['pedidos',ordRes],['itens de pedido',itemsRes],['financeiro',txRes],
     ['clientes',cliRes],['leads',leadRes],['histórico',histRes],['tarefas',taskRes],['entregas',delRes],
