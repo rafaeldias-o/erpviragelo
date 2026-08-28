@@ -2610,6 +2610,14 @@ function mapClientRow(c){
     _pendingSync: c._pendingSync || false, _syncStatus: c._syncStatus || null,
   };
 }
+// Mesmo princípio da mapClientRow — usada tanto em loadAll() quanto na escrita offline de contas
+// financeiras, pra nunca ter 2 versões da mesma regra de mapeamento.
+function mapFinAccountRow(a){
+  return {
+    id:a.id, name:a.name, type:a.type, initialBalance:Number(a.initial_balance), color:a.color, icon:a.icon, status:a.status, notes:a.notes,
+    _pendingSync: a._pendingSync || false,
+  };
+}
 function localDBName(){ return myUser ? `viragelo-cache-${myUser.id}` : null; }
 function openLocalDB(){
   return new Promise((resolve, reject)=>{
@@ -2818,32 +2826,40 @@ async function processOutbox(){
 }
 // Executa UMA operação de fato contra o Supabase. Upsert por id (chave de idempotência) garante que
 // reenviar a mesma operação depois de uma conexão cair no meio nunca cria um registro duplicado.
+// Config por entidade — evita duplicar a mesma lógica de idempotência/concorrência a cada tabela nova
+// conectada à escrita offline. Adicionar uma entidade nova = 1 linha aqui.
+const OFFLINE_ENTITY_CONFIG = {
+  clients: { table:'clients', label:'cliente', notFoundMsg:'Este cliente foi excluído no servidor enquanto você editava offline.', conflictMsg:'Este cliente foi alterado por outro dispositivo/usuário enquanto você editava offline.' },
+  financial_accounts: { table:'financial_accounts', label:'conta financeira', notFoundMsg:'Esta conta financeira foi excluída no servidor enquanto você editava offline.', conflictMsg:'Esta conta financeira foi alterada por outro dispositivo/usuário enquanto você editava offline.' },
+};
 async function syncOutboxOp(op){
-  if(op.entity === 'clients'){
-    if(op.op === 'insert'){
-      const { error } = await sb.from('clients').upsert({ id: op.recordId, ...op.payload }, { onConflict: 'id' });
-      if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
-      return;
-    }
-    if(op.op === 'update'){
-      // Concorrência otimista: se alguém (outro dispositivo/usuário) mudou esse cliente depois que
-      // capturamos o updated_at base, não sobrescreve às cegas — marca como conflito pra revisão manual.
-      if(op.baseUpdatedAt){
-        const { data: current, error: checkErr } = await sb.from('clients').select('updated_at').eq('id', op.recordId).single();
-        if(checkErr && checkErr.code === 'PGRST116'){
-          throw Object.assign(new Error('Este cliente foi excluído no servidor enquanto você editava offline.'), { isConflict:true });
-        }
-        if(checkErr) throw Object.assign(new Error(checkErr.message), {});
-        if(current && current.updated_at && current.updated_at !== op.baseUpdatedAt){
-          throw Object.assign(new Error('Este cliente foi alterado por outro dispositivo/usuário enquanto você editava offline.'), { isConflict:true });
-        }
-      }
-      const { error } = await sb.from('clients').update(op.payload).eq('id', op.recordId);
-      if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
-      return;
-    }
+  const cfg = OFFLINE_ENTITY_CONFIG[op.entity];
+  if(!cfg) throw new Error('Tipo de operação offline não suportado: ' + op.entity + '/' + op.op);
+  if(op.op === 'insert'){
+    // Idempotência real: upsert por UUID gerado no cliente — reenviar a MESMA operação (conexão caiu
+    // antes da confirmação chegar) nunca cria um segundo registro.
+    const { error } = await sb.from(cfg.table).upsert({ id: op.recordId, ...op.payload }, { onConflict: 'id' });
+    if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
+    return;
   }
-  throw new Error('Tipo de operação offline não suportado: ' + op.entity + '/' + op.op);
+  if(op.op === 'update'){
+    // Concorrência otimista: se alguém (outro dispositivo/usuário) mudou esse registro depois que
+    // capturamos o updated_at base, não sobrescreve às cegas — marca como conflito pra revisão manual.
+    if(op.baseUpdatedAt){
+      const { data: current, error: checkErr } = await sb.from(cfg.table).select('updated_at').eq('id', op.recordId).single();
+      if(checkErr && checkErr.code === 'PGRST116'){
+        throw Object.assign(new Error(cfg.notFoundMsg), { isConflict:true });
+      }
+      if(checkErr) throw new Error(checkErr.message);
+      if(current && current.updated_at && current.updated_at !== op.baseUpdatedAt){
+        throw Object.assign(new Error(cfg.conflictMsg), { isConflict:true });
+      }
+    }
+    const { error } = await sb.from(cfg.table).update(op.payload).eq('id', op.recordId);
+    if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
+    return;
+  }
+  throw new Error('Operação desconhecida: ' + op.op);
 }
 async function updateSyncBadge(syncing, current, total){
   const el = document.getElementById('connectivityBadge');
@@ -2884,7 +2900,7 @@ async function openSyncCenterModal(){
       ${ops.map(o=>`
         <div class="stat-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
           <div style="display:flex;justify-content:space-between;width:100%;">
-            <strong>${o.entity==='clients'?'Cliente':o.entity}${o.op==='insert'?' (novo)':' (edição)'}</strong>
+            <strong>${esc(OFFLINE_ENTITY_CONFIG[o.entity]?.label || o.entity)}${o.op==='insert'?' (novo)':' (edição)'}</strong>
             <span>${labels[o.status]||o.status}</span>
           </div>
           ${o.errorMessage ? `<div class="hint" style="color:var(--danger);">${esc(o.errorMessage)}</div>` : ''}
@@ -3035,9 +3051,7 @@ async function loadAll(){
     supplierId:r.supplier_id, recurrenceType:r.recurrence_type, intervalDays:r.interval_days, active:r.active
   }));
 
-  state.financialAccounts = (finAccRes.data||[]).map(a => ({
-    id:a.id, name:a.name, type:a.type, initialBalance:Number(a.initial_balance), color:a.color, icon:a.icon, status:a.status, notes:a.notes
-  }));
+  state.financialAccounts = (finAccRes.data||[]).map(mapFinAccountRow);
   state.financialCategories = (finCatRes.data||[]).map(c => ({
     id:c.id, name:c.name, type:c.type, parentId:c.parent_id, icon:c.icon, color:c.color, status:c.status, isFixed:c.is_fixed
   }));
@@ -7501,6 +7515,31 @@ async function saveFinAccount(id){
     notes: document.getElementById('fa-notes').value.trim(),
   };
   if(id) data.status = document.getElementById('fa-status').value;
+
+  if(!appIsOnline){
+    const recordId = id || crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const db = await openLocalDB();
+    const existingRaw = id ? await getRecordFromLocalDB(db, 'financial_accounts', id) : null;
+    const baseUpdatedAt = existingRaw?.updated_at || null;
+    const fullRecord = id
+      ? { ...existingRaw, ...data, id: recordId, updated_at: nowIso, _pendingSync: true }
+      : { ...data, id: recordId, status:'ativa', created_at: nowIso, updated_at: nowIso, deleted_at: null, _pendingSync: true };
+    await putRecordToLocalDB(db, 'financial_accounts', fullRecord);
+    db.close();
+    state.financialAccounts = id
+      ? state.financialAccounts.map(a=> a.id===id ? mapFinAccountRow(fullRecord) : a)
+      : [...state.financialAccounts, mapFinAccountRow(fullRecord)];
+    await enqueueOutboxOp({
+      id: crypto.randomUUID(), entity:'financial_accounts', op: id?'update':'insert', recordId, payload: data,
+      baseUpdatedAt, createdAt: nowIso, attempts:0, status:'pending', errorMessage:null, lastAttemptAt:null, nextRetryAt:null,
+    });
+    closeModal();
+    toast(id ? 'Conta salva neste dispositivo — sincroniza quando a internet voltar' : 'Conta criada neste dispositivo — sincroniza quando a internet voltar');
+    renderFinAccountsTable();
+    return;
+  }
+
   const { error } = id ? await sb.from('financial_accounts').update(data).eq('id', id) : await sb.from('financial_accounts').insert(data);
   if(error){ dbErr(error, 'Erro ao salvar conta financeira'); return; }
   closeModal(); toast('Conta salva'); await loadAll(); renderFinAccountsTable();
@@ -7633,7 +7672,7 @@ function renderFinAccountsTable(){
           <div style="font-size:22px;">${t.icon}</div>
           <span class="badge ${a.status==='ativa'?'badge-success':'badge-muted'}">${a.status==='ativa'?'Ativa':'Inativa'}</span>
         </div>
-        <div style="font-weight:700;font-size:14px;">${esc(a.name)}</div>
+        <div style="font-weight:700;font-size:14px;">${esc(a.name)}${a._pendingSync?' <span class="badge badge-warn" style="font-size:9px;" title="Salvo neste dispositivo — ainda não sincronizado">🕓</span>':''}</div>
         <div class="hint" style="margin:1px 0 10px 0;">${t.label}</div>
         <div style="font-size:18px;font-weight:700;color:${balance<0?'var(--danger)':'inherit'}">${fmtMoney(balance)}</div>
         <div class="hint" style="margin:0 0 10px 0;">${lastMove?'Última movimentação '+fmtDate(lastMove):'Sem movimentação'}</div>
