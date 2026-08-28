@@ -2625,6 +2625,40 @@ async function afterLogin(session){
 // (`viragelo-cache-<uuid>`), então trocar de conta no mesmo navegador nunca lê o cache de outra pessoa —
 // cada usuário tem seu próprio banco local, fisicamente separado pelo navegador.
 const LOADALL_TABLES = ['suppliers','stock_items','stock_movements','production','production_packs','orders','order_items','transactions','clients','leads','lead_history','tasks','deliveries','delivery_items','company_settings','freight_tiers','visit_cities','visit_neighborhoods','field_prospects','commercial_routes','commercial_route_stops','profiles','commitments','assets','asset_history','asset_maintenance_plans','alert_dismissals','custom_alerts','financial_accounts','financial_categories','cost_centers','recurring_expense_templates','account_transfers','freezers','production_machines'];
+// Mesma ordenação usada em cada .order(...) da busca online (Promise.all logo abaixo) — o IndexedDB
+// devolve os registros na ordem interna dele (por UUID, essencialmente aleatório), não na ordem que o
+// app espera. Sem isso, offline, listas como Pedidos apareciam "misturadas" em vez de mais recente
+// primeiro. Um único lugar reaproveitado tanto pra ordenar o cache quanto documentado junto da busca
+// online, pra nunca as duas regras divergirem silenciosamente.
+const LOADALL_ORDER_BY = {
+  suppliers: ['name', true], stock_items: ['name', true], stock_movements: ['created_at', false],
+  production: ['date', false], orders: ['created_at', false], transactions: ['due_date', false],
+  clients: ['name', true], lead_history: ['created_at', false], freight_tiers: ['min_km', true],
+  visit_cities: ['name', true], visit_neighborhoods: ['name', true], field_prospects: ['name', true],
+  commercial_routes: ['created_at', false], commercial_route_stops: ['sequence', true],
+  commitments: ['date', true], assets: ['name', true], asset_history: ['created_at', false],
+  asset_maintenance_plans: ['next_date', true], custom_alerts: ['date', true],
+  financial_accounts: ['name', true], financial_categories: ['name', true], cost_centers: ['name', true],
+  recurring_expense_templates: ['description', true], account_transfers: ['date', false],
+  freezers: ['name', true], production_machines: ['created_at', true],
+  // as demais tabelas (production_packs, order_items, leads, tasks, deliveries, delivery_items,
+  // company_settings, profiles, alert_dismissals) não têm .order() na busca online — sem entrada aqui,
+  // ficam sem ordenação nenhuma, igual já era antes (comportamento idêntico ao online nesse caso).
+};
+function sortLikeOnlineQuery(table, rows){
+  const rule = LOADALL_ORDER_BY[table];
+  if(!rule || !rows) return rows;
+  const [field, ascending] = rule;
+  return [...rows].sort((a,b)=>{
+    const av = a?.[field], bv = b?.[field];
+    if(av==null && bv==null) return 0;
+    if(av==null) return 1; // nulos vão pro final, igual o Postgres faz por padrão
+    if(bv==null) return -1;
+    if(av < bv) return ascending ? -1 : 1;
+    if(av > bv) return ascending ? 1 : -1;
+    return 0;
+  });
+}
 // Mapeamento snake_case (banco) -> camelCase (state.clients) extraído como função nomeada — usado tanto
 // no carregamento normal (loadAll) quanto na escrita otimista offline (saveClientDetail), pra nunca ter
 // duas versões dessa regra que possam divergir silenciosamente.
@@ -2764,7 +2798,10 @@ function updateCacheStatusDisplay(){
 async function loadAllFromLocalDB(){
   const db = await openLocalDB();
   const out = {};
-  for(const table of LOADALL_TABLES){ out[table] = { data: await readTableFromLocalDB(db, table), error: null }; }
+  for(const table of LOADALL_TABLES){
+    const rows = await readTableFromLocalDB(db, table);
+    out[table] = { data: sortLikeOnlineQuery(table, rows), error: null };
+  }
   const lastSync = await new Promise((resolve)=>{
     const tx = db.transaction('_meta','readonly');
     const req = tx.objectStore('_meta').get('lastSync');
