@@ -427,6 +427,7 @@ tr:last-child td{border-bottom:none;}
         <span style="font-size:9.5px;color:#4A6478;" title="Versão do app realmente carregada nesta aba — se estiver desatualizada, o service worker antigo pode estar servindo uma cópia velha da página"><span id="appVersionSpan1">…</span></span>
         <button onclick="forceAppUpdate()" style="background:none;border:none;color:#4A6478;font-size:9.5px;text-decoration:underline;cursor:pointer;padding:0;" title="Apaga o service worker antigo e recarrega — use se suspeitar que está numa versão desatualizada">forçar atualização</button>
       </div>
+      <div style="padding:2px 8px 0;"><span id="cacheStatusSpan1" style="font-size:9px;color:#4A6478;" title="Status da última tentativa de salvar os dados offline neste dispositivo">⏳ carregando...</span></div>
     </div>
   </aside>
 
@@ -469,6 +470,7 @@ tr:last-child td{border-bottom:none;}
           <span style="font-size:10.5px;color:var(--muted);" title="Versão do app realmente carregada neste dispositivo"><span id="appVersionSpan2">…</span></span>
           <button onclick="forceAppUpdate()" style="background:none;border:none;color:var(--accent-2);font-size:10.5px;text-decoration:underline;cursor:pointer;padding:0;">forçar atualização</button>
         </div>
+        <div style="text-align:center;padding:0 0 8px;"><span id="cacheStatusSpan2" style="font-size:10px;color:var(--muted);" title="Status da última tentativa de salvar os dados offline neste dispositivo">⏳ carregando...</span></div>
       </div>
     </div>
 
@@ -2561,6 +2563,7 @@ async function afterLogin(session){
     minhaContaEl.textContent = [displayName, myUser.email||'', roleLabel(profile.role)].filter(Boolean).join(' · ');
   }
   renderSidebarUserInfo();
+  updateCacheStatusDisplay();
   renderAIQuickQuestions();
   updateAIChatEmptyState();
   renderAIConversationsList();
@@ -2708,18 +2711,38 @@ function putRecordToLocalDB(db, table, record){
     tx.onerror = ()=>reject(tx.error);
   });
 }
+let lastCacheSaveStatus = { ok:null, detail:'ainda não tentou salvar nesta sessão' };
 async function persistLoadAllToLocalDB(resultsByTable){
-  // Fire-and-forget deliberado: salvar o cache nunca deve atrasar nem quebrar a tela pra quem está online.
+  // Antes era fire-and-forget silencioso "pra não atrasar quem está online" — mas isso também escondia
+  // qualquer falha na gravação, o que acabou sendo exatamente o problema real (cache ficando vazio sem
+  // ninguém perceber). Guarda o resultado (sucesso/erro) num lugar visível (lastCacheSaveStatus,
+  // mostrado no menu "Mais" / rodapé da sidebar) — continua não travando a tela de quem está online.
   try{
     const db = await openLocalDB();
-    for(const table of LOADALL_TABLES){ await saveTableToLocalDB(db, table, resultsByTable[table]); }
-    await new Promise((resolve)=>{
+    let totalRows = 0;
+    for(const table of LOADALL_TABLES){
+      const rows = resultsByTable[table] || [];
+      await saveTableToLocalDB(db, table, rows);
+      totalRows += rows.length;
+    }
+    await new Promise((resolve, reject)=>{
       const tx = db.transaction('_meta','readwrite');
       tx.objectStore('_meta').put({ key:'lastSync', value: new Date().toISOString() });
-      tx.oncomplete = resolve; tx.onerror = resolve;
+      tx.oncomplete = resolve; tx.onerror = ()=>reject(tx.error);
     });
     db.close();
-  }catch(e){ console.error('Falha ao salvar cache local (sessão online não é afetada):', e); }
+    lastCacheSaveStatus = { ok:true, detail: `${totalRows} registros salvos às ${new Date().toLocaleTimeString('pt-BR')}` };
+  }catch(e){
+    lastCacheSaveStatus = { ok:false, detail: (e?.name||'Erro') + ': ' + (e?.message||String(e)) };
+    console.error('Falha ao salvar cache local (sessão online não é afetada):', e);
+  }
+  updateCacheStatusDisplay();
+}
+function updateCacheStatusDisplay(){
+  [document.getElementById('cacheStatusSpan1'), document.getElementById('cacheStatusSpan2')].filter(Boolean).forEach(el=>{
+    el.textContent = (lastCacheSaveStatus.ok===null?'⏳ ':lastCacheSaveStatus.ok?'✅ ':'❌ ') + lastCacheSaveStatus.detail;
+    el.style.color = lastCacheSaveStatus.ok===false ? 'var(--danger)' : 'inherit';
+  });
 }
 async function loadAllFromLocalDB(){
   const db = await openLocalDB();
