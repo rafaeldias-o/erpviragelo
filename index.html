@@ -2440,7 +2440,7 @@ const ORDER_STATUSES = [
 const orderStatusInfo = v => ORDER_STATUSES.find(s=>s.v===v) || ORDER_STATUSES[0];
 const LEAD_STAGES = [
   {v:'lead',label:'Lead'}, {v:'contato',label:'Contato'}, {v:'respondeu',label:'Respondeu'},
-  {v:'negociando',label:'Negociando'}, {v:'fechado',label:'Fechado'}, {v:'perdido',label:'Perdido'},
+  {v:'negociando',label:'Negociando'}, {v:'fechado',label:'Fechado'}, {v:'pausado',label:'Pausado'}, {v:'perdido',label:'Perdido'},
 ];
 const TASK_TYPES = ['Ligação','Retorno','Visita','Envio de proposta','Cobrança','Reunião','Personalizada'];
 const DELIVERY_STATUSES = [
@@ -8646,7 +8646,10 @@ function renderPagarTable(){
 // CRM — Funil (Kanban) + Clientes
 // =========================================================
 function isStalled(lead){
-  return !['fechado','perdido'].includes(lead.stage) && daysSince(lead.lastInteraction) > 3;
+  // "Pausado" é uma pausa intencional — não faz sentido alertar como "parado" um lead que foi
+  // deliberadamente colocado em espera. Mesmo tratamento que Fechado/Perdido (etapas onde o alerta de
+  // inatividade não se aplica).
+  return !['fechado','perdido','pausado'].includes(lead.stage) && daysSince(lead.lastInteraction) > 3;
 }
 
 // ---- Alertas automáticos do sistema — fonte única, usada pelo Painel E pela Central de Notificações ----
