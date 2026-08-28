@@ -2508,7 +2508,24 @@ async function doLogout(){
 }
 async function afterLogin(session){
   myUser = session.user;
-  const { data: profile, error } = await sb.from('profiles').select('*').eq('id', myUser.id).single();
+  let profile = null, error = null;
+  try{
+    const result = await sb.from('profiles').select('*').eq('id', myUser.id).single();
+    profile = result.data; error = result.error;
+  }catch(e){ error = e; }
+
+  if(error || !profile){
+    // Antes de desistir e DESLOGAR o usuário, tenta achar o perfil no cache local — sem isso, qualquer
+    // falha de REDE aqui (não só "perfil realmente não existe") deslogava de verdade, mesmo com uma
+    // sessão local válida. Era a causa real de "recarrega offline e não entra mais".
+    try{
+      const db = await openLocalDB();
+      const cachedProfile = await getRecordFromLocalDB(db, 'profiles', myUser.id);
+      db.close();
+      if(cachedProfile){ profile = cachedProfile; error = null; }
+    }catch(e){ console.error('Falha ao buscar perfil em cache local:', e); }
+  }
+
   if(error || !profile){
     const errBox = document.getElementById('loginError');
     errBox.textContent = 'Login feito, mas não encontrei seu perfil na tabela profiles. Peça para o administrador conferir.';
