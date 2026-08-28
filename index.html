@@ -2592,16 +2592,39 @@ async function afterLogin(session){
 // (`viragelo-cache-<uuid>`), então trocar de conta no mesmo navegador nunca lê o cache de outra pessoa —
 // cada usuário tem seu próprio banco local, fisicamente separado pelo navegador.
 const LOADALL_TABLES = ['suppliers','stock_items','stock_movements','production','production_packs','orders','order_items','transactions','clients','leads','lead_history','tasks','deliveries','delivery_items','company_settings','freight_tiers','visit_cities','visit_neighborhoods','field_prospects','commercial_routes','commercial_route_stops','profiles','commitments','assets','asset_history','asset_maintenance_plans','alert_dismissals','custom_alerts','financial_accounts','financial_categories','cost_centers','recurring_expense_templates','account_transfers','freezers','production_machines'];
+// Mapeamento snake_case (banco) -> camelCase (state.clients) extraído como função nomeada — usado tanto
+// no carregamento normal (loadAll) quanto na escrita otimista offline (saveClientDetail), pra nunca ter
+// duas versões dessa regra que possam divergir silenciosamente.
+function mapClientRow(c){
+  return {
+    id: c.id, name: c.name, company: c.company, cnpj: c.cnpj, cpf: c.cpf, phone: c.phone, whatsapp: c.whatsapp,
+    email: c.email, instagram: c.instagram, city: c.city, state: c.state, cep: c.cep, address: c.address, number: c.number, complement: c.complement,
+    neighborhood: c.neighborhood, status: c.status, hasFreezer: c.has_freezer, freezerModel: c.freezer_model, freezerId: c.freezer_id,
+    freezerAssetNumber: c.freezer_asset_number, freezerInstallDate: c.freezer_install_date, freezerNotes: c.freezer_notes,
+    notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
+    distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
+    freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
+    geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding, clientType: c.client_type || 'recorrente',
+    orderFrequencyType: c.order_frequency_type, orderFrequencyDays: c.order_frequency_days, nextExpectedContact: c.next_expected_contact,
+    createdAt: (c.created_at||'').slice(0,10),
+    _pendingSync: c._pendingSync || false, _syncStatus: c._syncStatus || null,
+  };
+}
 function localDBName(){ return myUser ? `viragelo-cache-${myUser.id}` : null; }
 function openLocalDB(){
   return new Promise((resolve, reject)=>{
     const name = localDBName();
     if(!name){ reject(new Error('sem usuário logado ainda')); return; }
-    const req = indexedDB.open(name, 1);
+    // Versão 2 (Fase 2): adiciona _outbox (fila de operações pendentes) e _conflicts (registros que
+    // precisam de revisão manual) — onupgradeneeded só CRIA o que ainda não existe, nunca apaga os
+    // object stores da versão 1, então usuários que já tinham cache da Fase 1 não perdem nada.
+    const req = indexedDB.open(name, 2);
     req.onupgradeneeded = (ev)=>{
       const db = ev.target.result;
       LOADALL_TABLES.forEach(t=>{ if(!db.objectStoreNames.contains(t)) db.createObjectStore(t, {keyPath:'id'}); });
       if(!db.objectStoreNames.contains('_meta')) db.createObjectStore('_meta', {keyPath:'key'});
+      if(!db.objectStoreNames.contains('_outbox')) db.createObjectStore('_outbox', {keyPath:'id'});
+      if(!db.objectStoreNames.contains('_conflicts')) db.createObjectStore('_conflicts', {keyPath:'id'});
     };
     req.onsuccess = ()=>resolve(req.result);
     req.onerror = ()=>reject(req.error);
@@ -2625,6 +2648,25 @@ function readTableFromLocalDB(db, table){
     const req = tx.objectStore(table).getAll();
     req.onsuccess = ()=>resolve(req.result||[]);
     req.onerror = ()=>reject(req.error);
+  });
+}
+function getRecordFromLocalDB(db, table, id){
+  return new Promise((resolve,reject)=>{
+    if(!db.objectStoreNames.contains(table)){ resolve(null); return; }
+    const tx = db.transaction(table, 'readonly');
+    const req = tx.objectStore(table).get(id);
+    req.onsuccess = ()=>resolve(req.result||null);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+// Escreve UM registro sem apagar o resto da tabela (diferente de saveTableToLocalDB, que faz clear() —
+// usado na sincronização em massa). Usado nas escritas otimistas offline (1 registro por vez).
+function putRecordToLocalDB(db, table, record){
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(table, 'readwrite');
+    tx.objectStore(table).put(record);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
   });
 }
 async function persistLoadAllToLocalDB(resultsByTable){
@@ -2673,19 +2715,211 @@ function updateConnectivityBadge(online, usedCache, cacheTimestamp){
   const el = document.getElementById('connectivityBadge');
   if(!el) return;
   if(online){
-    el.className = 'connectivity-badge online';
-    el.textContent = '🟢 Online';
-    el.title = 'Conectado — dados em tempo real';
+    // Quando online, quem decide o texto final é updateSyncBadge() — reflete se tem operação pendente,
+    // sincronizando, ou tudo certo, em vez de sempre dizer só "Online".
+    updateSyncBadge();
+    processOutbox(); // aproveita pra tentar esvaziar a fila sempre que confirma que está online de verdade
   } else {
     el.className = 'connectivity-badge offline';
     const when = cacheTimestamp ? new Date(cacheTimestamp).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
     el.textContent = `🔴 Offline — dados de ${when}`;
     el.title = 'Sem conexão — mostrando a última cópia salva neste dispositivo. Toque pra tentar de novo.';
+    el.onclick = manualRetrySync;
   }
 }
-function manualRetrySync(){ if(!appIsOnline) loadAll().then(renderAll); }
+function manualRetrySync(){ if(!appIsOnline) loadAll().then(renderAll); else processOutbox(); }
 // Reconecta automaticamente quando o navegador avisa que a rede voltou, sem precisar recarregar a página
-window.addEventListener('online', ()=>{ if(myUser) loadAll().then(renderAll); });
+window.addEventListener('online', ()=>{ if(myUser) loadAll().then(()=>{ renderAll(); processOutbox(); }); });
+
+// ================= FASE 2 — ESCRITA OFFLINE (fila de sincronização / outbox) =================
+// Escopo desta fase: SÓ "clientes" (cadastro mestre de menor risco — sem envolver estoque nem dinheiro).
+// Outras entidades (fornecedores, produtos, contas) reaproveitam essa mesma infraestrutura depois,
+// incrementalmente — não implementadas ainda nesta rodada.
+//
+// Cada operação pendente fica em _outbox com: id (também serve de chave de idempotência — reenviar a
+// MESMA operação nunca duplica, porque o servidor recebe sempre o mesmo id de registro), entidade, tipo
+// (insert/update), payload, "baseUpdatedAt" (o updated_at que a gente tinha quando editou — usado pra
+// detectar se alguém mudou o registro no servidor enquanto estava offline), tentativas, status,
+// próxima tentativa permitida (backoff exponencial com jitter).
+async function enqueueOutboxOp(op){
+  const db = await openLocalDB();
+  await new Promise((resolve,reject)=>{
+    const tx = db.transaction('_outbox','readwrite');
+    tx.objectStore('_outbox').put(op);
+    tx.oncomplete = resolve; tx.onerror = ()=>reject(tx.error);
+  });
+  db.close();
+  updateSyncBadge();
+}
+async function getOutboxOps(){
+  const db = await openLocalDB();
+  const ops = await readTableFromLocalDB(db, '_outbox');
+  db.close();
+  return ops;
+}
+async function updateOutboxOp(opId, patch){
+  const db = await openLocalDB();
+  await new Promise((resolve,reject)=>{
+    const tx = db.transaction('_outbox','readwrite');
+    const store = tx.objectStore('_outbox');
+    const req = store.get(opId);
+    req.onsuccess = ()=>{ if(req.result) store.put({...req.result, ...patch}); resolve(); };
+    req.onerror = ()=>reject(req.error);
+  });
+  db.close();
+}
+// Backoff exponencial com jitter — 2^tentativas segundos, com teto de 5min, mais até 1s de aleatoriedade
+// pra não fazer várias abas/operações tentarem tudo no exato mesmo instante.
+function nextRetryDelay(attempts){
+  return Math.min(5*60*1000, Math.pow(2, attempts) * 1000) + Math.random()*1000;
+}
+let _syncInProgress = false;
+async function processOutbox(){
+  if(_syncInProgress || !appIsOnline || !myUser) return;
+  _syncInProgress = true;
+  try{
+    const ops = (await getOutboxOps()).filter(o=>{
+      if(!['pending','error'].includes(o.status)) return false;
+      if(o.nextRetryAt && new Date(o.nextRetryAt) > new Date()) return false; // ainda dentro do backoff
+      return true;
+    }).sort((a,b)=> a.createdAt.localeCompare(b.createdAt)); // ordem de criação — respeita dependências simples
+    if(ops.length===0){ updateSyncBadge(); return; }
+
+    let i = 0;
+    for(const op of ops){
+      i++;
+      updateSyncBadge(true, i, ops.length);
+      await updateOutboxOp(op.id, { status:'syncing' });
+      try{
+        await syncOutboxOp(op);
+        await updateOutboxOp(op.id, { status:'synced' });
+      }catch(e){
+        const isConflict = e?.isConflict === true;
+        const attempts = (op.attempts||0) + 1;
+        if(isConflict){
+          await updateOutboxOp(op.id, { status:'conflict', errorMessage: e.message, attempts, lastAttemptAt: new Date().toISOString() });
+        } else {
+          const rejected = e?.isRejected === true; // erro de permissão/validação do servidor — não adianta tentar de novo sozinho
+          await updateOutboxOp(op.id, {
+            status: rejected ? 'rejected' : 'error',
+            errorMessage: e.message || String(e), attempts,
+            lastAttemptAt: new Date().toISOString(),
+            nextRetryAt: rejected ? null : new Date(Date.now()+nextRetryDelay(attempts)).toISOString(),
+          });
+        }
+      }
+    }
+  } finally {
+    _syncInProgress = false;
+    await loadAll().catch(()=>{}); // traz a versão oficial do servidor pros registros que acabaram de sincronizar
+    renderAll();
+    updateSyncBadge();
+  }
+}
+// Executa UMA operação de fato contra o Supabase. Upsert por id (chave de idempotência) garante que
+// reenviar a mesma operação depois de uma conexão cair no meio nunca cria um registro duplicado.
+async function syncOutboxOp(op){
+  if(op.entity === 'clients'){
+    if(op.op === 'insert'){
+      const { error } = await sb.from('clients').upsert({ id: op.recordId, ...op.payload }, { onConflict: 'id' });
+      if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
+      return;
+    }
+    if(op.op === 'update'){
+      // Concorrência otimista: se alguém (outro dispositivo/usuário) mudou esse cliente depois que
+      // capturamos o updated_at base, não sobrescreve às cegas — marca como conflito pra revisão manual.
+      if(op.baseUpdatedAt){
+        const { data: current, error: checkErr } = await sb.from('clients').select('updated_at').eq('id', op.recordId).single();
+        if(checkErr && checkErr.code === 'PGRST116'){
+          throw Object.assign(new Error('Este cliente foi excluído no servidor enquanto você editava offline.'), { isConflict:true });
+        }
+        if(checkErr) throw Object.assign(new Error(checkErr.message), {});
+        if(current && current.updated_at && current.updated_at !== op.baseUpdatedAt){
+          throw Object.assign(new Error('Este cliente foi alterado por outro dispositivo/usuário enquanto você editava offline.'), { isConflict:true });
+        }
+      }
+      const { error } = await sb.from('clients').update(op.payload).eq('id', op.recordId);
+      if(error) throw Object.assign(new Error(error.message), { isRejected: error.code==='42501' });
+      return;
+    }
+  }
+  throw new Error('Tipo de operação offline não suportado: ' + op.entity + '/' + op.op);
+}
+async function updateSyncBadge(syncing, current, total){
+  const el = document.getElementById('connectivityBadge');
+  if(!el || !appIsOnline) return; // o estado offline já é tratado em updateConnectivityBadge
+  if(syncing){
+    el.className = 'connectivity-badge syncing';
+    el.textContent = `🔄 Sincronizando ${current} de ${total}…`;
+    return;
+  }
+  const ops = await getOutboxOps().catch(()=>[]);
+  const pending = ops.filter(o=>['pending','error','syncing'].includes(o.status)).length;
+  const conflicts = ops.filter(o=>o.status==='conflict').length;
+  const rejected = ops.filter(o=>o.status==='rejected').length;
+  if(conflicts>0 || rejected>0){
+    el.className = 'connectivity-badge offline'; // reaproveita a cor de alerta
+    el.textContent = `⚠️ ${conflicts+rejected} pendência(s) de revisão`;
+    el.title = 'Clique para ver os detalhes'; el.onclick = openSyncCenterModal;
+    return;
+  }
+  if(pending>0){
+    el.className = 'connectivity-badge syncing';
+    el.textContent = `🟡 ${pending} alteração(ões) aguardando sincronização`;
+    el.onclick = manualRetrySync;
+    return;
+  }
+  el.className = 'connectivity-badge online';
+  el.textContent = '🟢 Online — tudo sincronizado';
+  el.onclick = null;
+}
+// Central de sincronização — lista simples das operações não concluídas, com opção de resolver conflito.
+async function openSyncCenterModal(){
+  const ops = (await getOutboxOps()).filter(o=>o.status!=='synced').sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  const labels = { pending:'⏳ Aguardando', syncing:'🔄 Sincronizando', error:'⚠️ Erro temporário', conflict:'🔶 Conflito', rejected:'🚫 Rejeitado pelo servidor' };
+  openModal(`
+    <div class="modal-head"><h3>Central de sincronização</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    ${ops.length===0 ? '<div class="hint">Nada pendente — tudo sincronizado.</div>' : `
+    <div class="stat-row-list">
+      ${ops.map(o=>`
+        <div class="stat-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div style="display:flex;justify-content:space-between;width:100%;">
+            <strong>${o.entity==='clients'?'Cliente':o.entity}${o.op==='insert'?' (novo)':' (edição)'}</strong>
+            <span>${labels[o.status]||o.status}</span>
+          </div>
+          ${o.errorMessage ? `<div class="hint" style="color:var(--danger);">${esc(o.errorMessage)}</div>` : ''}
+          ${o.status==='conflict' ? `<div style="display:flex;gap:8px;margin-top:4px;">
+            <button class="btn btn-ghost btn-sm" onclick="resolveConflictKeepLocal('${o.id}')">Reenviar minha versão</button>
+            <button class="btn btn-ghost btn-sm" onclick="resolveConflictUseServer('${o.id}')">Usar versão do servidor</button>
+          </div>` : ''}
+          ${o.status==='rejected' ? `<button class="btn btn-ghost btn-sm" onclick="dismissOutboxOp('${o.id}')" style="margin-top:4px;">Descartar</button>` : ''}
+        </div>
+      `).join('')}
+    </div>`}
+    <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal(); manualRetrySync();">Tentar sincronizar agora</button></div>
+  `);
+}
+// Conflito: manter a versão local (reenvia sem a checagem de base — força a sobrescrita)
+async function resolveConflictKeepLocal(opId){
+  await updateOutboxOp(opId, { status:'pending', baseUpdatedAt:null, nextRetryAt:null });
+  closeModal(); toast('Vai reenviar sua versão na próxima sincronização');
+  processOutbox();
+}
+// Conflito: descarta a alteração local e mantém o que já está no servidor
+async function resolveConflictUseServer(opId){
+  await updateOutboxOp(opId, { status:'synced' }); // marca como resolvido sem reenviar nada
+  await loadAll(); renderAll();
+  closeModal(); toast('Mantida a versão do servidor — sua alteração local foi descartada');
+  updateSyncBadge();
+}
+async function dismissOutboxOp(opId){
+  await updateOutboxOp(opId, { status:'synced' });
+  closeModal(); toast('Operação descartada'); updateSyncBadge();
+}
+// Sincroniza sozinho a cada 30s enquanto estiver online, além dos outros gatilhos (evento 'online',
+// retomada manual, início do app) — sem isso, uma operação que falhou por erro temporário só tentaria de
+// novo se o usuário mexesse na tela.
+setInterval(()=>{ if(appIsOnline && myUser) processOutbox(); }, 30000);
 
 async function loadAll(){
   let supRes, stockRes, movRes, prodRes, packsRes, ordRes, itemsRes, txRes, cliRes, leadRes, histRes, taskRes, delRes, delItemsRes, coRes, freightRes, cityRes, neighRes, prospRes, crRes, crStopsRes, profRes, commitRes, assetRes, assetHistRes, maintRes, dismissRes, customAlertRes, finAccRes, finCatRes, costCenterRes, recurTplRes, transferRes, freezerRes, machinesRes;
@@ -2928,18 +3162,7 @@ async function loadAll(){
     createdAt: (t.created_at||'').slice(0,10)
   }));
 
-  state.clients = (cliRes.data||[]).map(c => ({
-    id: c.id, name: c.name, company: c.company, cnpj: c.cnpj, cpf: c.cpf, phone: c.phone, whatsapp: c.whatsapp,
-    email: c.email, instagram: c.instagram, city: c.city, state: c.state, cep: c.cep, address: c.address, number: c.number, complement: c.complement,
-    neighborhood: c.neighborhood, status: c.status, hasFreezer: c.has_freezer, freezerModel: c.freezer_model, freezerId: c.freezer_id,
-    freezerAssetNumber: c.freezer_asset_number, freezerInstallDate: c.freezer_install_date, freezerNotes: c.freezer_notes,
-    notes: c.notes, fromLeadId: c.from_lead_id, lat: c.lat, lng: c.lng, geocodedAddress: c.geocoded_address,
-    distanceKm: c.distance_km!=null?Number(c.distance_km):null, freightTierId: c.freight_tier_id,
-    freightValue: c.freight_value!=null?Number(c.freight_value):null, freightCalculatedAt: c.freight_calculated_at,
-    geocodingStatus: c.geocoding_status, lastGeocoding: c.last_geocoding, clientType: c.client_type || 'recorrente',
-    orderFrequencyType: c.order_frequency_type, orderFrequencyDays: c.order_frequency_days, nextExpectedContact: c.next_expected_contact,
-    createdAt: (c.created_at||'').slice(0,10)
-  }));
+  state.clients = (cliRes.data||[]).map(mapClientRow);
 
   const historyByLead = {};
   (histRes.data||[]).forEach(h => {
@@ -9277,7 +9500,7 @@ function renderClientsTable(){
         const st = clientStats(c.id);
         const nextContactCell = c.nextExpectedContact ? `<button class="next-visit-pill" onclick="openNextVisitModal('${c.id}')">📅 ${fmtDate(c.nextExpectedContact)}</button>` : '<span style="color:var(--muted);">—</span>';
         return `<tr>
-          <td><strong>${esc(c.name)}</strong>${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
+          <td><strong>${esc(c.name)}</strong>${c._pendingSync?' <span class="badge badge-warn" style="font-size:9px;" title="Salvo neste dispositivo — ainda não sincronizado com o servidor">🕓 pendente</span>':''}${c.company?`<div style="color:var(--muted);font-size:11.5px">${esc(c.company)}</div>`:''}</td>
           <td style="color:var(--muted);font-size:12px">${esc(c.phone||c.whatsapp||'—')}</td>
           <td style="color:var(--muted);font-size:12px">${esc(c.neighborhood||'—')}</td>
           <td>${nextContactCell}</td>
@@ -9852,6 +10075,35 @@ async function saveClientDetail(id){
   } else if(!freqType){
     data.next_expected_contact = null;
   }
+
+  // ---- Fase 2 offline-first: sem internet, salva local + enfileira pra sincronizar depois ----
+  // Geocodificação é IMPOSSÍVEL offline (depende de API externa) — pula esse passo inteiro; o cliente é
+  // salvo sem localização/frete calculados, e o próprio botão "Recalcular Frete" (já existente na ficha
+  // do cliente) resolve isso depois que sincronizar e a internet voltar.
+  if(!appIsOnline){
+    const recordId = id || crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const db = await openLocalDB();
+    const existingRaw = id ? await getRecordFromLocalDB(db, 'clients', id) : null;
+    const baseUpdatedAt = existingRaw?.updated_at || null;
+    const fullRecord = id
+      ? { ...existingRaw, ...data, id: recordId, updated_at: nowIso, _pendingSync: true }
+      : { ...data, id: recordId, created_at: nowIso, updated_at: nowIso, deleted_at: null, _pendingSync: true };
+    await putRecordToLocalDB(db, 'clients', fullRecord);
+    db.close();
+    state.clients = id
+      ? state.clients.map(c=> c.id===id ? mapClientRow(fullRecord) : c)
+      : [...state.clients, mapClientRow(fullRecord)];
+    await enqueueOutboxOp({
+      id: crypto.randomUUID(), entity:'clients', op: id?'update':'insert', recordId, payload: data,
+      baseUpdatedAt, createdAt: nowIso, attempts:0, status:'pending', errorMessage:null, lastAttemptAt:null, nextRetryAt:null,
+    });
+    closeModal();
+    toast(id ? 'Cliente salvo neste dispositivo — sincroniza quando a internet voltar' : 'Cliente criado neste dispositivo — endereço/localização serão calculados após sincronizar');
+    renderAll();
+    return;
+  }
+
   // Endereço completo pro geocodificador: rua+número (já juntos no campo Endereço) + bairro + cidade + estado + CEP.
   // Se ainda existir um "número" cadastrado separadamente (endereços antigos), soma também — sem duplicar quando
   // o número já estiver escrito dentro do próprio endereço.
