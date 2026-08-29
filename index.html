@@ -1278,6 +1278,7 @@ tr:last-child td{border-bottom:none;}
           <div class="tab active" data-visitastab="regioes" onclick="setVisitasTab('regioes')">Regiões</div>
           <div class="tab" data-visitastab="prospects" onclick="setVisitasTab('prospects')">Prospects de Campo</div>
           <div class="tab" data-visitastab="rotas" onclick="setVisitasTab('rotas')">Rotas Comerciais</div>
+          <div class="tab" data-visitastab="funil" onclick="setVisitasTab('funil')">Funil</div>
         </div>
 
         <div id="visitasRegioesView">
@@ -1354,6 +1355,30 @@ tr:last-child td{border-bottom:none;}
               </div>
             </div>
             <div id="commercialRoutesTableWrap" class="table-scroll"></div>
+          </div>
+        </div>
+
+        <div id="visitasFunilView" style="display:none;">
+          <div class="stat-grid" id="funilStatsGrid" style="margin-bottom:18px;"></div>
+          <div class="panel">
+            <div class="panel-head" style="flex-wrap:wrap;gap:10px;">
+              <div class="section-title">Funil de Prospecção</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-ghost btn-sm" onclick="openActivateProspectsModal()">📥 Ativar prospects</button>
+                <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ Novo lead</button>
+              </div>
+            </div>
+            <div class="hint" style="margin-bottom:12px;">Separa os leads por tamanho/importância pra priorizar quem visitar primeiro. Independente da etapa de negociação do CRM — um lead pode estar "Negociando" e ao mesmo tempo ser "Grande" aqui.</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+              <input type="text" id="funilSearchInput" placeholder="Buscar por nome, empresa..." oninput="renderFunil()" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;font-family:inherit;width:220px;">
+              <select id="funilSegmentFilter" onchange="renderFunil()" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;font-family:inherit;">
+                <option value="">Todos os tipos de negócio</option>
+              </select>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;">
+                <input type="checkbox" id="funilHotFilter" style="width:auto;" onchange="renderFunil()"> 🔥 Somente quentes
+              </label>
+            </div>
+            <div class="kanban-board" id="funilBoard"></div>
           </div>
         </div>
       </section>
@@ -2442,6 +2467,16 @@ const LEAD_STAGES = [
   {v:'lead',label:'Lead'}, {v:'contato',label:'Contato'}, {v:'respondeu',label:'Respondeu'},
   {v:'negociando',label:'Negociando'}, {v:'fechado',label:'Fechado'}, {v:'pausado',label:'Pausado'}, {v:'perdido',label:'Perdido'},
 ];
+// Funil de Prospecção (Visitas Comerciais > Funil) — dimensão INDEPENDENTE da etapa de negociação acima
+// (leads.stage). Um lead pode estar "negociando" (stage) e ao mesmo tempo classificado como "grande"
+// (sizeTier) — são dois eixos diferentes sobre o mesmo registro. sizeTier null = lead ainda não
+// "ativado" no Funil (fica de fora da nova aba, mas continua normal no CRM por etapa).
+const SIZE_TIERS = [
+  {v:'pequeno', label:'Leads Pequenos', hint:'~10 pacotes/semana'},
+  {v:'bom', label:'Leads Bons', hint:'~20 pacotes/semana'},
+  {v:'grande', label:'Leads Grandes', hint:'30+ pacotes/semana'},
+  {v:'importante', label:'Leads Importantes', hint:'Grandes contas, eventos, casas de show'},
+];
 const TASK_TYPES = ['Ligação','Retorno','Visita','Envio de proposta','Cobrança','Reunião','Personalizada'];
 const DELIVERY_STATUSES = [
   {v:'agendada',label:'Agendada',cls:'badge-info'}, {v:'em_rota',label:'Em rota',cls:'badge-warn'},
@@ -3339,6 +3374,9 @@ async function loadAll(){
     cep: l.cep, address: l.address, number: l.number, complement: l.complement, neighborhood: l.neighborhood, state: l.state,
     clientType: l.client_type || 'recorrente', orderFrequencyType: l.order_frequency_type, orderFrequencyDays: l.order_frequency_days,
     lostReason: l.lost_reason || null, lostReasonDetail: l.lost_reason_detail || null,
+    // Funil de Prospecção (por tamanho) — independente da etapa (stage) acima.
+    sizeTier: l.size_tier || null, estimatedWeeklyPackages: l.estimated_weekly_packages!=null ? Number(l.estimated_weekly_packages) : null,
+    segment: l.segment || null, hot: !!l.hot, regionCityId: l.region_city_id || null, regionNeighborhoodId: l.region_neighborhood_id || null,
     createdAt: (l.created_at||'').slice(0,10), history: historyByLead[l.id] || []
   }));
 
@@ -8922,8 +8960,30 @@ function openLeadModal(id){
     </div>
     <div class="field-row">
       <div class="field"><label>Telefone</label><input id="l-phone" value="${l?esc(l.phone||''):''}"></div>
-      <div class="field"><label>WhatsApp</label><input id="l-whatsapp" value="${l?esc(l.whatsapp||''):''}"></div>
+      <div class="field"><label>WhatsApp</label><div style="display:flex;gap:6px;"><input id="l-whatsapp" value="${l?esc(l.whatsapp||''):''}" style="flex:1;">${l && (l.whatsapp||l.phone) ? `<button type="button" class="btn btn-ghost btn-sm" onclick="sendLeadWhatsApp('${l.id}')" title="Abrir conversa no WhatsApp">💬</button>` : ''}</div></div>
     </div>
+    <div class="subhead" style="font-size:12px;">Funil de Prospecção (Visitas Comerciais) — opcional, independente da etapa de negociação acima</div>
+    <div class="field-row">
+      <div class="field"><label>Tamanho no Funil</label><select id="l-sizetier" onchange="onLeadSizeTierChange()">
+        <option value="">— Fora do Funil de Prospecção —</option>
+        ${SIZE_TIERS.map(t=>`<option value="${t.v}" ${l&&l.sizeTier===t.v?'selected':''}>${t.label} (${t.hint})</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Tipo de negócio</label><input id="l-segment" list="segmentOptions" value="${l?esc(l.segment||''):''}" placeholder="Ex: Mercado, Bar, Casa de show..."></div>
+    </div>
+    <datalist id="segmentOptions">${[...new Set([...state.fieldProspects.map(p=>p.segment), ...state.leads.map(x=>x.segment)].filter(Boolean))].map(s=>`<option value="${esc(s)}">`).join('')}</datalist>
+    <div class="field-row" id="l-funilextra" style="display:${l&&l.sizeTier?'flex':'none'};align-items:flex-end;">
+      <div class="field"><label>Pacotes/semana (estimado)</label><input id="l-weeklypkgs" type="number" step="1" min="0" value="${l&&l.estimatedWeeklyPackages!=null?l.estimatedWeeklyPackages:''}"></div>
+      <div class="field" style="flex:0 0 auto;"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="l-hot" type="checkbox" style="width:auto;" ${l&&l.hot?'checked':''}> 🔥 Marcar como quente</label></div>
+    </div>
+    <div class="field-row" id="l-regionwrap" style="display:${l&&l.sizeTier?'flex':'none'};">
+      <div class="field"><label>Cidade (Regiões)</label><select id="l-regioncity" onchange="onLeadRegionCityChange()">
+        <option value="">—</option>${state.visitCities.map(c=>`<option value="${c.id}" ${l&&l.regionCityId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Bairro (Regiões)</label><select id="l-regionneighborhood">
+        <option value="">—</option>${state.visitNeighborhoods.filter(n=>!l||!l.regionCityId||n.cityId===l.regionCityId).map(n=>`<option value="${n.id}" ${l&&l.regionNeighborhoodId===n.id?'selected':''}>${esc(n.name)}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="hint" id="l-regionhint" style="display:${l&&l.sizeTier?'block':'none'};margin-top:-8px;">Escolher cidade/bairro aqui mantém esse lead ligado à área de Prospects de Campo (sem duplicar cadastro).</div>
     <div class="subhead" style="font-size:12px;">Endereço (aproveitado automaticamente se o lead virar cliente)</div>
     <div class="field-row3">
       <div class="field"><label>CEP</label><input id="l-cep" value="${l?esc(l.cep||''):''}" oninput="lookupCep('l-cep')"></div>
@@ -8970,12 +9030,34 @@ function openLeadModal(id){
     <div class="subhead">Tarefas</div>
     <div id="leadTasksWrap"></div>
     <div id="taskFormWrap"></div>
-    <button class="btn btn-ghost btn-sm" onclick="showTaskForm('${l.id}')">+ Nova tarefa</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="showTaskForm('${l.id}')">+ Nova tarefa</button>
+      <button class="btn btn-ghost btn-sm" onclick="showTaskForm('${l.id}', 'Visita')">📅 Agendar visita</button>
+    </div>
     <div class="subhead">Histórico</div>
     <div id="leadTimelineWrap"></div>
     ` : ''}
   `, 'xwide');
   if(l){ renderLeadTasks(l.id); renderLeadTimeline(l.id); }
+}
+function onLeadSizeTierChange(){
+  const active = !!document.getElementById('l-sizetier').value;
+  document.getElementById('l-funilextra').style.display = active ? 'flex' : 'none';
+  document.getElementById('l-regionwrap').style.display = active ? 'flex' : 'none';
+  document.getElementById('l-regionhint').style.display = active ? 'block' : 'none';
+}
+function onLeadRegionCityChange(){
+  const cityId = document.getElementById('l-regioncity').value;
+  const list = state.visitNeighborhoods.filter(n=>n.cityId===cityId);
+  document.getElementById('l-regionneighborhood').innerHTML = '<option value="">—</option>' + list.map(n=>`<option value="${n.id}">${esc(n.name)}</option>`).join('');
+}
+function sendLeadWhatsApp(id){
+  const l = state.leads.find(x=>x.id===id);
+  if(!l) return;
+  const raw = (l.whatsapp || l.phone || '').replace(/\D/g,'');
+  if(!raw){ toast('Este lead não tem telefone/WhatsApp cadastrado', true); return; }
+  const withCountry = raw.length<=11 ? '55'+raw : raw; // números brasileiros sem DDI cadastrados
+  window.open(`https://wa.me/${withCountry}`, '_blank');
 }
 // Motivos padrão de perda de lead — o motivo escolhido fica registrado em `lead_history` (mesma tabela
 // de timeline já usada pra outros eventos do lead, sem precisar criar tabela nova) e também gravado nos
@@ -9013,6 +9095,11 @@ async function saveLead(id){
   const clientType = document.getElementById('l-clienttype').value;
   const freqType = clientType==='recorrente' ? (document.getElementById('l-freqtype').value || null) : null;
   const freqDays = freqType==='personalizada' ? (parseInt(document.getElementById('l-freqdays').value)||null) : null;
+  const sizeTier = document.getElementById('l-sizetier').value || null;
+  if(sizeTier && !document.getElementById('l-regionneighborhood').value){
+    toast('Escolha a cidade e o bairro (Regiões) pra ativar esse lead no Funil de Prospecção', true);
+    return;
+  }
   const data = {
     name, company: document.getElementById('l-company').value.trim(),
     phone: document.getElementById('l-phone').value.trim(), whatsapp: document.getElementById('l-whatsapp').value.trim(),
@@ -9022,6 +9109,11 @@ async function saveLead(id){
     number: document.getElementById('l-number').value.trim(), complement: document.getElementById('l-complement').value.trim(),
     neighborhood: document.getElementById('l-neighborhood').value.trim(), state: document.getElementById('l-state').value.trim(),
     client_type: clientType, order_frequency_type: freqType, order_frequency_days: freqDays,
+    size_tier: sizeTier, segment: document.getElementById('l-segment').value.trim() || null,
+    estimated_weekly_packages: sizeTier ? (parseFloat(document.getElementById('l-weeklypkgs').value)||null) : null,
+    hot: sizeTier ? document.getElementById('l-hot').checked : false,
+    region_city_id: sizeTier ? (document.getElementById('l-regioncity').value || null) : null,
+    region_neighborhood_id: sizeTier ? (document.getElementById('l-regionneighborhood').value || null) : null,
   };
   const newStage = document.getElementById('l-stage').value;
   const currentStage = id ? state.leads.find(l=>l.id===id)?.stage : null;
@@ -9038,6 +9130,7 @@ async function doSaveLead(id, data, newStage, lostReason, lostReasonDetail){
   const clientType = data.client_type, freqType = data.order_frequency_type, freqDays = data.order_frequency_days;
   if(lostReason){ data = { ...data, lost_reason: lostReason, lost_reason_detail: lostReasonDetail || null }; }
   let convertedLeadId = null;
+  let savedLeadId = id || null;
   if(id){
     const wasFechado = state.leads.find(l=>l.id===id)?.stage === 'fechado';
     // a trigger no banco cuida do registro na timeline e da conversão automática em cliente quando a etapa muda
@@ -9049,6 +9142,7 @@ async function doSaveLead(id, data, newStage, lostReason, lostReasonDetail){
     const needsConvertStep = newStage === 'fechado'; // trigger só dispara em UPDATE, então inserimos e, se preciso, atualizamos em seguida
     const { data: created, error } = await sb.from('leads').insert({ ...data, stage: needsConvertStep ? 'lead' : newStage }).select().single();
     if(error){ dbErr(error, 'Erro ao criar lead'); return; }
+    savedLeadId = created.id;
     await sb.from('lead_history').insert({ lead_id: created.id, type:'criacao', text:'Lead cadastrado' });
     if(lostReason) await sb.from('lead_history').insert({ lead_id: created.id, type:'perdido', text: lostReasonDetail ? `Lead perdido — motivo: ${lostReason} (${lostReasonDetail})` : `Lead perdido — motivo: ${lostReason}` });
     if(needsConvertStep){
@@ -9058,6 +9152,11 @@ async function doSaveLead(id, data, newStage, lostReason, lostReasonDetail){
     }
   }
   closeModal(); toast('Lead salvo'); await loadAll(); renderAll();
+  // Se o lead foi ativado no Funil de Prospecção (size_tier definido), garante que exista um prospect de
+  // campo pareado com ele — vinculando num já existente em vez de duplicar, quando aplicável.
+  if(data.size_tier && savedLeadId){
+    await syncLeadWithFieldProspect(savedLeadId);
+  }
   if(convertedLeadId){
     // A trigger do banco cria o cliente automaticamente, mas não sabe sobre tipo/periodicidade (isso só
     // existe na tela de Lead) — completa esses campos no cliente recém-criado logo em seguida.
@@ -9070,6 +9169,53 @@ async function doSaveLead(id, data, newStage, lostReason, lostReasonDetail){
     }
     await maybeOpenFirstOrderWizard(convertedLeadId);
   }
+}
+// ---- Funil de Prospecção: vincula (sem duplicar) ou cria um field_prospect pareado ao lead ----
+// Mesma lógica testada isoladamente (prospect_sync_logic.js) — mantida idêntica aqui de propósito.
+function findMatchingFieldProspect(fieldProspects, { name, neighborhoodId, phone }){
+  const normName = (name||'').trim().toLowerCase();
+  if(!normName) return null;
+  const phoneDigits = (phone||'').replace(/\D/g,'');
+  return fieldProspects.find(p=>{
+    const pName = (p.name||'').trim().toLowerCase();
+    if(pName !== normName) return false;
+    if(neighborhoodId && p.neighborhoodId === neighborhoodId) return true;
+    if(phoneDigits && (p.phone||'').replace(/\D/g,'') === phoneDigits) return true;
+    return false;
+  }) || null;
+}
+function decideProspectSyncAction({ lead, fieldProspects }){
+  if(!lead.sizeTier) return { action: 'none' };
+  const existingLinked = fieldProspects.find(p=>p.convertedLeadId === lead.id);
+  if(existingLinked) return { action: 'none' };
+  const match = findMatchingFieldProspect(fieldProspects, { name: lead.name, neighborhoodId: lead.regionNeighborhoodId, phone: lead.phone || lead.whatsapp });
+  if(match){
+    if(match.convertedLeadId && match.convertedLeadId !== lead.id) return { action: 'conflict', prospectId: match.id };
+    return { action: 'link', prospectId: match.id };
+  }
+  if(!lead.regionCityId || !lead.regionNeighborhoodId) return { action: 'needs_region' };
+  return { action: 'create', payload: {
+    name: lead.name, company: lead.company || null, phone: lead.phone || lead.whatsapp || null,
+    address: lead.address || null, city_id: lead.regionCityId, neighborhood_id: lead.regionNeighborhoodId,
+    segment: lead.segment || null, notes: 'Criado automaticamente a partir do Funil de Prospecção',
+  }};
+}
+async function syncLeadWithFieldProspect(leadId){
+  const lead = state.leads.find(l=>l.id===leadId);
+  if(!lead) return;
+  const decision = decideProspectSyncAction({ lead, fieldProspects: state.fieldProspects });
+  if(decision.action==='link'){
+    await sb.from('field_prospects').update({ converted_lead_id: leadId }).eq('id', decision.prospectId);
+    await loadAll(); renderVisitas();
+  } else if(decision.action==='create'){
+    const { data: created, error } = await sb.from('field_prospects').insert(decision.payload).select().single();
+    if(error){ dbErr(error, 'Lead salvo, mas não foi possível criar o prospect de campo vinculado'); return; }
+    await sb.from('field_prospects').update({ converted_lead_id: leadId }).eq('id', created.id);
+    await loadAll(); renderVisitas();
+  } else if(decision.action==='conflict'){
+    toast('Este lead já tinha um prospect de campo parecido vinculado a outro lead — não foi duplicado, revise manualmente em Prospects de Campo', true);
+  }
+  // action 'none' ou 'needs_region' (este último já é bloqueado antes de salvar, no saveLead) — nada a fazer.
 }
 async function deleteLead(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para excluir leads', true); return; }
@@ -9301,15 +9447,15 @@ async function finishWizard(){
 }
 
 // Tasks
-function showTaskForm(leadId){
+function showTaskForm(leadId, defaultType){
   document.getElementById('taskFormWrap').innerHTML = `
     <div class="field-row3" style="margin-top:8px;">
-      <div class="field" style="margin-bottom:6px;"><label>Tipo</label><select id="tk-type">${TASK_TYPES.map(t=>`<option>${t}</option>`).join('')}</select></div>
+      <div class="field" style="margin-bottom:6px;"><label>Tipo</label><select id="tk-type">${TASK_TYPES.map(t=>`<option ${defaultType===t?'selected':''}>${t}</option>`).join('')}</select></div>
       <div class="field" style="margin-bottom:6px;"><label>Data</label><input id="tk-date" type="date" value="${todayStr()}"></div>
       <div class="field" style="margin-bottom:6px;"><label>Hora</label><input id="tk-time" type="time"></div>
     </div>
     <div class="field-row" style="margin-bottom:6px;">
-      <div class="field" style="margin-bottom:0;"><label>Título</label><input id="tk-title" placeholder="Ex: Ligar sobre proposta"></div>
+      <div class="field" style="margin-bottom:0;"><label>Título</label><input id="tk-title" placeholder="${defaultType==='Visita'?'Ex: Visita de apresentação':'Ex: Ligar sobre proposta'}" value="${defaultType==='Visita'?'Visita comercial':''}"></div>
       <div class="field" style="margin-bottom:0;"><label>Responsável</label><input id="tk-owner"></div>
     </div>
     <div class="field"><label>Descrição</label><textarea id="tk-desc" rows="2"></textarea></div>
@@ -9398,6 +9544,196 @@ function onKanbanDrop(e, stage){
   const leadId = draggedLeadId || e.dataTransfer.getData('text/plain');
   if(leadId) moveLeadStage(leadId, stage);
   draggedLeadId = null;
+}
+
+// ---- Funil de Prospecção (Visitas Comerciais > Funil) — kanban por TAMANHO, não por etapa. Reaproveita
+// os mesmos leads do CRM, filtrados a quem já foi "ativado" (sizeTier definido) ----
+let draggedFunilLeadId = null;
+function onFunilDragStart(e, leadId){ draggedFunilLeadId = leadId; e.dataTransfer.setData('text/plain', leadId); }
+function onFunilDrop(e, tier){
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  const leadId = draggedFunilLeadId || e.dataTransfer.getData('text/plain');
+  if(leadId) moveLeadSizeTier(leadId, tier);
+  draggedFunilLeadId = null;
+}
+async function moveLeadSizeTier(id, newTier){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para mover leads', true); return; }
+  const lead = state.leads.find(l=>l.id===id);
+  if(!lead || lead.sizeTier===newTier) return;
+  const { error } = await sb.from('leads').update({ size_tier: newTier }).eq('id', id);
+  if(error){ dbErr(error, 'Erro ao mover lead no Funil'); return; }
+  toast('Lead movido no Funil'); await loadAll(); renderVisitas();
+}
+function funilFilteredLeads(){
+  const search = (document.getElementById('funilSearchInput')?.value||'').trim().toLowerCase();
+  const segment = document.getElementById('funilSegmentFilter')?.value || '';
+  const onlyHot = document.getElementById('funilHotFilter')?.checked || false;
+  return state.leads.filter(l=>{
+    if(!l.sizeTier) return false;
+    if(onlyHot && !l.hot) return false;
+    if(segment && l.segment !== segment) return false;
+    if(search && !(l.name||'').toLowerCase().includes(search) && !(l.company||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+}
+function renderFunilStats(){
+  const grid = document.getElementById('funilStatsGrid');
+  if(!grid) return;
+  const active = state.leads.filter(l=>l.sizeTier);
+  const totalWeekly = active.reduce((s,l)=>s+(l.estimatedWeeklyPackages||0), 0);
+  const hotCount = active.filter(l=>l.hot).length;
+  grid.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Leads ativos no Funil</div><div class="stat-value">${active.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Pacotes/semana somados (estimado)</div><div class="stat-value">${totalWeekly.toLocaleString('pt-BR')}</div></div>
+    <div class="stat-card"><div class="stat-label">🔥 Leads quentes</div><div class="stat-value">${hotCount}</div></div>
+    <div class="stat-card"><div class="stat-label">Prospects não ativados</div><div class="stat-value">${state.fieldProspects.filter(p=>!p.convertedLeadId || !state.leads.find(l=>l.id===p.convertedLeadId && l.sizeTier)).length}</div></div>
+  `;
+}
+function renderFunil(){
+  const board = document.getElementById('funilBoard');
+  if(!board) return;
+  // Popula o filtro de tipo de negócio com os valores realmente em uso pelos leads ativos, sem repetir.
+  const segFilter = document.getElementById('funilSegmentFilter');
+  if(segFilter){
+    const current = segFilter.value;
+    const segments = [...new Set(state.leads.filter(l=>l.sizeTier && l.segment).map(l=>l.segment))].sort();
+    segFilter.innerHTML = '<option value="">Todos os tipos de negócio</option>' + segments.map(s=>`<option value="${esc(s)}" ${s===current?'selected':''}>${esc(s)}</option>`).join('');
+  }
+  renderFunilStats();
+  const leads = funilFilteredLeads();
+  board.innerHTML = SIZE_TIERS.map(tier=>{
+    const tierLeads = leads.filter(l=>l.sizeTier===tier.v);
+    return `<div class="kanban-col" data-tier="${tier.v}" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onFunilDrop(event,'${tier.v}')">
+      <div class="kanban-col-head"><span>${tier.label}</span><span class="kanban-count">${tierLeads.length}</span></div>
+      <div class="hint" style="padding:0 2px 8px;">${tier.hint}</div>
+      <div class="kanban-cards">
+        ${tierLeads.length===0 ? '<div class="hint" style="text-align:center;padding:10px 0;">Vazio</div>' : tierLeads.map(l=>`
+          <div class="kanban-card" draggable="true" ondragstart="onFunilDragStart(event,'${l.id}')" onclick="openLeadModal('${l.id}')">
+            <div class="kanban-card-name">${l.hot?'🔥 ':''}${esc(l.name)}</div>
+            <div class="kanban-card-meta">${esc(l.company||'—')}${l.segment?' · '+esc(l.segment):''}${l.city?'<br>'+esc(l.city):''}${l.estimatedWeeklyPackages?`<br>~${l.estimatedWeeklyPackages} pacotes/semana`:''}</div>
+            <div class="kanban-card-foot">
+              <span class="badge ${LEAD_STAGES.find(s=>s.v===l.stage)?.v==='fechado'?'badge-success':'badge-info'}">${LEAD_STAGES.find(s=>s.v===l.stage)?.label||l.stage}</span>
+              <select class="kanban-move" onclick="event.stopPropagation()" onchange="event.stopPropagation(); moveLeadSizeTier('${l.id}', this.value)">${SIZE_TIERS.map(t=>`<option value="${t.v}" ${t.v===l.sizeTier?'selected':''}>${t.label}</option>`).join('')}</select>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ---- Ativar Prospects no Funil — pega prospects já cadastrados em "Prospects de Campo" e cria/ativa o
+// lead correspondente com o tamanho escolhido, numa ação em lote. Implementa o pedido explícito de não
+// mostrar todos os prospects de cara no Funil — só entram quando o usuário escolhe ativar. ----
+let activateProspectsSelection = new Set();
+function prospectsNotYetInFunil(){
+  return state.fieldProspects.filter(p=>{
+    if(!p.convertedLeadId) return true; // nunca virou lead — prospect puro
+    const lead = state.leads.find(l=>l.id===p.convertedLeadId);
+    return !lead || !lead.sizeTier; // virou lead, mas nunca foi ativado no Funil (ou o lead sumiu)
+  });
+}
+function openActivateProspectsModal(){
+  if(!canWrite('crm')){ toast('Seu perfil não tem permissão para ativar leads', true); return; }
+  activateProspectsSelection = new Set();
+  openModal(`
+    <div class="modal-head"><h3>Ativar prospects no Funil</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="hint" style="margin-bottom:10px;">Escolha quais prospects de campo entram no Funil de Prospecção e em qual tamanho. Prospects já ativados não aparecem aqui.</div>
+    <div class="field-row" style="align-items:flex-end;">
+      <div class="field"><label>Ativar como</label><select id="ap-tier">${SIZE_TIERS.map(t=>`<option value="${t.v}">${t.label} (${t.hint})</option>`).join('')}</select></div>
+      <div class="field"><input type="text" id="ap-search" placeholder="Buscar por nome, bairro..." oninput="renderActivateProspectsList()"></div>
+    </div>
+    <div id="apListWrap" class="modal-inner-scroll" style="max-height:340px;"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="apConfirmBtn" onclick="confirmActivateProspects()" disabled>Ativar selecionados</button>
+    </div>
+  `, 'wide');
+  renderActivateProspectsList();
+}
+function renderActivateProspectsList(){
+  const wrap = document.getElementById('apListWrap');
+  if(!wrap) return;
+  const search = (document.getElementById('ap-search')?.value||'').trim().toLowerCase();
+  const list = prospectsNotYetInFunil().filter(p=>{
+    if(!search) return true;
+    const city = state.visitCities.find(c=>c.id===p.cityId);
+    const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+    return (p.name||'').toLowerCase().includes(search) || (neighborhood?.name||'').toLowerCase().includes(search) || (city?.name||'').toLowerCase().includes(search) || (p.segment||'').toLowerCase().includes(search);
+  });
+  if(list.length===0){
+    wrap.innerHTML = '<div class="hint" style="padding:14px 0;">Nenhum prospect pendente de ativação encontrado.</div>';
+    document.getElementById('apConfirmBtn').disabled = true;
+    return;
+  }
+  wrap.innerHTML = `<table><thead><tr><th style="width:30px;"></th><th>Nome</th><th>Tipo de negócio</th><th>Bairro</th></tr></thead><tbody>
+    ${list.map(p=>{
+      const city = state.visitCities.find(c=>c.id===p.cityId);
+      const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+      return `<tr style="cursor:pointer;" onclick="toggleActivateProspect('${p.id}')">
+        <td><input type="checkbox" style="width:auto;" ${activateProspectsSelection.has(p.id)?'checked':''} onclick="event.stopPropagation(); toggleActivateProspect('${p.id}')"></td>
+        <td>${esc(p.name)}${p.company?` <span style="color:var(--muted);font-size:11px;">(${esc(p.company)})</span>`:''}</td>
+        <td style="color:var(--muted);">${esc(p.segment||'—')}</td>
+        <td style="color:var(--muted);">${esc(neighborhood?.name||'—')}${city?' · '+esc(city.name):''}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+  updateActivateProspectsConfirmBtn();
+}
+function toggleActivateProspect(id){
+  if(activateProspectsSelection.has(id)) activateProspectsSelection.delete(id); else activateProspectsSelection.add(id);
+  renderActivateProspectsList();
+}
+function updateActivateProspectsConfirmBtn(){
+  const btn = document.getElementById('apConfirmBtn');
+  if(!btn) return;
+  btn.disabled = activateProspectsSelection.size===0;
+  btn.textContent = activateProspectsSelection.size>0 ? `Ativar ${activateProspectsSelection.size} selecionado(s)` : 'Ativar selecionados';
+}
+async function confirmActivateProspects(){
+  const tier = document.getElementById('ap-tier').value;
+  const ids = [...activateProspectsSelection];
+  if(ids.length===0) return;
+  const btn = document.getElementById('apConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Ativando...';
+  let created = 0, linked = 0, failed = 0;
+  for(const id of ids){
+    const p = state.fieldProspects.find(x=>x.id===id);
+    if(!p) continue;
+    if(p.convertedLeadId){
+      // Já virou lead antes (só não estava ativo no Funil) — só ativa, sem criar nada novo.
+      const { error } = await sb.from('leads').update({
+        size_tier: tier, region_city_id: p.cityId || null, region_neighborhood_id: p.neighborhoodId || null,
+        segment: p.segment || null,
+      }).eq('id', p.convertedLeadId);
+      if(error){ failed++; continue; }
+      linked++;
+    } else {
+      // Nunca virou lead — cria um novo, já ativado no tamanho escolhido (mesmo padrão de
+      // convertProspectToLead, só que com size_tier preenchido de cara).
+      const city = state.visitCities.find(c=>c.id===p.cityId);
+      const neighborhood = state.visitNeighborhoods.find(n=>n.id===p.neighborhoodId);
+      const { data: createdLead, error } = await sb.from('leads').insert({
+        name: p.name, company: p.company, phone: p.phone, city: city?city.name:'',
+        address: p.address, neighborhood: neighborhood?neighborhood.name:'', state: city?city.state:'',
+        notes: p.notes, stage: 'lead', segment: p.segment || null, size_tier: tier,
+        region_city_id: p.cityId || null, region_neighborhood_id: p.neighborhoodId || null,
+      }).select().single();
+      if(error){ failed++; continue; }
+      await sb.from('lead_history').insert({ lead_id: createdLead.id, type:'criacao', text:'Lead criado e ativado no Funil de Prospecção a partir de um Prospect de Campo' });
+      const { error: linkErr } = await sb.from('field_prospects').update({ converted_lead_id: createdLead.id }).eq('id', p.id);
+      if(linkErr){ failed++; continue; }
+      created++;
+    }
+  }
+  closeModal();
+  const parts = [];
+  if(created) parts.push(`${created} lead(s) criado(s)`);
+  if(linked) parts.push(`${linked} já existente(s) ativado(s)`);
+  if(failed) parts.push(`${failed} falhou(aram)`);
+  toast(parts.join(', ') || 'Nenhum prospect ativado', failed>0 && created===0 && linked===0);
+  await loadAll(); renderVisitas();
 }
 
 // CRM dashboard stats
@@ -11717,6 +12053,7 @@ function setVisitasTab(tab){
   document.getElementById('visitasRegioesView').style.display = tab==='regioes' ? 'block' : 'none';
   document.getElementById('visitasProspectsView').style.display = tab==='prospects' ? 'block' : 'none';
   document.getElementById('visitasRotasView').style.display = tab==='rotas' ? 'block' : 'none';
+  document.getElementById('visitasFunilView').style.display = tab==='funil' ? 'block' : 'none';
   renderVisitas();
   if(tab==='regioes') setTimeout(()=>{ if(visitasLeafletMap) visitasLeafletMap.invalidateSize(); }, 100);
 }
@@ -11729,6 +12066,7 @@ function renderVisitas(){
   renderRegioesSummaryBar();
   renderProspectsTable();
   renderCommercialRoutes();
+  renderFunil();
 }
 // Semana atual (segunda a domingo) — usada tanto nos cards do topo quanto nos indicadores de cada bairro.
 function currentWeekStartStr(){
