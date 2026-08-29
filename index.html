@@ -4886,12 +4886,12 @@ function promptOrderDriver(orderId){
       <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(order?.paymentMethod||'—')}</span></div>
       <div class="stat-row"><span class="stat-row-label">Distância</span><span class="stat-row-value" id="odp-distance-summary" style="font-weight:700;">calculando...</span></div>
     </div>
-    <div class="field"><label>Como calcular a distância dessa entrega</label><select id="odp-calc-mode" onchange="renderOdpDistanceDisplay()">
+    <div class="field" id="odp-calcmode-field"><label>Como calcular a distância dessa entrega</label><select id="odp-calc-mode" onchange="renderOdpDistanceDisplay()">
       <option value="ida" ${(state.company.routeCalcMode||'ida')==='ida'?'selected':''}>Só ida (fábrica → cliente)</option>
       <option value="ida_volta" ${state.company.routeCalcMode==='ida_volta'?'selected':''}>Ida e volta (fábrica → cliente → fábrica)</option>
       <option value="casa_motorista" ${state.company.routeCalcMode==='casa_motorista'?'selected':''}>Fábrica → cliente → casa do motorista</option>
     </select></div>
-    <div class="hint" style="margin-top:-8px;margin-bottom:12px;">Vem pré-selecionado com o padrão configurado em Agenda de Entregas, mas pode trocar só pra essa entrega.</div>
+    <div class="hint" id="odp-calcmode-hint" style="margin-top:-8px;margin-bottom:12px;">Vem pré-selecionado com o padrão configurado em Agenda de Entregas, mas pode trocar só pra essa entrega.</div>
     <div id="odp-distance-wrap"><div class="hint">📍 Calculando distância até o cliente...</div></div>
     <div id="odp-map" style="height:240px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
     <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option><option value="retirada">🏪 Retirada no local (sem custo de entrega)</option></select></div>
@@ -4923,6 +4923,11 @@ async function loadDeliveryDistanceIntoModal(client){
     odpBaseDistanceKm = result.distanceKm; // fábrica -> cliente, é a base de qualquer um dos 3 modos
     odpClientCoord = (result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null;
     renderOdpDistanceDisplay();
+  } else if(document.getElementById('odp-driver')?.value === 'retirada'){
+    // Se o usuário já tinha escolhido Retirada no local enquanto o cálculo de endereço ainda rodava, o
+    // geocoding falhar não deveria substituir a tela de retirada por um campo de "digite a km manualmente"
+    // — retirada não precisa de km nenhuma. Deixa renderOdpDistanceDisplay() cuidar disso normalmente.
+    renderOdpDistanceDisplay();
   } else {
     wrap.innerHTML = `<div class="field"><label>Não localizei o endereço no mapa — digite a distância manualmente (km)</label><input id="odp-distance-manual" type="number" step="0.1" min="0"></div>`;
     renderOdpMap(null, null);
@@ -4934,16 +4939,29 @@ async function loadDeliveryDistanceIntoModal(client){
 // selecionado antes de saber a distância final — por isso essa função roda de novo no onchange do select.
 function renderOdpDistanceDisplay(){
   const wrap = document.getElementById('odp-distance-wrap');
-  if(!wrap || odpBaseDistanceKm==null) return;
+  if(!wrap) return;
   const driverSel = document.getElementById('odp-driver')?.value;
-  // Retirada no local: cliente busca ele mesmo, sem custo de entrega nenhum — zera a distância e nem
-  // tenta calcular rota, independente do modo de cálculo configurado.
+  const calcModeField = document.getElementById('odp-calcmode-field');
+  const calcModeHint = document.getElementById('odp-calcmode-hint');
+  const mapEl = document.getElementById('odp-map');
+  // Retirada no local: cliente busca ele mesmo, não tem rota, motorista, distância nem custo de entrega
+  // pra calcular — some com o seletor de "modo de cálculo" e com o mapa inteiros (não só zera o valor),
+  // já que nenhum dos dois faz sentido pra essa opção. Roda ANTES de depender da distância até o cliente
+  // já ter sido calculada — retirada não precisa esperar isso pra nada, diferente dos outros modos.
   if(driverSel==='retirada'){
-    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">🏪 Retirada no local — sem custo de entrega.</div><input type="hidden" id="odp-distance-auto" value="0">`;
-    renderOdpMap(odpClientCoord, null);
+    if(calcModeField) calcModeField.style.display = 'none';
+    if(calcModeHint) calcModeHint.style.display = 'none';
+    if(mapEl) mapEl.style.display = 'none';
+    wrap.innerHTML = `<div class="hint" style="margin-bottom:10px;">🏪 Retirada no local — sem custo de entrega, sem motorista necessário.</div><input type="hidden" id="odp-distance-auto" value="0">`;
     updateOdpDistanceSummary(0);
     return;
   }
+  // Qualquer outra opção (Beto, Gui ou — Não definido —): garante que o seletor de modo de cálculo e o
+  // mapa voltem a aparecer, caso o usuário tenha escolhido Retirada antes e voltado atrás.
+  if(calcModeField) calcModeField.style.display = '';
+  if(calcModeHint) calcModeHint.style.display = '';
+  if(mapEl) mapEl.style.display = '';
+  if(odpBaseDistanceKm==null) return;
   const mode = document.getElementById('odp-calc-mode')?.value || state.company.routeCalcMode || 'ida';
 
   // O desconto de 500m só se aplica ao trecho final "entrega -> casa do motorista" (ou "-> fábrica" no
