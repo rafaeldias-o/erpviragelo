@@ -4557,11 +4557,18 @@ function openOrderReadOnlyModal(o){
 async function estornarPedidoCore(orderId, note){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return false;
+  // Nenhuma das duas chamadas abaixo checava erro — a consequência real (só descoberta depois, com uma
+  // constraint do banco que nunca aceitou 'estorno_pedido' como source válido) é que a QUANTIDADE sempre
+  // voltava certo pro estoque, mas o MOVIMENTO rastreável no histórico simplesmente nunca era gravado, em
+  // silêncio total, sem avisar ninguém. Agora avisa se algo falhar, sem desfazer o que já deu certo.
+  const falhas = [];
   for(const it of order.items){
     const stockItem = state.stockItems.find(s=>s.id===it.productId);
     if(stockItem){
-      await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
-      await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} ${note||'devolvido pra correção'}`, date: todayStr() });
+      const { error: qtyErr } = await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+      if(qtyErr){ falhas.push(`${stockItem.name}: não devolveu ao estoque (${qtyErr.message})`); continue; }
+      const { error: movErr } = await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} ${note||'devolvido pra correção'}`, date: todayStr() });
+      if(movErr) falhas.push(`${stockItem.name}: quantidade devolvida certo, mas o histórico de movimentações não foi registrado (${movErr.message})`);
     }
   }
   const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado');
@@ -4570,6 +4577,7 @@ async function estornarPedidoCore(orderId, note){
   }
   const { error } = await sb.from('orders').update({ status:'confirmado', stock_applied:false, delivered_at:null }).eq('id', orderId);
   if(error){ dbErr(error, 'Erro ao estornar pedido'); return false; }
+  if(falhas.length) dbErr({ message: falhas.join(' | ') }, 'Pedido estornado, mas com avisos no estoque');
   return true;
 }
 async function estornarPedido(orderId){
@@ -5284,11 +5292,14 @@ async function deleteOrder(id){
   // movimento rastreável (não apaga o histórico original) e cancela — não apaga — a receita, mantendo
   // tudo auditável.
   if(order && order.stockApplied){
+    const falhasEstoque = [];
     for(const it of order.items){
       const stockItem = state.stockItems.find(s=>s.id===it.productId);
       if(stockItem){
-        await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
-        await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} excluído`, date: todayStr() });
+        const { error: qtyErr } = await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+        if(qtyErr){ falhasEstoque.push(`${stockItem.name}: não devolveu ao estoque (${qtyErr.message})`); continue; }
+        const { error: movErr } = await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} excluído`, date: todayStr() });
+        if(movErr) falhasEstoque.push(`${stockItem.name}: quantidade devolvida certo, mas o histórico de movimentações não foi registrado (${movErr.message})`);
       }
     }
     const revenueTx = state.transactions.find(t=>t.orderId===id && t.type==='receita' && t.status!=='cancelado');
@@ -5296,6 +5307,7 @@ async function deleteOrder(id){
       await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ' [Cancelada automaticamente — pedido excluído]').trim() }).eq('id', revenueTx.id);
     }
     await sb.from('deliveries').update({ deleted_at: new Date().toISOString() }).eq('order_id', id);
+    if(falhasEstoque.length) dbErr({ message: falhasEstoque.join(' | ') }, 'Pedido excluído, mas com avisos no estoque');
   }
   const { error } = await sb.from('orders').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao excluir pedido'); unlockButton(_btn); return; }
@@ -7494,11 +7506,14 @@ function keepThisOrder(keepId, idsUnderscore){
 async function hardDeleteDuplicateOrder(orderId){
   const order = state.orders.find(o=>o.id===orderId);
   if(!order) return false;
+  const falhasEstoque = [];
   for(const it of order.items){
     const stockItem = state.stockItems.find(s=>s.id===it.productId);
     if(stockItem){
-      await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
-      await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido duplicado ${order.orderNumber||order.id.slice(-6)} removido`, date: todayStr() });
+      const { error: qtyErr } = await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+      if(qtyErr){ falhasEstoque.push(`${stockItem.name}: não devolveu ao estoque (${qtyErr.message})`); continue; }
+      const { error: movErr } = await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido duplicado ${order.orderNumber||order.id.slice(-6)} removido`, date: todayStr() });
+      if(movErr) falhasEstoque.push(`${stockItem.name}: quantidade devolvida certo, mas o histórico de movimentações não foi registrado (${movErr.message})`);
     }
   }
   await sb.from('transactions').delete().eq('order_id', orderId).eq('type', 'receita');
@@ -7506,6 +7521,7 @@ async function hardDeleteDuplicateOrder(orderId){
   await sb.from('order_items').delete().eq('order_id', orderId);
   const { error } = await sb.from('orders').delete().eq('id', orderId);
   if(error){ dbErr(error, 'Erro ao apagar pedido duplicado'); return false; }
+  if(falhasEstoque.length) dbErr({ message: falhasEstoque.join(' | ') }, 'Pedido duplicado apagado, mas com avisos no estoque');
   return true;
 }
 // Corrige um lançamento "pago sem conta" apontado pela Conciliação — o dropdown de forma de pagamento em
