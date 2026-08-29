@@ -7295,31 +7295,48 @@ function renderConciliacao(){
   </tbody></table>
   ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
 }
+// Dispensar um alerta da Conciliação era guardado só no navegador de quem clicava (localStorage) — cada
+// dispositivo/usuário via a lista de novo, mesmo depois de alguém já ter revisado e decidido ignorar.
+// Agora reaproveita a tabela `alert_dismissals`, que já existe e já é usada pelos outros alertas do
+// sistema (Centro de Alertas) — compartilhada entre todos os usuários, carregada normalmente pelo
+// loadAll() em state.alertDismissals. Prefixo 'conciliacao:' evita colidir com as chaves dos outros
+// alertas, que usam outro formato (tipo:entidade). `dismissed_until: null` = dispensado pra sempre (mesma
+// semântica já usada em dismissAlert quando chamado sem dias). Continua sem apagar nem alterar nenhum
+// dado real — só marca que aquele alerta específico já foi revisado.
+const CONCILIACAO_DISMISS_PREFIX = 'conciliacao:';
 function getDismissedConciliacaoIssues(){
-  try{ return new Set(JSON.parse(localStorage.getItem('dismissedConciliacaoIssues')||'[]')); }
-  catch(e){ return new Set(); }
+  const now = todayStr();
+  const set = new Set();
+  (state.alertDismissals||[]).forEach(d=>{
+    if(!d.key || !d.key.startsWith(CONCILIACAO_DISMISS_PREFIX)) return;
+    // Suporta o mesmo campo "until" da tabela, embora aqui sempre gravemos null (pra sempre) — se um dia
+    // alguém quiser "dispensar por X dias" também na Conciliação, já funciona sem mudar mais nada aqui.
+    if(d.until != null && d.until < now) return; // prazo expirado — volta a aparecer
+    set.add(d.key.slice(CONCILIACAO_DISMISS_PREFIX.length));
+  });
+  return set;
 }
-function dismissConciliacaoIssue(key){
-  const dispensados = getDismissedConciliacaoIssues();
-  dispensados.add(key);
-  localStorage.setItem('dismissedConciliacaoIssues', JSON.stringify([...dispensados]));
-  toast('Alerta dispensado — nada foi alterado nos dados');
-  renderConciliacao();
+async function dismissConciliacaoIssue(key){
+  const { error } = await sb.from('alert_dismissals').upsert({ alert_key: CONCILIACAO_DISMISS_PREFIX+key, dismissed_until: null, dismissed_by: myUser?.id||null, dismissed_at: new Date().toISOString() });
+  if(error){ dbErr(error, 'Erro ao dispensar alerta'); return; }
+  toast('Alerta dispensado pra todos os usuários — nada foi alterado nos dados');
+  await loadAll(); renderConciliacao();
 }
-// Dispensa TODOS os alertas visíveis no momento de uma vez — mesmo mecanismo do dispensar individual
-// (guarda a assinatura de cada um no navegador), só que em lote. Não apaga nem altera nenhum dado.
-function dismissAllConciliacaoIssues(){
+// Dispensa TODOS os alertas visíveis no momento de uma vez — mesmo mecanismo do dispensar individual,
+// só que em lote (1 upsert só, com todas as linhas). Não apaga nem altera nenhum dado.
+async function dismissAllConciliacaoIssues(){
   if(!_lastConciliacaoIssues.length) return;
-  const dispensados = getDismissedConciliacaoIssues();
-  _lastConciliacaoIssues.forEach(i=>dispensados.add(i.dismissKey));
-  localStorage.setItem('dismissedConciliacaoIssues', JSON.stringify([...dispensados]));
-  toast(`${_lastConciliacaoIssues.length} alerta(s) dispensado(s) — nada foi alterado nos dados`);
-  renderConciliacao();
+  const rows = _lastConciliacaoIssues.map(i=>({ alert_key: CONCILIACAO_DISMISS_PREFIX+i.dismissKey, dismissed_until: null, dismissed_by: myUser?.id||null, dismissed_at: new Date().toISOString() }));
+  const { error } = await sb.from('alert_dismissals').upsert(rows);
+  if(error){ dbErr(error, 'Erro ao dispensar alertas'); return; }
+  toast(`${_lastConciliacaoIssues.length} alerta(s) dispensado(s) pra todos os usuários — nada foi alterado nos dados`);
+  await loadAll(); renderConciliacao();
 }
-function restoreDismissedConciliacaoIssues(){
-  localStorage.removeItem('dismissedConciliacaoIssues');
-  renderConciliacao();
-  toast('Alertas dispensados restaurados');
+async function restoreDismissedConciliacaoIssues(){
+  const { error } = await sb.from('alert_dismissals').delete().like('alert_key', CONCILIACAO_DISMISS_PREFIX+'%');
+  if(error){ dbErr(error, 'Erro ao restaurar alertas dispensados'); return; }
+  await loadAll(); renderConciliacao();
+  toast('Alertas dispensados restaurados pra todos os usuários');
 }
 // Mostra movimentações de estoque duplicadas lado a lado e deixa escolher qual é a real — as outras são
 // apagadas — SEM mexer na quantidade em estoque. Confirmado pelo usuário: o registro (linha na tabela de
