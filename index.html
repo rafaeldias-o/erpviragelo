@@ -2949,6 +2949,22 @@ const OFFLINE_ENTITY_CONFIG = {
   financial_accounts: { table:'financial_accounts', label:'conta financeira', notFoundMsg:'Esta conta financeira foi excluída no servidor enquanto você editava offline.', conflictMsg:'Esta conta financeira foi alterada por outro dispositivo/usuário enquanto você editava offline.' },
   orders: { table:'orders', label:'status do pedido', notFoundMsg:'Este pedido foi excluído no servidor enquanto você estava offline.', conflictMsg:'Este pedido foi alterado por outro dispositivo/usuário enquanto você estava offline.' },
 };
+// Antes de declarar "excluído no servidor" ao sincronizar uma edição feita offline, tenta a checagem
+// mais uma vez depois de uma pequena espera — evita declarar uma exclusão que nunca aconteceu por causa
+// de uma falha passageira bem na hora que o dispositivo acabou de voltar a ficar online (rede instável,
+// timing de reconexão, etc.). Só declara "excluído" de verdade se a checagem falhar as DUAS vezes.
+// Descoberto com um caso real: o cliente "Paulo" nunca foi excluído (confirmado direto no banco), mas o
+// sync de uma simples edição de telefone feita offline acusou "excluído no servidor" mesmo assim — uma
+// checagem única, sem segunda chance, é frágil demais pra uma decisão dessas.
+async function checkRowExistsWithRetry(table, id, selectCols){
+  for(let tentativa=1; tentativa<=2; tentativa++){
+    const { data, error } = await sb.from(table).select(selectCols).eq('id', id).single();
+    if(!error) return { data, error:null };
+    if(error.code !== 'PGRST116') return { data:null, error }; // erro de outro tipo — não adianta tentar de novo
+    if(tentativa===1) await new Promise(r=>setTimeout(r, 800)); // dá uma segunda chance antes de declarar "excluído"
+  }
+  return { data:null, error:{ code:'PGRST116', message:'Registro não encontrado mesmo após nova tentativa' } };
+}
 async function syncOutboxOp(op){
   const cfg = OFFLINE_ENTITY_CONFIG[op.entity];
   if(!cfg) throw new Error('Tipo de operação offline não suportado: ' + op.entity + '/' + op.op);
@@ -2966,7 +2982,7 @@ async function syncOutboxOp(op){
     // marcar como entregue. Por isso, pra pedidos, sempre confere o status atual antes de aplicar
     // qualquer mudança offline, mesmo que a checagem de updated_at genérica abaixo não pegasse isso.
     if(op.entity === 'orders'){
-      const { data: currentOrder, error: checkErr } = await sb.from('orders').select('status').eq('id', op.recordId).single();
+      const { data: currentOrder, error: checkErr } = await checkRowExistsWithRetry('orders', op.recordId, 'status');
       if(checkErr && checkErr.code === 'PGRST116') throw Object.assign(new Error(cfg.notFoundMsg), { isConflict:true });
       if(checkErr) throw new Error(checkErr.message);
       if(currentOrder?.status === 'entregue' && op.payload.status !== 'entregue'){
@@ -2976,7 +2992,7 @@ async function syncOutboxOp(op){
     // Concorrência otimista: se alguém (outro dispositivo/usuário) mudou esse registro depois que
     // capturamos o updated_at base, não sobrescreve às cegas — marca como conflito pra revisão manual.
     if(op.baseUpdatedAt){
-      const { data: current, error: checkErr } = await sb.from(cfg.table).select('updated_at').eq('id', op.recordId).single();
+      const { data: current, error: checkErr } = await checkRowExistsWithRetry(cfg.table, op.recordId, 'updated_at');
       if(checkErr && checkErr.code === 'PGRST116'){
         throw Object.assign(new Error(cfg.notFoundMsg), { isConflict:true });
       }
