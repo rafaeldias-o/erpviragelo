@@ -4573,7 +4573,14 @@ async function estornarPedidoCore(orderId, note){
   }
   const revenueTx = state.transactions.find(t=>t.orderId===orderId && t.type==='receita' && t.status!=='cancelado');
   if(revenueTx){
-    await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ` [Cancelada automaticamente — ${note||'pedido estornado'}]`).trim() }).eq('id', revenueTx.id);
+    // Essa chamada nunca checava erro — e a constraint transactions_status_check NUNCA aceitou
+    // 'cancelado' (só 'pago'/'pendente', confirmado com o usuário: zero linhas com status='cancelado'
+    // em toda a base). Ou seja, TODO estorno feito até hoje só devolveu o estoque de verdade — a receita
+    // antiga continuava "pago" pra sempre, escondida (o pedido não é mais "entregue", então some da
+    // Conciliação), até o pedido ser entregue de novo e o gatilho do banco criar uma SEGUNDA receita —
+    // provavelmente a causa raiz real por trás da maioria dos casos de "Receita duplicada" já vistos.
+    const { error: txErr } = await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ` [Cancelada automaticamente — ${note||'pedido estornado'}]`).trim() }).eq('id', revenueTx.id);
+    if(txErr) falhas.push(`Receita "${revenueTx.description}": não foi cancelada (${txErr.message}) — pode duplicar se o pedido for entregue de novo`);
   }
   const { error } = await sb.from('orders').update({ status:'confirmado', stock_applied:false, delivered_at:null }).eq('id', orderId);
   if(error){ dbErr(error, 'Erro ao estornar pedido'); return false; }
@@ -5304,10 +5311,11 @@ async function deleteOrder(id){
     }
     const revenueTx = state.transactions.find(t=>t.orderId===id && t.type==='receita' && t.status!=='cancelado');
     if(revenueTx){
-      await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ' [Cancelada automaticamente — pedido excluído]').trim() }).eq('id', revenueTx.id);
+      const { error: txErr } = await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ' [Cancelada automaticamente — pedido excluído]').trim() }).eq('id', revenueTx.id);
+      if(txErr) falhasEstoque.push(`Receita "${revenueTx.description}": não foi cancelada (${txErr.message})`);
     }
     await sb.from('deliveries').update({ deleted_at: new Date().toISOString() }).eq('order_id', id);
-    if(falhasEstoque.length) dbErr({ message: falhasEstoque.join(' | ') }, 'Pedido excluído, mas com avisos no estoque');
+    if(falhasEstoque.length) dbErr({ message: falhasEstoque.join(' | ') }, 'Pedido excluído, mas com avisos no estoque/financeiro');
   }
   const { error } = await sb.from('orders').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   if(error){ dbErr(error, 'Erro ao excluir pedido'); unlockButton(_btn); return; }
