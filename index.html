@@ -5102,8 +5102,18 @@ async function finalizeOrderDelivery(orderId, driver, distanceKm, accountId, hom
     const insertData = { client_id: order.clientId, order_id: orderId, date: todayStr(), status:'entregue', driver, distance_km: safeDistanceKm };
     if(homeLegKm !== undefined) insertData.home_leg_km = (typeof homeLegKm === 'number' && isFinite(homeLegKm)) ? homeLegKm : null;
     const { data: createdDelivery, error: delErr } = await sb.from('deliveries').insert(insertData).select().single();
-    if(delErr){ dbErr(delErr, 'Erro ao registrar a entrega'); return; }
-    deliveryId = createdDelivery.id;
+    // Antes, um erro aqui (ex: nenhum motorista escolhido violando uma constraint do banco) interrompia a
+    // função com um `return` — mas o pedido já tinha virado "entregue" e o gatilho do banco já tinha
+    // criado a receita (SEM conta, forma de pagamento ou data de pagamento — só o trecho mais abaixo
+    // preenche isso). Esse `return` antecipado deixava a receita pendurada como "Pago sem conta" na
+    // Conciliação pra sempre, mesmo o usuário tendo escolhido uma conta na hora de confirmar a entrega —
+    // causa raiz real do padrão relatado. Agora, se o registro da entrega (motorista/distância) falhar,
+    // avisamos e seguimos em frente, garantindo que pelo menos o lado financeiro seja corrigido.
+    if(delErr){
+      dbErr(delErr, 'O pedido foi marcado como entregue e a receita foi gerada normalmente, mas não foi possível salvar o motorista/distância dessa entrega. Corrija manualmente na ficha do cliente se precisar desses dados.');
+    } else {
+      deliveryId = createdDelivery.id;
+    }
   }
   // Sincroniza os itens da entrega com os itens ATUAIS do pedido toda vez que a entrega é confirmada ou
   // reconfirmada — antes só preenchia na primeira vez; se o pedido fosse editado depois (ex: estornado,
@@ -5245,10 +5255,35 @@ async function updateOrderStatus(id, newStatus){
 }
 async function deleteOrder(id){
   if(!canWrite('pedidos')){ toast('Seu perfil não tem permissão para excluir pedidos', true); return; }
+  const order = state.orders.find(o=>o.id===id);
   if(!confirm('Tem certeza que deseja excluir este pedido? Esta ação não pode ser desfeita.')) return;
+  const _btn = lockButton();
+  // Pedido já entregue tem estoque baixado e receita gerada pelo gatilho do banco (fulfill_order) —
+  // excluir só o registro do pedido (deleted_at) deixava os dois rastros pendurados pra sempre: o estoque
+  // nunca voltava (produto ficava faltando de verdade) e a receita continuava "pago", contando nos
+  // relatórios e aparecendo na Conciliação, mesmo o pedido tendo sumido da tela de Pedidos. Mesmo padrão
+  // de reversão já usado no Estornar e na limpeza de pedidos duplicados: devolve o estoque com um
+  // movimento rastreável (não apaga o histórico original) e cancela — não apaga — a receita, mantendo
+  // tudo auditável.
+  if(order && order.stockApplied){
+    for(const it of order.items){
+      const stockItem = state.stockItems.find(s=>s.id===it.productId);
+      if(stockItem){
+        await sb.from('stock_items').update({ qty: stockItem.qty + it.qty }).eq('id', it.productId);
+        await sb.from('stock_movements').insert({ stock_item_id: it.productId, type:'entrada', qty: it.qty, source:'estorno_pedido', note:`Estorno — pedido ${order.orderNumber||order.id.slice(-6)} excluído`, date: todayStr() });
+      }
+    }
+    const revenueTx = state.transactions.find(t=>t.orderId===id && t.type==='receita' && t.status!=='cancelado');
+    if(revenueTx){
+      await sb.from('transactions').update({ status:'cancelado', notes: ((revenueTx.notes||'') + ' [Cancelada automaticamente — pedido excluído]').trim() }).eq('id', revenueTx.id);
+    }
+    await sb.from('deliveries').update({ deleted_at: new Date().toISOString() }).eq('order_id', id);
+  }
   const { error } = await sb.from('orders').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-  if(error){ dbErr(error, 'Erro ao excluir pedido'); return; }
-  closeModal(); toast('Pedido excluído'); await loadAll(); renderAll();
+  if(error){ dbErr(error, 'Erro ao excluir pedido'); unlockButton(_btn); return; }
+  closeModal();
+  toast(order && order.stockApplied ? 'Pedido excluído — estoque devolvido e receita cancelada automaticamente' : 'Pedido excluído');
+  await loadAll(); renderAll();
 }
 function clientNameOf(id){ const c = state.clients.find(x=>x.id===id); return c?c.name:'Cliente'; }
 
