@@ -826,11 +826,11 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
         </div>
-        <div id="finDashboardMonthNav" style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+        <div id="finDashboardMonthNav" style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:5px 6px 5px 12px;flex-shrink:0;">
           <span class="hint" style="margin:0;">Ver mês:</span>
-          <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" onclick="changeFinDashboardMonth(-1)" title="Mês anterior">‹</button>
-          <span id="finDashboardMonthLabel" style="font-size:11px;color:var(--muted);min-width:88px;text-align:center;"></span>
-          <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" id="finDashboardMonthNextBtn" onclick="changeFinDashboardMonth(1)" title="Próximo mês">›</button>
+          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeFinDashboardMonth(-1)" title="Mês anterior">‹</button>
+          <span id="finDashboardMonthLabel" style="font-size:12px;font-weight:600;color:var(--ink);min-width:100px;text-align:center;"></span>
+          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="finDashboardMonthNextBtn" onclick="changeFinDashboardMonth(1)" title="Próximo mês">›</button>
         </div>
         </div>
 
@@ -4505,16 +4505,48 @@ function renderProducaoTopStats(){
   const pctVenda = pctChange(vendaMes,vendaPorMes[4]);
   const fmtKg = v => fmtKgNum(v)+' kg';
 
+  // Mesma ideia usada no Financeiro: monta os dados de qualquer mês sob demanda, pra alimentar a
+  // navegação de mês (‹ ›) dentro do modal de detalhe, sem precisar recalcular tudo de novo por fora.
+  const producaoSparkMonthData = (metric, offset) => {
+    const now = new Date();
+    const base = new Date(now.getFullYear(), now.getMonth()+offset, 1);
+    const prevBase = new Date(now.getFullYear(), now.getMonth()+offset-1, 1);
+    const fromStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+    const toStr = d => new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10);
+    const from = fromStr(base), to = toStr(base), prevFrom = fromStr(prevBase), prevTo = toStr(prevBase);
+    let alvoTotal, prevTotal, diaria;
+    if(metric==='produzido'){
+      const eventosAlvo = state.production.filter(p=>p.date>=from&&p.date<=to);
+      alvoTotal = eventosAlvo.reduce((s,p)=>s+p.kg,0);
+      prevTotal = state.production.filter(p=>p.date>=prevFrom&&p.date<=prevTo).reduce((s,p)=>s+p.kg,0);
+      diaria = dailySeries(from, to, eventosAlvo, p=>p.date, p=>p.kg);
+    } else {
+      const eventosAlvo = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=from&&o.deliveredAt<=to)
+        .map(o=>({date:o.deliveredAt, kg:o.items.reduce((a,it)=>a+it.qty*(stockById3[it.productId]?.weightKg||0),0)}));
+      const eventosPrev = state.orders.filter(o=>o.status==='entregue'&&o.deliveredAt&&o.deliveredAt>=prevFrom&&o.deliveredAt<=prevTo)
+        .map(o=>o.items.reduce((a,it)=>a+it.qty*(stockById3[it.productId]?.weightKg||0),0)).reduce((s,v)=>s+v,0);
+      alvoTotal = eventosAlvo.reduce((s,e)=>s+e.kg,0);
+      prevTotal = eventosPrev;
+      diaria = dailySeries(from, to, eventosAlvo, e=>e.date, e=>e.kg);
+    }
+    const pct = pctChange(alvoTotal, prevTotal);
+    const monthLabelRaw = base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+    const monthLabel = monthLabelRaw.charAt(0).toUpperCase()+monthLabelRaw.slice(1);
+    return { valueText: fmtKgNum(alvoTotal)+' kg', pctText:(pct>=0?'+':'')+pct.toFixed(0)+'%', series: diaria, monthLabel };
+  };
+
   box.innerHTML = [
     card('📈','#DBEAFE','Produzido no mês', {text:fmtKgNum(producaoMes)+' kg'}, '', pctProd, buildSparklineSvg(producaoPorMes,'#2563EB', {
       key:'producaoTop-produzido', icon:'📈', title:'Produzido no mês', valueText:fmtKgNum(producaoMes)+' kg',
       pctText:(pctProd>=0?'+':'')+pctProd.toFixed(0)+'%', fmtFn:fmtKg, seriesLabel:'Produzido por dia',
-      series:producaoDiaria, monthlySeries:producaoPorMes, monthlyLabels:monthLabels
+      series:producaoDiaria, monthlySeries:producaoPorMes, monthlyLabels:monthLabels,
+      getMonthData: (offset)=>producaoSparkMonthData('produzido', offset)
     })),
     card('📊','#DCFCE7','Vendido no mês', {text:fmtKgNum(vendaMes)+' kg'}, '', pctVenda, buildSparklineSvg(vendaPorMes,'#16A34A', {
       key:'producaoTop-vendido', icon:'📊', title:'Vendido no mês', valueText:fmtKgNum(vendaMes)+' kg',
       pctText:(pctVenda>=0?'+':'')+pctVenda.toFixed(0)+'%', fmtFn:fmtKg, seriesLabel:'Vendido por dia',
-      series:vendaDiaria, monthlySeries:vendaPorMes, monthlyLabels:monthLabels
+      series:vendaDiaria, monthlySeries:vendaPorMes, monthlyLabels:monthLabels,
+      getMonthData: (offset)=>producaoSparkMonthData('vendido', offset)
     })),
     card('🧊','#EDE9FE','Estoque atual', {text:fmtKgNum(estoqueKg)+' kg', color:stockLevelColor(estoqueKg)}, 'Disponível', null, buildSparklineSvg(producaoPorMes.map((v,i)=>v-vendaPorMes[i]).reduce((acc,v,i)=>{acc.push((acc[i-1]||0)+v);return acc;},[]),'#7C3AED', {
       key:'producaoTop-estoque', icon:'🧊', title:'Estoque atual', valueText:fmtKgNum(estoqueKg)+' kg',
@@ -5973,13 +6005,38 @@ function buildAreaChartSvg(values, labels, color, fmtFn){
 }
 // Abre o modal em tela cheia (com overlay) com a visão expandida de um sparkline: valor
 // atual, variação, gráfico de área com todos os dias do período e comparativo mensal.
+// ---- Modal de detalhe do sparkline — usado por TODOS os cards clicáveis com gráfico de linha (Financeiro,
+// Produção, etc.), não só um lugar específico. Cards que passam um `getMonthData(offset)` em opts ganham
+// navegação de mês (‹ ›) automaticamente dentro do modal; os que não passam continuam exatamente como
+// antes (mês fixo), sem nenhuma mudança de comportamento — ex: "Saldo em contas" e "Estoque atual", que
+// são saldos acumulados/correntes, não fazem muito sentido "navegados" e não ganharam a função por opção,
+// não por limitação técnica. ----
+let sparkDetailKey = null;
+let sparkDetailMonthOffset = 0;
 function openSparklineDetail(key){
+  sparkDetailKey = key;
   const d = sparkDetailStore[key];
+  sparkDetailMonthOffset = (d && d.initialMonthOffset) || 0; // abre no mesmo mês que o card já estava mostrando, não sempre "hoje"
+  renderSparklineDetailModal();
+}
+function changeSparklineDetailMonth(delta){
+  const d = sparkDetailStore[sparkDetailKey];
+  if(!d || !d.getMonthData) return;
+  sparkDetailMonthOffset = Math.min(0, sparkDetailMonthOffset + delta); // não deixa navegar pro futuro
+  renderSparklineDetailModal();
+}
+function renderSparklineDetailModal(){
+  const d = sparkDetailStore[sparkDetailKey];
   if(!d) return;
   const fmt = d.fmtFn || (v=>v);
-  const chart = buildAreaChartSvg(d.series?.values||[], d.series?.labels||[], d.color, fmt);
-  const pctHtml = d.pctText!=null
-    ? `<div style="font-size:14px;font-weight:600;color:${String(d.pctText).trim().startsWith('-')?'var(--danger)':'var(--success)'};margin-top:2px;">${esc(d.pctText)} vs mês anterior</div>`
+  let valueText = d.valueText, pctText = d.pctText, series = d.series, monthLabel = null;
+  if(d.getMonthData){
+    const md = d.getMonthData(sparkDetailMonthOffset);
+    valueText = md.valueText; pctText = md.pctText; series = md.series; monthLabel = md.monthLabel;
+  }
+  const chart = buildAreaChartSvg(series?.values||[], series?.labels||[], d.color, fmt);
+  const pctHtml = pctText!=null
+    ? `<div style="font-size:14px;font-weight:600;color:${String(pctText).trim().startsWith('-')?'var(--danger)':'var(--success)'};margin-top:2px;">${esc(pctText)} vs mês anterior</div>`
     : (d.noteText ? `<div class="hint" style="margin-top:2px;">${esc(d.noteText)}</div>` : '');
   const monthlyHtml = (d.monthlySeries && d.monthlyLabels) ? `
     <div style="margin-top:22px;">
@@ -5988,12 +6045,21 @@ function openSparklineDetail(key){
         ${d.monthlyLabels.map((l,i)=>`<div class="stat-card" style="flex:1;min-width:90px;padding:10px 12px;"><div class="stat-label" style="font-size:9.5px;">${esc(l)}</div><div class="stat-value" style="font-size:14px;">${esc(fmt(d.monthlySeries[i]))}</div></div>`).join('')}
       </div>
     </div>` : '';
+  const navHtml = d.getMonthData ? `
+    <div style="display:flex;align-items:center;gap:5px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:4px 6px;margin-right:8px;">
+      <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" onclick="changeSparklineDetailMonth(-1)" title="Mês anterior">‹</button>
+      <span style="font-size:11px;font-weight:600;color:var(--ink);min-width:88px;text-align:center;">${esc(monthLabel||'')}</span>
+      <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" ${sparkDetailMonthOffset===0?'disabled':''} onclick="changeSparklineDetailMonth(1)" title="Próximo mês">›</button>
+    </div>` : '';
   openModal(`
     <div class="modal-head">
       <h3>${d.icon?d.icon+' ':''}${esc(d.title||'')}</h3>
-      <button class="icon-btn" onclick="closeModal()">✕</button>
+      <div style="display:flex;align-items:center;">
+        ${navHtml}
+        <button class="icon-btn" onclick="closeModal()">✕</button>
+      </div>
     </div>
-    <div style="font-size:30px;font-weight:700;line-height:1.1;">${esc(d.valueText||'')}</div>
+    <div style="font-size:30px;font-weight:700;line-height:1.1;">${esc(valueText||'')}</div>
     ${pctHtml}
     <div style="margin-top:22px;">
       <div class="legend" style="margin-bottom:6px;"><span><i style="background:${d.color}"></i>${esc(d.seriesLabel||'Valor por dia')}</span></div>
@@ -6001,7 +6067,7 @@ function openSparklineDetail(key){
     </div>
     ${monthlyHtml}
   `, 'full');
-  attachLineChartHover('sparkDetailChart', d.series?.values||[], d.series?.labels||[], fmt, d.color, {w:820,h:280,padL:58,padR:16,padT:16,padB:28});
+  attachLineChartHover('sparkDetailChart', series?.values||[], series?.labels||[], fmt, d.color, {w:820,h:280,padL:58,padR:16,padT:16,padB:28});
 }
 function buildComboChartSvg(entradas, saidas, saldo, labels){
   const w=700, h=190, padL=66, padR=10, padT=14, padB=24;
@@ -6179,21 +6245,54 @@ function renderFinTopCards(){
   const pctDespesa = pctChange(despesaMes, despesaMesAnterior);
   const pctSaldo = pctChange(saldoMes, saldoMesAnterior);
 
+  // Monta os dados de um mês qualquer (não só o exibido de cara) pra alimentar a navegação de mês dentro
+  // do modal de detalhe — reaproveita a mesma lógica de lastNMonths+dailySeries já usada acima, só que
+  // parametrizada pelo offset de mês passado pelo modal, em vez de finDashboardMonthOffset fixo.
+  const finSparkMonthData = (metric, offset) => {
+    const ms = lastNMonths(2, offset);
+    const target = ms[1], prev = ms[0];
+    const recAlvo = state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=target.from&&t.paymentDate<=target.to);
+    const desAlvo = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=target.from&&t.paymentDate<=target.to);
+    const recPrevTotal = state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=prev.from&&t.paymentDate<=prev.to).reduce((s,t)=>s+t.amount,0);
+    const desPrevTotal = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=prev.from&&t.paymentDate<=prev.to).reduce((s,t)=>s+t.amount,0);
+    const recAlvoTotal = recAlvo.reduce((s,t)=>s+t.amount,0);
+    const desAlvoTotal = desAlvo.reduce((s,t)=>s+t.amount,0);
+    const recDiaria = dailySeries(target.from, target.to, recAlvo, t=>t.paymentDate, t=>t.amount);
+    const desDiaria = dailySeries(target.from, target.to, desAlvo, t=>t.paymentDate, t=>t.amount);
+    const monthLabelRaw = new Date(target.from+'T00:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+    const monthLabel = monthLabelRaw.charAt(0).toUpperCase()+monthLabelRaw.slice(1);
+    if(metric==='receita'){
+      const pct = pctChange(recAlvoTotal, recPrevTotal);
+      return { valueText: fmtMoney(recAlvoTotal), pctText:(pct>=0?'+':'')+pct.toFixed(1)+'%', series: recDiaria, monthLabel };
+    }
+    if(metric==='despesa'){
+      const pct = pctChange(desAlvoTotal, desPrevTotal);
+      return { valueText: fmtMoney(desAlvoTotal), pctText:(pct>=0?'+':'')+pct.toFixed(1)+'%', series: desDiaria, monthLabel };
+    }
+    const saldoAlvoTotal = recAlvoTotal-desAlvoTotal, saldoPrevTotal = recPrevTotal-desPrevTotal;
+    const pct = pctChange(saldoAlvoTotal, saldoPrevTotal);
+    const saldoDiaria = { labels: recDiaria.labels, values: recDiaria.values.map((v,i)=>v-desDiaria.values[i]) };
+    return { valueText: fmtMoney(saldoAlvoTotal), pctText:(pct>=0?'+':'')+pct.toFixed(1)+'%', series: saldoDiaria, monthLabel };
+  };
+
   box.innerHTML = [
     cardHtml('💰', '#DCFCE7', 'Receitas no mês', receitaMes, pctReceita, buildSparklineSvg(receitasPorMes, '#16A34A', {
       key:'finTop-receitas', icon:'💰', title:'Receitas no mês', valueText:fmtMoney(receitaMes),
       pctText:(pctReceita>=0?'+':'')+pctReceita.toFixed(1)+'%', fmtFn:fmtR, seriesLabel:'Receitas por dia',
-      series:receitasDiaria, monthlySeries:receitasPorMes, monthlyLabels:monthLabelsFin
+      series:receitasDiaria, monthlySeries:receitasPorMes, monthlyLabels:monthLabelsFin,
+      getMonthData: (offset)=>finSparkMonthData('receita', offset), initialMonthOffset: finDashboardMonthOffset
     })),
     cardHtml('🛡️', '#FEE2E2', 'Despesas no mês', despesaMes, pctDespesa, buildSparklineSvg(despesasPorMes, '#DC2626', {
       key:'finTop-despesas', icon:'🛡️', title:'Despesas no mês', valueText:fmtMoney(despesaMes),
       pctText:(pctDespesa>=0?'+':'')+pctDespesa.toFixed(1)+'%', fmtFn:fmtR, seriesLabel:'Despesas por dia',
-      series:despesasDiaria, monthlySeries:despesasPorMes, monthlyLabels:monthLabelsFin
+      series:despesasDiaria, monthlySeries:despesasPorMes, monthlyLabels:monthLabelsFin,
+      getMonthData: (offset)=>finSparkMonthData('despesa', offset), initialMonthOffset: finDashboardMonthOffset
     })),
     cardHtml('💼', '#DBEAFE', 'Receita - Despesa', saldoMes, pctSaldo, buildSparklineSvg(saldoPorMes, '#2563EB', {
       key:'finTop-saldoMes', icon:'💼', title:'Receita - Despesa', valueText:fmtMoney(saldoMes),
       pctText:(pctSaldo>=0?'+':'')+pctSaldo.toFixed(1)+'%', fmtFn:fmtR, seriesLabel:'Saldo (receitas − despesas) por dia',
-      series:{labels:receitasDiaria.labels, values:saldoDiariaValues}, monthlySeries:saldoPorMes, monthlyLabels:monthLabelsFin
+      series:{labels:receitasDiaria.labels, values:saldoDiariaValues}, monthlySeries:saldoPorMes, monthlyLabels:monthLabelsFin,
+      getMonthData: (offset)=>finSparkMonthData('saldo', offset), initialMonthOffset: finDashboardMonthOffset
     })),
     cardHtml('🏦', '#EDE9FE', 'Saldo em contas', saldoContas, null, buildSparklineSvg(saldoAcumuladoPorMes, '#7C3AED', {
       key:'finTop-saldoContas', icon:'🏦', title:'Saldo em contas', valueText:fmtMoney(saldoContas),
