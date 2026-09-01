@@ -328,11 +328,30 @@ tr:last-child td{border-bottom:none;}
   body{overflow-x:hidden;}
   .app{flex-direction:column;max-width:100vw;}
   .sidebar{display:none;}
-  .content{padding:14px 14px 84px 14px;overflow-x:hidden;max-width:100vw;}
+  .content{padding:14px 14px 84px 14px;overflow-x:hidden;max-width:100vw;min-width:0;}
+  /* Causa raiz de "tudo cortando" no mobile: .content é filho de um .app{display:flex}, e por padrão um
+     item flex nunca encolhe abaixo do conteúdo mais largo que ele contém (min-width:auto implícito) —
+     mesmo com max-width:100vw. Uma única tabela larga (ex: Máquinas de produção) ou texto sem quebra em
+     QUALQUER lugar da página empurrava a página inteira mais larga que a tela; o overflow-x:hidden só
+     escondia visualmente o excesso, mas grids/abas continuavam calculando o layout deles contra essa
+     largura falsa e maior, aparecendo cortados sem dar pra rolar até o resto. min-width:0 é o jeito
+     padrão de dizer "pode encolher de verdade", deixando cada tabela/grid rolar por dentro de si mesma
+     (como já era a intenção) em vez de esticar a página toda. */
   .field-row,.field-row3{grid-template-columns:1fr;}
-  .two-col,.three-col,.four-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:1fr;}
+  /* Mesmo problema, um nível abaixo: um item de grid (ex: cada painel dentro de .two-col) também não
+     encolhe abaixo do próprio conteúdo por padrão — "1fr" sozinho equivale a "minmax(auto,1fr)". Trocar
+     por "minmax(0,1fr)" deixa o painel realmente encolher pro tamanho da coluna, em vez de continuar
+     largo por causa de uma tabela lá dentro. */
+  .two-col,.three-col,.four-col,.regioes-layout,.bairro-detail-layout{grid-template-columns:minmax(0,1fr);}
   .topbar{flex-wrap:wrap;gap:8px;}
   .topbar-right{gap:8px;}
+  /* Cabeçalhos "título | navegação de período (◄ mês ►) | botão de ação" (Resumo do mês em Lançamentos e
+     Agenda de entregas) usam 3 colunas lado a lado — cabe numa tela de desktop, mas em ~360px de largura
+     não tem espaço pros três de uma vez (o botão ficava cortado na borda, como reportado). Empilha em 3
+     linhas só no mobile, cada uma ocupando a largura toda. */
+  .month-nav-header{display:flex !important;flex-direction:column;align-items:stretch !important;gap:8px !important;}
+  .month-nav-header>*:nth-child(2){align-self:center;}
+  .month-nav-header>*:nth-child(3) .btn{width:100%;}
   /* Abas com muitos itens (ex: Financeiro tem 9) não cabem numa linha só em telas pequenas — em vez de
      esticar a página inteira pro lado (o bug que estava acontecendo), a barra de abas rola por dentro
      dela mesma, como um carrossel horizontal, mantendo o resto da tela no lugar. */
@@ -818,7 +837,7 @@ tr:last-child td{border-bottom:none;}
               <strong>Receita de venda não é lançada manualmente.</strong> Ela é gerada automaticamente quando um pedido é marcado como <em>Entregue</em>, no módulo Pedidos. Use "+ Novo lançamento" pra despesas, receitas avulsas (que não vieram de pedido, ex: aporte, ajuste) e recorrências.
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:14px;gap:10px;">
+          <div class="month-nav-header" style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:14px;gap:10px;">
             <div class="section-title" style="font-size:16px;margin:0;">Resumo do mês</div>
             <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:6px 12px;justify-self:center;">
               <button class="icon-btn" onclick="lancamentosChangeMonth(-1)" style="width:24px;height:24px;">←</button>
@@ -1162,7 +1181,7 @@ tr:last-child td{border-bottom:none;}
       <!-- AGENDA DE ENTREGAS -->
       <section class="view" id="view-agenda">
         <div class="panel">
-          <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;">
+          <div class="month-nav-header" style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;">
             <div class="section-title" style="margin:0;">📅 Agenda de entregas</div>
             <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:6px 12px;justify-self:center;">
               <button class="icon-btn" onclick="agendaPrevWeek()" title="Semana anterior" style="width:24px;height:24px;">←</button>
