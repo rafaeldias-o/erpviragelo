@@ -817,6 +817,7 @@ tr:last-child td{border-bottom:none;}
 
       <!-- FINANCEIRO -->
       <section class="view" id="view-financeiro">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <div class="tabs">
           <div class="tab" data-fintab="metas" onclick="setFinTab('metas')">🎯 Metas &amp; Insights</div>
           <div class="tab active" data-fintab="dashboard" onclick="setFinTab('dashboard')">📈 Dashboard</div>
@@ -824,6 +825,13 @@ tr:last-child td{border-bottom:none;}
           <div class="tab" data-fintab="contas" onclick="setFinTab('contas')">💳 Contas Financeiras</div>
           <div class="tab" data-fintab="fluxo" onclick="setFinTab('fluxo')">📊 Fluxo de Caixa</div>
           <div class="tab" data-fintab="conciliacao" onclick="setFinTab('conciliacao')">🔍 Conciliação</div>
+        </div>
+        <div id="finDashboardMonthNav" style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+          <span class="hint" style="margin:0;">Ver mês:</span>
+          <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" onclick="changeFinDashboardMonth(-1)" title="Mês anterior">‹</button>
+          <span id="finDashboardMonthLabel" style="font-size:11px;color:var(--muted);min-width:88px;text-align:center;"></span>
+          <button class="icon-btn" style="width:20px;height:20px;font-size:11px;" id="finDashboardMonthNextBtn" onclick="changeFinDashboardMonth(1)" title="Próximo mês">›</button>
+        </div>
         </div>
 
         <div class="panel" id="finResumoPanel" style="display:none;">
@@ -1155,7 +1163,7 @@ tr:last-child td{border-bottom:none;}
               <div id="fluxoCaixaComboChart" class="chart-hover-wrap"></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><div class="section-title" style="font-size:14px;">Despesas por categoria</div><span class="hint">Este mês</span></div>
+              <div class="panel-head"><div class="section-title" style="font-size:14px;">Despesas por categoria</div><span class="hint" id="despesasDonutPeriodLabel">Este mês</span></div>
               <div id="despesasDonutChart"></div>
             </div>
             <div class="panel" id="finMarginInsightsCard"></div>
@@ -6095,19 +6103,44 @@ function attachPieHover(containerId, data, formatValue){
     row.addEventListener('mouseleave', hide);
   });
 }
-function lastNMonths(n){
+function lastNMonths(n, offset){
   const months = [];
   const now = new Date();
+  const off = offset||0;
   for(let i=n-1;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const d = new Date(now.getFullYear(), now.getMonth()+off-i, 1);
     months.push({ from:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`, to:new Date(d.getFullYear(),d.getMonth()+1,0).toISOString().slice(0,10), label: d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','') + '/' + String(d.getFullYear()).slice(2) });
   }
   return months;
 }
+// ---- Navegação de mês do topo da aba Dashboard (Financeiro) — afeta os 4 cards do topo, o Fluxo de
+// Caixa e Despesas por categoria, que antes eram sempre fixos no mês atual/últimos N meses terminando
+// hoje. "Meta mensal", "Previsão de vendas", "Saúde financeira" e "Alertas" continuam sempre mostrando o
+// AGORA de verdade (são indicadores operacionais, não faz sentido "olhar pro passado" neles) — e "Margem
+// e custo de entrega" já tem navegação própria, vinculada ao mês de Contas a Pagar (pagarMonthOffset),
+// então não foi tocado aqui pra não duplicar/confundir com um segundo navegador de mês diferente.
+let finDashboardMonthOffset = 0;
+function changeFinDashboardMonth(delta){
+  finDashboardMonthOffset = Math.min(0, finDashboardMonthOffset + delta); // não deixa navegar pro futuro
+  renderFinTopCards();
+  renderFluxoCaixaCombo();
+  renderDespesasDonut();
+  updateFinDashboardMonthLabel();
+}
+function updateFinDashboardMonthLabel(){
+  const labelEl = document.getElementById('finDashboardMonthLabel');
+  if(!labelEl) return;
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth()+finDashboardMonthOffset, 1);
+  const l = base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  labelEl.textContent = l.charAt(0).toUpperCase()+l.slice(1);
+  const nextBtn = document.getElementById('finDashboardMonthNextBtn');
+  if(nextBtn) nextBtn.disabled = finDashboardMonthOffset===0;
+}
 function renderFinTopCards(){
   const box = document.getElementById('finTopCards');
   if(!box) return;
-  const months = lastNMonths(6);
+  const months = lastNMonths(6, finDashboardMonthOffset);
   const receitasPorMes = months.map(m=> state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const despesasPorMes = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const saldoPorMes = receitasPorMes.map((r,i)=>r-despesasPorMes[i]);
@@ -6173,7 +6206,7 @@ function renderFluxoCaixaCombo(){
   const box = document.getElementById('fluxoCaixaComboChart');
   if(!box) return;
   const n = parseInt(document.getElementById('fluxoCaixaMeses')?.value || '6');
-  const months = lastNMonths(n);
+  const months = lastNMonths(n, finDashboardMonthOffset);
   const entradas = months.map(m=> state.transactions.filter(t=>t.type==='receita'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const saidas = months.map(m=> state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=m.from&&t.paymentDate<=m.to).reduce((s,t)=>s+t.amount,0));
   const saldo = entradas.map((e,i)=>e-saidas[i]);
@@ -6184,8 +6217,12 @@ function renderDespesasDonut(){
   const box = document.getElementById('despesasDonutChart');
   if(!box) return;
   const now = new Date();
-  const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-  const to = todayStr();
+  const base = new Date(now.getFullYear(), now.getMonth()+finDashboardMonthOffset, 1);
+  const isCurrentMonth = finDashboardMonthOffset===0;
+  const from = `${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}-01`;
+  const to = isCurrentMonth ? todayStr() : new Date(base.getFullYear(), base.getMonth()+1, 0).toISOString().slice(0,10);
+  const periodLabelEl = document.getElementById('despesasDonutPeriodLabel');
+  if(periodLabelEl) periodLabelEl.textContent = isCurrentMonth ? 'Este mês' : (base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}).replace(/^./, c=>c.toUpperCase()));
   const despesas = state.transactions.filter(t=>t.type==='despesa'&&t.status==='pago'&&t.paymentDate>=from&&t.paymentDate<=to);
   const total = despesas.reduce((s,t)=>s+t.amount,0);
   const porCategoria = {};
@@ -6770,6 +6807,7 @@ function renderFinDashboard(){
   renderFinTopCards();
   renderFluxoCaixaCombo();
   renderDespesasDonut();
+  updateFinDashboardMonthLabel();
   renderDashContasWrap();
   renderDashAlertsMini();
   renderDashContasBancariasMini();
@@ -7691,6 +7729,9 @@ function setFinTab(tab){
   document.getElementById('finConciliacaoView').style.display = tab==='conciliacao' ? 'block' : 'none';
   document.getElementById('finMetasView').style.display = tab==='metas' ? 'block' : 'none';
   document.getElementById('finDashboardView').style.display = tab==='dashboard' ? 'block' : 'none';
+  const monthNavEl = document.getElementById('finDashboardMonthNav');
+  if(monthNavEl) monthNavEl.style.display = tab==='dashboard' ? 'flex' : 'none';
+  if(tab==='dashboard') updateFinDashboardMonthLabel();
   document.getElementById('finResumoPanel').style.display = (tab==='dashboard'||tab==='metas'||tab==='lancamentos'||tab==='contas') ? 'none' : 'block';
   if(tab==='contas'){ renderFinContasKpis(); renderFinAccountsTable(); renderSaldoHistoryChart(); renderUltimasTransferencias(); renderContasInsights(); }
   if(tab==='lancamentos') renderContasFinanceirasResumos();
