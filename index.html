@@ -5687,7 +5687,7 @@ function openTransactionModal(id, forceType){
       <div class="field"><label>Categoria</label><select id="t-cat">${cats.length?cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${esc(categoryFullLabel(c))}</option>`).join(''):'<option value="">Nenhuma categoria cadastrada</option>'}</select></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Pago com qual conta? (caixa, banco...)</label><select id="t-account">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
+      <div class="field"><label>Pago com qual conta? (caixa, banco...)</label><select id="t-account" onchange="onTxAccountChange()">${accounts.length?accounts.map(a=>`<option value="${a.id}" ${t&&t.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join(''):'<option value="">Nenhuma conta cadastrada</option>'}</select></div>
       <div class="field"><label>Centro de custo</label><select id="t-costcenter"><option value="">—</option>${state.costCenters.map(c=>`<option value="${c.id}" ${t&&t.costCenterId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     </div>
     ${!isReceitaType?`<div class="field"><label>Fornecedor</label><select id="t-supplier"><option value="">—</option>${suppliers.map(s=>`<option value="${s.id}" ${t&&t.supplierId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>`:''}
@@ -5731,6 +5731,30 @@ function openTransactionModal(id, forceType){
       <button class="btn btn-primary" onclick="saveTransaction(${t?`'${t.id}'`:'null'})">Salvar</button>
     </div>
   `);
+  onTxAccountChange();
+}
+// Cada tipo de conta só aceita ser paga/recebida de um jeito na vida real — Caixa (dinheiro físico) só em
+// espécie, Maquininha só em cartão, Pix só via Pix. Trava a "Forma de pagamento" pra mostrar só as opções
+// que fazem sentido pra conta escolhida, em vez de deixar combinações impossíveis (ex: "Caixa" + "Cartão
+// de crédito"). Contas sem um tipo restrito (Banco, Carteira, Outra) continuam aceitando qualquer forma.
+const ACCOUNT_TYPE_PAYMENT_METHODS = {
+  caixa: ['Dinheiro'],
+  maquininha: ['Cartão de crédito', 'Cartão de débito'],
+  pix: ['Pix'],
+};
+function onTxAccountChange(){
+  const accountSel = document.getElementById('t-account');
+  const payMethodSel = document.getElementById('t-paymethod');
+  if(!accountSel || !payMethodSel) return;
+  const account = state.financialAccounts.find(a=>a.id===accountSel.value);
+  const allowed = account ? ACCOUNT_TYPE_PAYMENT_METHODS[account.type] : null;
+  const currentValue = payMethodSel.value;
+  const options = allowed || PAYMENT_METHODS_FIN;
+  payMethodSel.innerHTML = (allowed?'':'<option value="">—</option>') + options.map(m=>`<option ${m===currentValue?'selected':''}>${m}</option>`).join('');
+  // Se a forma já escolhida não é mais válida pra essa conta (ex: trocou de Banco pra Caixa com "Pix"
+  // selecionado), ou se só sobrou uma opção possível, ajusta sozinho pra não deixar um valor inválido
+  // parado ali — melhor já vir certo do que deixar o usuário descobrir só ao tentar salvar.
+  if(allowed && !allowed.includes(currentValue)) payMethodSel.value = allowed[0];
 }
 function onTxStatusChange(){
   const status = document.getElementById('t-status').value;
@@ -8030,23 +8054,54 @@ function openFinAccountDetail(id){
   if(!a) return;
   const t = accountTypeInfo(a.type);
   const balance = accountBalance(id);
-  const txs = state.transactions.filter(tx=>tx.accountId===id && (tx.status==='pago'||tx.status==='parcial'))
-    .sort((x,y)=> (y.paymentDate||'').localeCompare(x.paymentDate||''));
+  const txs = state.transactions.filter(tx=>tx.accountId===id && (tx.status==='pago'||tx.status==='parcial'));
   const transfersIn = state.accountTransfers.filter(tr=>tr.toAccountId===id);
   const transfersOut = state.accountTransfers.filter(tr=>tr.fromAccountId===id);
   const receitasDePedido = txs.filter(tx=>tx.type==='receita' && tx.orderId);
   const totalPedidos = receitasDePedido.reduce((s,tx)=> s + (tx.status==='pago'?tx.amount:tx.paidAmount), 0);
 
-  const rows = txs.map(tx=>{
-    const effective = tx.status==='pago' ? tx.amount : tx.paidAmount;
-    const order = tx.orderId ? state.orders.find(o=>o.id===tx.orderId) : null;
-    const client = order ? state.clients.find(c=>c.id===order.clientId) : (tx.clientId ? state.clients.find(c=>c.id===tx.clientId) : null);
-    return [
-      fmtDate(tx.paymentDate),
-      order ? `<a href="#" onclick="event.preventDefault(); openOrderModal('${order.id}')">${esc(order.orderNumber||('#'+order.id.slice(-6)))}</a> — ${esc(client?client.name:'—')}` : esc(tx.description||'—'),
-      `<span style="color:${tx.type==='receita'?'var(--success)':'var(--danger)'};font-weight:600;">${tx.type==='receita'?'+ ':'− '}${fmtMoney(effective)}</span>`
-    ];
+  // Lista unificada de TUDO que mexe no saldo dessa conta — lançamentos pagos/parciais E transferências.
+  // As transferências antes só apareciam contadas no resumo do topo ("3 recebida(s) · 2 enviada(s)"), sem
+  // virar linha na lista — se elas não aparecerem aqui, o "saldo ao final do dia" ficaria errado em
+  // qualquer dia que tivesse uma transferência (o valor pularia sem explicação nenhuma na lista).
+  const movements = [
+    ...txs.map(tx=>{
+      const effective = tx.status==='pago' ? tx.amount : tx.paidAmount;
+      const order = tx.orderId ? state.orders.find(o=>o.id===tx.orderId) : null;
+      const client = order ? state.clients.find(c=>c.id===order.clientId) : (tx.clientId ? state.clients.find(c=>c.id===tx.clientId) : null);
+      const label = order ? `<a href="#" onclick="event.preventDefault(); openOrderModal('${order.id}')">${esc(order.orderNumber||('#'+order.id.slice(-6)))}</a> — ${esc(client?client.name:'—')}` : esc(tx.description||'—');
+      return { date: tx.paymentDate, label, signedAmount: tx.type==='receita' ? effective : -effective, sortKey: tx.paymentDate+'_1_'+tx.id };
+    }),
+    ...transfersIn.map(tr=>{
+      const fromAcc = state.financialAccounts.find(x=>x.id===tr.fromAccountId);
+      return { date: tr.date, label: `↔️ Transferência recebida${fromAcc?' de '+esc(fromAcc.name):''}${tr.notes?' — '+esc(tr.notes):''}`, signedAmount: tr.amount, sortKey: tr.date+'_0_'+tr.id };
+    }),
+    ...transfersOut.map(tr=>{
+      const toAcc = state.financialAccounts.find(x=>x.id===tr.toAccountId);
+      return { date: tr.date, label: `↔️ Transferência enviada${toAcc?' para '+esc(toAcc.name):''}${tr.notes?' — '+esc(tr.notes):''}`, signedAmount: -tr.amount, sortKey: tr.date+'_0_'+tr.id };
+    }),
+  ];
+
+  // Anda do movimento mais antigo pro mais novo pra calcular o saldo acumulado real dia a dia, partindo
+  // do saldo inicial da conta — só assim dá pra saber o saldo verdadeiro "ao final do dia", não só o
+  // saldo de hoje.
+  const ascending = [...movements].sort((x,y)=>x.sortKey.localeCompare(y.sortKey));
+  let running = a.initialBalance;
+  const balanceAfterDate = {};
+  ascending.forEach(m=>{ running += m.signedAmount; balanceAfterDate[m.date] = running; });
+
+  // Pra exibição, mantém a ordem mais recente primeiro (como já era) e insere uma linha de "saldo ao
+  // final do dia" toda vez que o grupo de um dia termina.
+  const descending = [...movements].sort((x,y)=>y.sortKey.localeCompare(x.sortKey));
+  const subtotalRow = date => `<tr style="background:var(--surface-2);"><td colspan="2" style="font-weight:600;font-size:11.5px;padding:6px 8px;">Saldo ao final de ${fmtDate(date)}</td><td style="font-weight:700;font-size:11.5px;padding:6px 8px;${balanceAfterDate[date]<0?'color:var(--danger);':''}">${fmtMoney(balanceAfterDate[date])}</td></tr>`;
+  let rowsHtml = '';
+  let lastDate = null;
+  descending.forEach(m=>{
+    if(lastDate !== null && m.date !== lastDate) rowsHtml += subtotalRow(lastDate);
+    rowsHtml += `<tr><td>${fmtDate(m.date)}</td><td>${m.label}</td><td><span style="color:${m.signedAmount>=0?'var(--success)':'var(--danger)'};font-weight:600;">${m.signedAmount>=0?'+ ':'− '}${fmtMoney(Math.abs(m.signedAmount))}</span></td></tr>`;
+    lastDate = m.date;
   });
+  if(lastDate !== null) rowsHtml += subtotalRow(lastDate); // fecha o último grupo (o dia mais antigo de todos)
 
   openModal(`
     <div class="modal-head"><h3>${t.icon} ${esc(a.name)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
@@ -8058,9 +8113,9 @@ function openFinAccountDetail(id){
       ${transfersIn.length||transfersOut.length ? `<div class="stat-row"><span class="stat-row-label">Transferências</span><span class="stat-row-value">${transfersIn.length} recebida(s) · ${transfersOut.length} enviada(s)</span></div>` : ''}
     </div>
     <div style="font-weight:700;font-size:13px;margin-bottom:8px;">Lançamentos que compõem esse saldo</div>
-    ${rows.length ? `<div class="table-scroll" style="max-height:320px;">
+    ${movements.length ? `<div class="table-scroll" style="max-height:320px;">
       <table><thead><tr><th>Data</th><th>Origem</th><th>Valor</th></tr></thead><tbody>
-        ${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
+        ${rowsHtml}
       </tbody></table>
     </div>` : emptyState('Nenhum lançamento pago nessa conta ainda.')}
     <div class="modal-foot">
@@ -8681,6 +8736,16 @@ function driverFeeForPeriod(driver, fromDate, toDate){
 // porque marcar como pago exige escolher de qual conta o dinheiro sai (mesma trava que já existe pra
 // qualquer despesa, pra o saldo de caixa nunca ficar errado). O pagamento de fato acontece normalmente
 // depois, pelo botão 💰 já existente em Contas a Pagar.
+// Acha uma categoria de despesa JÁ CADASTRADA pelo nome (a primeira que bater, entre as opções dadas em
+// ordem de preferência) — usado pra pré-selecionar automaticamente a categoria certa em lançamentos
+// gerados pelo próprio sistema (ex: taxa de entrega), sem precisar que o usuário escolha na mão toda vez.
+function findDespesaCategoryByName(names){
+  for(const name of names){
+    const found = state.financialCategories.find(c=>c.type==='despesa' && c.status==='ativa' && c.name.toLowerCase()===name.toLowerCase());
+    if(found) return found;
+  }
+  return null;
+}
 async function payDriverFee(driver, fromDate, toDate){
   if(!canWrite('financeiro')){ toast('Seu perfil não tem permissão para lançar despesas', true); return; }
   const fee = driverFeeForPeriod(driver, fromDate, toDate);
@@ -8689,9 +8754,15 @@ async function payDriverFee(driver, fromDate, toDate){
   const desc = driverFeeDescription(driver, monthLabel);
   const jaLancado = state.transactions.some(t=>t.description===desc);
   if(jaLancado){ toast('Essa taxa de entrega já foi lançada antes', true); closeModal(); return; }
+  // Antes gravava só um texto solto ("Taxa de Entrega") no campo category, sem category_id — como o
+  // seletor de categoria no modal de edição é preenchido pelo ID cadastrado, não pelo texto, a categoria
+  // aparecia "errada" (a primeira da lista) toda vez que essa despesa era editada depois. Agora busca a
+  // categoria de verdade já cadastrada (Combustível, ou Fretes se não tiver essa), preenchendo os dois
+  // campos — só falta o usuário conferir a conta e marcar como pago.
+  const cat = findDespesaCategoryByName(['Combustível','Combustivel','Fretes','Frete']);
   const { error } = await sb.from('transactions').insert({
     type:'despesa', description: desc, amount: fee.value, status:'pendente',
-    category: 'Taxa de Entrega', due_date: todayStr(),
+    category: cat ? cat.name : 'Combustível', category_id: cat ? cat.id : null, due_date: todayStr(),
   });
   if(error){ dbErr(error, 'Erro ao lançar despesa'); return; }
   toast('Lançado em Contas a Pagar — registre o pagamento por lá quando efetuar, escolhendo a conta de saída');
