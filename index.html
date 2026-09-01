@@ -3580,7 +3580,7 @@ function openRecordListModal(title, icon, summaryHtml, columns, rows){
   openModal(`
     <div class="modal-head"><h3>${icon?icon+' ':''}${esc(title)}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     ${summaryHtml?`<div class="hint" style="margin-bottom:12px;">${summaryHtml}</div>`:''}
-    ${rows.length ? `<div class="table-scroll"><table><thead><tr>${columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
+    ${rows.length ? `<div class="table-scroll modal-inner-scroll"><table><thead><tr>${columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
       ${rows.map(r=>`<tr>${r.map(cell=>`<td>${cell}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div>` : emptyState('Nenhum registro encontrado nesse período.')}
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
@@ -4605,9 +4605,9 @@ function openOrderReadOnlyModal(o){
       <div class="stat-row"><span class="stat-row-label">Forma de pagamento</span><span class="stat-row-value">${esc(o.paymentMethod||'—')}</span></div>
       <div class="stat-row"><span class="stat-row-label">Entregue em</span><span class="stat-row-value">${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</span></div>
     </div>
-    <table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th></tr></thead><tbody>
+    <div class="table-scroll modal-inner-scroll"><table class="order-items-table"><thead><tr><th>Produto</th><th>Qtd.</th><th>Preço unit.</th><th>Subtotal</th></tr></thead><tbody>
       ${o.items.map(it=>`<tr><td>${esc(it.name)}</td><td>${it.qty}</td><td>${fmtMoney(it.unitPrice)}</td><td>${fmtMoney(it.qty*it.unitPrice)}</td></tr>`).join('')}
-    </tbody></table>
+    </tbody></table></div>
     <div style="margin-top:10px;">
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Produtos</span><span>${fmtMoney(subtotal)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);"><span>Desconto</span><span>−${fmtMoney(o.discount||0)}</span></div>
@@ -6287,7 +6287,7 @@ function openPrevisaoRecebimentosModal(){
       <div class="hint" style="margin-bottom:10px;">Diferente da projeção acima — isso aqui é dinheiro de vendas que já aconteceram, só falta receber. Vencimento nos próximos 30 dias (${fmtDate(today)} a ${fmtDate(in30)}).</div>
       <div class="stat-card" style="margin-bottom:10px;max-width:260px;"><div class="stat-label">Total a receber</div><div class="stat-value" style="font-size:18px;">${fmtMoney(total)}</div></div>
       ${list.length===0 ? '<div class="hint">Nenhuma conta a receber prevista pros próximos 30 dias.</div>' : `
-      <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+      <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
         ${list.map(t=>{
           const overdue = t.dueDate<today;
           return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
@@ -6296,7 +6296,7 @@ function openPrevisaoRecebimentosModal(){
             <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
           </tr>`;
         }).join('')}
-      </tbody></table>`}
+      </tbody></table></div>`}
     </div>
   `, 'wide');
 }
@@ -6321,7 +6321,7 @@ function openSaudeFinanceiraModal(){
     <div class="hint" style="margin-bottom:14px;">${saude.explicacao}</div>
     ${contasPagarAbertasList.length>0 ? `
     <div class="subhead" style="margin-top:0;">Contas a pagar em aberto (${contasPagarAbertasList.length})</div>
-    <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
+    <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Valor</th><th>Status</th></tr></thead><tbody>
       ${contasPagarAbertasList.slice(0,10).map(t=>{
         const overdue = t.dueDate<today;
         return `<tr style="cursor:pointer;" onclick="closeModal(); openTransactionModal('${t.id}')">
@@ -6330,7 +6330,7 @@ function openSaudeFinanceiraModal(){
           <td><span class="badge ${overdue?'badge-danger':'badge-warn'}">${overdue?'Vencida':'A vencer'}</span></td>
         </tr>`;
       }).join('')}
-    </tbody></table>
+    </tbody></table></div>
     ${contasPagarAbertasList.length>10?`<div class="hint" style="margin-top:8px;">Mostrando 10 de ${contasPagarAbertasList.length}. <a href="#" onclick="closeModal(); setFinTab('pagar'); return false;">Ver todas em Contas a Pagar →</a></div>`:''}
     ` : '<div class="hint">Nenhuma conta a pagar em aberto no momento.</div>'}
   `, 'wide');
@@ -6827,12 +6827,12 @@ function showEntregasDetailFromMargin(){
   openModal(`
     <div class="modal-head"><h3>📦 Pedidos entregues</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="hint" style="margin-bottom:10px;">${m.ordersCount} pedido(s) entregues com motorista, considerados no cálculo de margem — ${esc(range.label)}.</div>
-    <table><thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
+    <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Data</th><th style="text-align:right;">Valor</th></tr></thead><tbody>
       ${m.orders.map(o=>{
         const client = state.clients.find(c=>c.id===o.clientId);
         return `<tr><td><a href="#" onclick="closeModal(); openOrderModal('${o.id}'); return false;">${esc(o.orderNumber||o.id.slice(0,8))}</a></td><td>${esc(client?client.name:'—')}</td><td>${o.deliveredAt?fmtDate(o.deliveredAt):'—'}</td><td style="text-align:right;">${fmtMoney(o.total)}</td></tr>`;
       }).join('')}
-    </tbody></table>
+    </tbody></table></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
   `, 'wide');
 }
@@ -6851,9 +6851,9 @@ function showMargemSemEntregaDetail(){
     </div>
     <div style="font-weight:700;font-size:13px;margin:16px 0 6px;">De onde vem o custo do produto (CMV)</div>
     <div class="hint" style="margin-bottom:8px;">Quantidade vendida de cada produto nesse período × o custo unitário cadastrado no Estoque.</div>
-    <table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
+    <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
       ${m.productCostBreakdown.map(p=>`<tr><td>${esc(p.name)}</td><td style="text-align:right;">${p.qty} un</td><td style="text-align:right;">${fmtMoney(p.unitCost)}</td><td style="text-align:right;font-weight:600;">${fmtMoney(p.totalCost)}</td></tr>`).join('')}
-    </tbody></table>
+    </tbody></table></div>
     <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-weight:700;display:flex;justify-content:space-between;"><span>Total</span><span>${fmtMoney(m.totalProductCost)}</span></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
   `, 'wide');
@@ -6875,9 +6875,9 @@ function showMargemComEntregaDetail(){
       <div class="stat-row"><span class="stat-row-label">Margem</span><span class="stat-row-value" style="font-weight:700;color:${ruim?'var(--danger)':boa?'var(--success)':'var(--warn)'};">${m.marginComEntrega!=null?m.marginComEntrega.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</span></div>
     </div>
     <div style="font-weight:700;font-size:13px;margin:16px 0 6px;">De onde vem o custo do produto (CMV)</div>
-    <table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
+    <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Produto</th><th style="text-align:right;">Qtd. vendida</th><th style="text-align:right;">Custo unitário</th><th style="text-align:right;">Custo total</th></tr></thead><tbody>
       ${m.productCostBreakdown.map(p=>`<tr><td>${esc(p.name)}</td><td style="text-align:right;">${p.qty} un</td><td style="text-align:right;">${fmtMoney(p.unitCost)}</td><td style="text-align:right;font-weight:600;">${fmtMoney(p.totalCost)}</td></tr>`).join('')}
-    </tbody></table>
+    </tbody></table></div>
     <div class="hint" style="margin-top:8px;">🚚 Custo de entrega: ${fmtMoney(m.deliveryCost)} de combustível (${m.totalKm.toLocaleString('pt-BR',{maximumFractionDigits:1})} km rodados) — veja o detalhe em "Custo extra por pacote".</div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
   `, 'wide');
@@ -9859,7 +9859,7 @@ function openLostReasonsDetail(){
       <div style="width:28px;text-align:right;font-size:12.5px;font-weight:700;flex-shrink:0;">${count}</div>
     </div>
   `).join('') : '<div class="hint">Nenhum motivo registrado ainda.</div>';
-  const leadsHtml = perdidos.length ? `<div class="table-scroll"><table><thead><tr><th>Lead</th><th>Motivo</th><th>Perdido em</th><th></th></tr></thead><tbody>
+  const leadsHtml = perdidos.length ? `<div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Lead</th><th>Motivo</th><th>Perdido em</th><th></th></tr></thead><tbody>
     ${perdidos.map(l=>`<tr>
       <td>${esc(l.name)}</td>
       <td>${l.lostReason ? esc(l.lostReason)+(l.lostReasonDetail?` <span style="color:var(--muted);">(${esc(l.lostReasonDetail)})</span>`:'') : '<span style="color:var(--muted);">— sem motivo —</span>'}</td>
@@ -13829,9 +13829,9 @@ function openSidebarUserPanel(){
     openModal(`
       <div class="modal-head"><h3>👥 Usuários do sistema</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
       <div class="hint" style="margin-bottom:10px;">Como proprietário, você pode ver todos os perfis cadastrados e acessar a conta de qualquer um deles. Os demais usuários — mesmo administradores — só enxergam os próprios dados e não têm essa opção.</div>
-      <table><thead><tr><th>Nome</th><th>Cargo</th><th></th></tr></thead><tbody>
+      <div class="table-scroll modal-inner-scroll"><table><thead><tr><th>Nome</th><th>Cargo</th><th></th></tr></thead><tbody>
         ${profiles.length ? profiles.map(p=>`<tr><td>${esc(p.name||'—')}${p.id===myUser.id?' <span class="badge badge-muted" style="font-size:10px;">você</span>':''}</td><td>${esc(roleLabel(p.role))}</td><td style="text-align:right;">${p.id!==myUser.id?`<button class="btn btn-ghost btn-sm" onclick="impersonateUser('${p.id}', ${JSON.stringify(p.name||'esse usuário').replace(/"/g,'&quot;')})">Entrar</button>`:''}</td></tr>`).join('') : '<tr><td colspan="3" style="color:var(--muted);">Nenhum outro perfil encontrado.</td></tr>'}
-      </tbody></table>
+      </tbody></table></div>
       <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
     `, 'wide');
   } else {
