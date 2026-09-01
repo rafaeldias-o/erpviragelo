@@ -654,11 +654,13 @@ tr:last-child td{border-bottom:none;}
           <div id="stockTableWrap" class="table-scroll"></div>
           <div style="text-align:right;margin-top:10px;font-size:13px;color:var(--muted);" id="stockTotalLine"></div>
         </div>
-        <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin:2px 0 10px;">
-          <span class="hint" style="margin:0;">Ver mês:</span>
-          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeStockChartsMonth(-1)" title="Mês anterior">‹</button>
-          <span id="stockChartsMonthLabel" style="font-size:11.5px;color:var(--muted);min-width:110px;text-align:center;"></span>
-          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="stockChartsNextBtn" onclick="changeStockChartsMonth(1)" title="Próximo mês">›</button>
+        <div style="display:flex;justify-content:flex-end;margin:2px 0 10px;">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:5px 6px 5px 12px;">
+            <span class="hint" style="margin:0;">Ver mês:</span>
+            <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeStockChartsMonth(-1)" title="Mês anterior">‹</button>
+            <span id="stockChartsMonthLabel" style="font-size:12px;font-weight:600;color:var(--ink);min-width:100px;text-align:center;"></span>
+            <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="stockChartsNextBtn" onclick="changeStockChartsMonth(1)" title="Próximo mês">›</button>
+          </div>
         </div>
         <div class="three-col">
           <div class="panel">
@@ -759,9 +761,9 @@ tr:last-child td{border-bottom:none;}
         <div class="panel">
           <div class="panel-head">
             <div class="section-title" id="producaoVendasTitle">Produção × Vendas</div>
-            <div style="display:flex;align-items:center;gap:6px;">
+            <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:5px 6px;">
               <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeProducaoVendasMonth(-1)" title="Mês anterior">‹</button>
-              <span id="producaoVendasMonthLabel" style="font-size:11.5px;color:var(--muted);min-width:110px;text-align:center;"></span>
+              <span id="producaoVendasMonthLabel" style="font-size:12px;font-weight:600;color:var(--ink);min-width:100px;text-align:center;"></span>
               <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="producaoVendasNextBtn" onclick="changeProducaoVendasMonth(1)" title="Próximo mês">›</button>
             </div>
           </div>
@@ -12095,23 +12097,15 @@ function renderProducaoVendas(){
   document.getElementById('producaoVendasWarnBox').innerHTML = unconvertible>0
     ? `<div class="hint" style="color:var(--warn);margin-bottom:10px;">⚠️ ${unconvertible} item(ns) vendido(s) não puderam ser convertidos pra kg (produto sem peso definido em Estoque) e ficaram fora do total de vendas.</div>`
     : '';
-  // Agrupa em blocos de 5 dias (0-5, 6-10, ..., 26-fim do mês) em vez de mostrar os até 31 dias
-  // individualmente — fica bem mais fácil de ler num relance, com marcos 5/10/15/20/25/30.
-  const bucketSize = 5;
-  const daysInMonth = series.length;
-  const buckets = [];
-  for(let start=1; start<=daysInMonth; start+=bucketSize){
-    const end = Math.min(start+bucketSize-1, daysInMonth);
-    const bucketDays = series.filter(s=>s.day>=start && s.day<=end);
-    buckets.push({ label: end, producao: bucketDays.reduce((s,d)=>s+d.producao,0), vendas: bucketDays.reduce((s,d)=>s+d.vendas,0) });
-  }
-  const maxBucket = Math.max(1, ...buckets.map(b=>Math.max(b.producao,b.vendas)));
-  const bucketLabels = buckets.map(b=>String(b.label));
-  const producaoSeries = buckets.map(b=>b.producao);
-  const vendasSeries = buckets.map(b=>b.vendas);
+  // Um ponto por dia (o gráfico de barras já sabe enxugar os rótulos do eixo sozinho quando tem muitos
+  // pontos — mostra de 5 em 5 + o primeiro/último — então dá pra ver a distribuição real dia a dia em vez
+  // de esconder atrás de blocos agregados de 5 dias, como era antes.
+  const dayLabels2 = series.map(s=>String(s.day));
+  const producaoSeries = series.map(d=>d.producao);
+  const vendasSeries = series.map(d=>d.vendas);
   const fmtKgCompact = v => fmtKgNum(v)+' kg';
-  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, bucketLabels, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260, fmtKgCompact, false);
-  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, bucketLabels, fmtKgCompact, 'Produção', 'Vendas', 260, true);
+  document.getElementById('producaoVendasChart').innerHTML = buildDualBarChartSvg(producaoSeries, vendasSeries, dayLabels2, 'var(--accent-2)', '#F3C08A', 'Produção', 'Vendas', 260, fmtKgCompact, false);
+  attachDualBarHover('producaoVendasChart', producaoSeries, vendasSeries, dayLabels2, fmtKgCompact, 'Produção', 'Vendas', 260, true);
 
   // Insights do período — leitura automática dos números acima, pra não precisar interpretar tudo manualmente
   const insightsBox = document.getElementById('producaoInsightsWrap');
