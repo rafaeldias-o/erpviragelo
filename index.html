@@ -1388,7 +1388,7 @@ tr:last-child td{border-bottom:none;}
               <div class="section-title">Funil de Prospecção</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-ghost btn-sm" onclick="openActivateProspectsModal()">📥 Ativar prospects</button>
-                <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ Novo lead</button>
+                <button class="btn btn-primary btn-sm" onclick="openLeadModal(null, {fromFunil:true})">+ Novo lead</button>
               </div>
             </div>
             <div class="hint" style="margin-bottom:12px;">Separa os leads por tamanho/importância pra priorizar quem visitar primeiro. Independente da etapa de negociação do CRM — um lead pode estar "Negociando" e ao mesmo tempo ser "Grande" aqui.</div>
@@ -8970,10 +8970,15 @@ function onLeadFreqTypeChange(){
   const v = document.getElementById('l-freqtype').value;
   document.getElementById('l-freqdayswrap').style.display = v==='personalizada' ? 'block' : 'none';
 }
-function openLeadModal(id){
+function openLeadModal(id, opts){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar o CRM', true); return; }
   activeLeadId = id || null;
   const l = id ? state.leads.find(x=>x.id===id) : null;
+  // Os campos do Funil de Prospecção (Visitas Comerciais) só fazem sentido nesse contexto — não aparecem
+  // no "+ Novo lead" do CRM geral, pra não confundir quem só quer cadastrar um lead comum. Continuam
+  // aparecendo ao editar um lead que JÁ está ativado no Funil (sizeTier definido), não importa de onde
+  // você abriu, pra não esconder informação de um lead que já participa dele.
+  const showFunil = !!(opts && opts.fromFunil) || !!(l && l.sizeTier);
   openModal(`
     <div class="modal-head"><h3>${l?'Lead':'Novo lead'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     ${l && isStalled(l) ? `<div class="stalled-tag" style="margin-bottom:10px;">🔴 Lead parado há ${daysSince(l.lastInteraction)} dias</div>` : ''}
@@ -8985,6 +8990,7 @@ function openLeadModal(id){
       <div class="field"><label>Telefone</label><input id="l-phone" value="${l?esc(l.phone||''):''}"></div>
       <div class="field"><label>WhatsApp</label><div style="display:flex;gap:6px;"><input id="l-whatsapp" value="${l?esc(l.whatsapp||''):''}" style="flex:1;">${l && (l.whatsapp||l.phone) ? `<button type="button" class="btn btn-ghost btn-sm" onclick="sendLeadWhatsApp('${l.id}')" title="Abrir conversa no WhatsApp">💬</button>` : ''}</div></div>
     </div>
+    ${!showFunil ? '' : `
     <div class="subhead" style="font-size:12px;">Funil de Prospecção (Visitas Comerciais) — opcional, independente da etapa de negociação acima</div>
     <div class="field-row">
       <div class="field"><label>Tamanho no Funil</label><select id="l-sizetier" onchange="onLeadSizeTierChange()">
@@ -9007,6 +9013,7 @@ function openLeadModal(id){
       </select></div>
     </div>
     <div class="hint" id="l-regionhint" style="display:${l&&l.sizeTier?'block':'none'};margin-top:-8px;">Escolher cidade/bairro aqui mantém esse lead ligado à área de Prospects de Campo (sem duplicar cadastro).</div>
+    `}
     <div class="subhead" style="font-size:12px;">Endereço (aproveitado automaticamente se o lead virar cliente)</div>
     <div class="field-row3">
       <div class="field"><label>CEP</label><input id="l-cep" value="${l?esc(l.cep||''):''}" oninput="lookupCep('l-cep')"></div>
@@ -9118,8 +9125,8 @@ async function saveLead(id){
   const clientType = document.getElementById('l-clienttype').value;
   const freqType = clientType==='recorrente' ? (document.getElementById('l-freqtype').value || null) : null;
   const freqDays = freqType==='personalizada' ? (parseInt(document.getElementById('l-freqdays').value)||null) : null;
-  const sizeTier = document.getElementById('l-sizetier').value || null;
-  if(sizeTier && !document.getElementById('l-regionneighborhood').value){
+  const sizeTier = document.getElementById('l-sizetier')?.value || null;
+  if(sizeTier && !document.getElementById('l-regionneighborhood')?.value){
     toast('Escolha a cidade e o bairro (Regiões) pra ativar esse lead no Funil de Prospecção', true);
     return;
   }
@@ -9132,11 +9139,11 @@ async function saveLead(id){
     number: document.getElementById('l-number').value.trim(), complement: document.getElementById('l-complement').value.trim(),
     neighborhood: document.getElementById('l-neighborhood').value.trim(), state: document.getElementById('l-state').value.trim(),
     client_type: clientType, order_frequency_type: freqType, order_frequency_days: freqDays,
-    size_tier: sizeTier, segment: document.getElementById('l-segment').value.trim() || null,
-    estimated_weekly_packages: sizeTier ? (parseFloat(document.getElementById('l-weeklypkgs').value)||null) : null,
-    hot: sizeTier ? document.getElementById('l-hot').checked : false,
-    region_city_id: sizeTier ? (document.getElementById('l-regioncity').value || null) : null,
-    region_neighborhood_id: sizeTier ? (document.getElementById('l-regionneighborhood').value || null) : null,
+    size_tier: sizeTier, segment: document.getElementById('l-segment')?.value.trim() || null,
+    estimated_weekly_packages: sizeTier ? (parseFloat(document.getElementById('l-weeklypkgs')?.value)||null) : null,
+    hot: sizeTier ? !!document.getElementById('l-hot')?.checked : false,
+    region_city_id: sizeTier ? (document.getElementById('l-regioncity')?.value || null) : null,
+    region_neighborhood_id: sizeTier ? (document.getElementById('l-regionneighborhood')?.value || null) : null,
   };
   const newStage = document.getElementById('l-stage').value;
   const currentStage = id ? state.leads.find(l=>l.id===id)?.stage : null;
