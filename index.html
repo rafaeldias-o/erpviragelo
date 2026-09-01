@@ -1226,6 +1226,14 @@ tr:last-child td{border-bottom:none;}
           <div class="hint" style="margin:10px 0;">Arraste um cartão para outro dia para reagendar.</div>
           <div class="kanban-board" id="weekAgendaBox"></div>
         </div>
+        <div style="display:flex;justify-content:flex-end;margin:2px 0 10px;">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:5px 6px 5px 12px;">
+            <span class="hint" style="margin:0;">Custos de entrega — ver mês:</span>
+            <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="pagarChangeMonth(-1)" title="Mês anterior">‹</button>
+            <span id="agendaFeeMonthLabel" style="font-size:12px;font-weight:600;color:var(--ink);min-width:100px;text-align:center;"></span>
+            <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="agendaFeeMonthNextBtn" onclick="pagarChangeMonth(1)" title="Próximo mês">›</button>
+          </div>
+        </div>
         <div class="two-col">
           <div class="panel" id="driverFeeBox-beto"></div>
           <div class="panel" id="driverFeeBox-gui"></div>
@@ -8623,7 +8631,13 @@ function renderReceberTable(){
 }
 let pagarMonthOffset = 0;
 let pagarShowAll = false;
-function pagarChangeMonth(delta){ pagarMonthOffset += delta; pagarShowAll = false; renderPagarTable(); }
+function pagarChangeMonth(delta){ pagarMonthOffset += delta; pagarShowAll = false; renderPagarTable(); renderDriverFeeBoxes(); updateAgendaFeeMonthLabel(); }
+function updateAgendaFeeMonthLabel(){
+  const labelEl = document.getElementById('agendaFeeMonthLabel');
+  if(!labelEl) return;
+  const l = pagarMonthRange().label;
+  labelEl.textContent = l.charAt(0).toUpperCase()+l.slice(1);
+}
 function pagarToggleShowAll(){ pagarShowAll = !pagarShowAll; renderPagarTable(); }
 function pagarMonthRange(){
   const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+pagarMonthOffset);
@@ -8706,6 +8720,7 @@ function renderDriverFeeBoxes(){
     box.onclick = () => openDriverFeeDetail(dr.v);
   });
   renderDriverMarginBoxes(range);
+  updateAgendaFeeMonthLabel();
 }
 // Quanto o custo de entrega está "comendo" da margem, olhando SÓ os pedidos que esse motorista de fato
 // entregou (não o total da empresa) — em R$ por pacote entregue, e em % do faturamento desses pedidos
