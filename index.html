@@ -519,9 +519,13 @@ tr:last-child td{border-bottom:none;}
         <div id="dashMoreStats" style="display:none;">
           <div class="panel"><div class="stat-grid" id="dashStatsExtra"></div></div>
         </div>
-        <div class="two-col">
+        <div class="three-col">
           <div class="panel"><div class="panel-head"><div class="section-title">Últimos pedidos</div></div><div id="lastOrders"></div></div>
           <div class="panel" id="dashMarginInsightsCard"></div>
+          <div class="panel">
+            <div class="panel-head"><div class="section-title">✅ Tarefas</div></div>
+            <div id="dashTasksWrap"></div>
+          </div>
         </div>
       </section>
 
@@ -11640,6 +11644,31 @@ function renderDashboard(){
 
   const lm = document.getElementById('dashMarginInsightsCard');
   if(lm) renderFinMarginInsightsCard('dashMarginInsightsCard');
+  renderDashTasks();
+}
+// Versão compacta do painel de Tarefas (mesma lógica/ações da Central de Notificações), pro usuário não
+// perder tarefas por não passar pela Central de Notificações — mostra as mais urgentes (vencidas primeiro)
+// direto na tela Início, com atalho de concluir/reagendar sem precisar navegar pra lugar nenhum.
+function renderDashTasks(){
+  const wrap = document.getElementById('dashTasksWrap');
+  if(!wrap) return;
+  const today = todayStr();
+  const tasks = state.tasks.filter(t=>t.status==='pendente').sort((a,b)=>a.date.localeCompare(b.date));
+  const DASH_TASKS_LIMIT = 5;
+  const visible = tasks.slice(0, DASH_TASKS_LIMIT);
+  wrap.innerHTML = visible.length===0 ? '<div class="empty-state" style="padding:16px 0"><p>Nenhuma tarefa pendente. 🎉</p></div>' :
+    visible.map(t=>{
+      const overdue = t.date < today;
+      const dayLabel = overdue ? 'Vencida' : t.date===today ? 'Hoje' : 'Futura';
+      return `<div class="task-row">
+        <div><strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
+          <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''}${t.type?' · '+esc(t.type):''}</div></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="icon-btn" onclick="setTaskStatus('${t.id}','concluida').then(renderDashTasks)" title="Concluir">✓</button>
+          <input type="date" value="${t.date}" style="width:112px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="rescheduleTask('${t.id}', this.value).then(renderDashTasks)" title="Reagendar">
+        </div>
+      </div>`;
+    }).join('') + (tasks.length>DASH_TASKS_LIMIT ? `<div style="text-align:center;padding-top:10px;"><a href="#" onclick="switchView('notificacoes'); return false;" style="font-size:12px;">Ver todas as ${tasks.length} tarefas pendentes →</a></div>` : '');
 }
 
 function buildLineChartSvg(values, labels, color, yAxisFmt){
