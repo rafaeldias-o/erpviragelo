@@ -6252,17 +6252,32 @@ function renderDashBottomCards(){
     <div class="hint" style="color:var(--success);">Média vendida × 30 dias · clique pra ver detalhes</div>
   `;
 
-  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
-  const contasPagarAbertas = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado').reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
-  const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅'} : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️'} : {label:'Crítica', color:'var(--danger)', icon:'🔴'};
+  const health = financialHealthSnapshot();
   saudeBox.classList.add('clickable');
   saudeBox.onclick = () => openSaudeFinanceiraModal();
   saudeBox.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">${saude.icon}</span><span style="font-size:12.5px;color:var(--muted);">Saúde financeira</span></div>
-    <div style="font-size:20px;font-weight:700;margin-bottom:4px;color:${saude.color};">${saude.label}</div>
-    <div class="hint">Índice de liquidez: ${indiceLiquidez.toFixed(2)} · clique pra ver detalhes</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-size:20px;">${health.saude.icon}</span><span style="font-size:12.5px;color:var(--muted);">Saúde financeira</span></div>
+    <div style="font-size:20px;font-weight:700;margin-bottom:4px;color:${health.saude.color};">${health.saude.label}</div>
+    <div class="hint">Índice de liquidez: ${health.indiceLiquidez.toFixed(2)} · clique pra ver detalhes</div>
   `;
+}
+// Fonte única do cálculo de saúde financeira/liquidez — usada tanto pelo cartão resumo (renderDashboard)
+// quanto pelo modal de detalhe (openSaudeFinanceiraModal). Antes eram duas cópias da mesma conta em
+// lugares diferentes; uma correção (restringir "contas a pagar em aberto" ao mês atual, em vez do
+// histórico inteiro) foi feita só numa delas, deixando o cartão resumo e o modal mostrando números
+// diferentes entre si — motivo real de o cartão continuar mostrando o índice antigo mesmo depois da
+// correção. Daqui pra frente qualquer ajuste nessa conta só precisa ser feito uma vez, aqui.
+function financialHealthSnapshot(){
+  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+  const contasPagarAbertasList = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=endOfMonth).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const contasPagarAbertas = contasPagarAbertasList.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
+  const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
+  const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅', explicacao:'Suas contas ativas cobrem bem mais que suas dívidas em aberto — folga saudável.'}
+    : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️', explicacao:'O saldo em contas está próximo do total de contas a pagar em aberto — vale acompanhar de perto.'}
+    : {label:'Crítica', color:'var(--danger)', icon:'🔴', explicacao:'O saldo em contas está bem abaixo do total de contas a pagar em aberto — risco de não conseguir cobrir tudo sem entrar mais dinheiro.'};
+  return { saldoTotal, contasPagarAbertasList, contasPagarAbertas, indiceLiquidez, saude };
 }
 function openPrevisaoRecebimentosModal(){
   const in30 = addDays(todayStr(), 30);
@@ -6309,20 +6324,7 @@ function openPrevisaoRecebimentosModal(){
   `, 'wide');
 }
 function openSaudeFinanceiraModal(){
-  const saldoTotal = state.financialAccounts.filter(a=>a.status==='ativa').reduce((s,a)=>s+accountBalance(a.id),0);
-  // Restrito ao mês atual (até o fim dele) — antes considerava TODAS as contas em aberto pra sempre,
-  // inclusive meses futuros de recorrências (chegou a mostrar 48 contas somando o ano inteiro), o que não
-  // reflete liquidez de curto prazo de verdade. Continua incluindo o que já venceu (vencidas de meses
-  // anteriores ainda contam, faz sentido pro risco real), só corta o que ainda nem chegou a vencer neste
-  // mês.
-  const now = new Date();
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
-  const contasPagarAbertasList = state.transactions.filter(t=>t.type==='despesa'&&t.status!=='pago'&&t.status!=='cancelado'&&t.dueDate<=endOfMonth).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const contasPagarAbertas = contasPagarAbertasList.reduce((s,t)=>s+(transactionTotalDue(t)-t.paidAmount),0);
-  const indiceLiquidez = contasPagarAbertas>0 ? (saldoTotal/contasPagarAbertas) : (saldoTotal>0?2:0);
-  const saude = indiceLiquidez>=1.3 ? {label:'Boa', color:'var(--success)', icon:'✅', explicacao:'Suas contas ativas cobrem bem mais que suas dívidas em aberto — folga saudável.'}
-    : indiceLiquidez>=0.8 ? {label:'Atenção', color:'var(--warn)', icon:'⚠️', explicacao:'O saldo em contas está próximo do total de contas a pagar em aberto — vale acompanhar de perto.'}
-    : {label:'Crítica', color:'var(--danger)', icon:'🔴', explicacao:'O saldo em contas está bem abaixo do total de contas a pagar em aberto — risco de não conseguir cobrir tudo sem entrar mais dinheiro.'};
+  const { saldoTotal, contasPagarAbertasList, contasPagarAbertas, indiceLiquidez, saude } = financialHealthSnapshot();
   const today = todayStr();
   openModal(`
     <div class="modal-head"><h3>${saude.icon} Saúde financeira</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
