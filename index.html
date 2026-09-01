@@ -285,6 +285,10 @@ tr:last-child td{border-bottom:none;}
 /* Kanban */
 .kanban-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;}
 .kanban-col{background:var(--surface-2);border-radius:12px;padding:10px;min-width:230px;width:230px;flex-shrink:0;display:flex;flex-direction:column;max-height:66vh;}
+/* Etapas "encerradas" do funil (Pausado/Perdido) — o lead não está mais em jogo ativamente, então a
+   coluna inteira (cabeçalho + cards) fica um pouco apagada, só pra diferenciar visualmente das etapas em
+   andamento sem esconder a informação (ainda dá pra ler tudo normalmente, é só um sinal sutil). */
+.kanban-col-muted{opacity:.62;}
 .kanban-col.dragover{outline:2px dashed var(--accent-2);}
 .kanban-col-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin-bottom:8px;padding:0 2px;}
 .kanban-count{background:var(--surface);border-radius:99px;padding:1px 7px;font-size:10.5px;color:var(--muted);}
@@ -9536,7 +9540,8 @@ function renderKanban(){
   if(!board) return;
   board.innerHTML = LEAD_STAGES.map(stage=>{
     const leads = state.leads.filter(l=>l.stage===stage.v);
-    return `<div class="kanban-col" data-stage="${stage.v}" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onKanbanDrop(event,'${stage.v}')">
+    const muted = stage.v==='pausado' || stage.v==='perdido';
+    return `<div class="kanban-col${muted?' kanban-col-muted':''}" data-stage="${stage.v}" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onKanbanDrop(event,'${stage.v}')">
       <div class="kanban-col-head"><span>${stage.label}</span><span class="kanban-count">${leads.length}</span></div>
       <div class="kanban-cards">
         ${leads.length===0 ? '<div class="hint" style="text-align:center;padding:10px 0;">Vazio</div>' : leads.map(l=>{
