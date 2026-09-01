@@ -654,6 +654,12 @@ tr:last-child td{border-bottom:none;}
           <div id="stockTableWrap" class="table-scroll"></div>
           <div style="text-align:right;margin-top:10px;font-size:13px;color:var(--muted);" id="stockTotalLine"></div>
         </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin:2px 0 10px;">
+          <span class="hint" style="margin:0;">Ver mês:</span>
+          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeStockChartsMonth(-1)" title="Mês anterior">‹</button>
+          <span id="stockChartsMonthLabel" style="font-size:11.5px;color:var(--muted);min-width:110px;text-align:center;"></span>
+          <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="stockChartsNextBtn" onclick="changeStockChartsMonth(1)" title="Próximo mês">›</button>
+        </div>
         <div class="three-col">
           <div class="panel">
             <div class="panel-head"><div class="section-title" style="font-size:13px;">Evolução do estoque (mês)</div></div>
@@ -751,7 +757,14 @@ tr:last-child td{border-bottom:none;}
           <div id="producaoPaginationWrap" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:16px;"></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="section-title" id="producaoVendasTitle">Produção × Vendas (mês atual)</div></div>
+          <div class="panel-head">
+            <div class="section-title" id="producaoVendasTitle">Produção × Vendas</div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" onclick="changeProducaoVendasMonth(-1)" title="Mês anterior">‹</button>
+              <span id="producaoVendasMonthLabel" style="font-size:11.5px;color:var(--muted);min-width:110px;text-align:center;"></span>
+              <button class="icon-btn" style="width:22px;height:22px;font-size:12px;" id="producaoVendasNextBtn" onclick="changeProducaoVendasMonth(1)" title="Próximo mês">›</button>
+            </div>
+          </div>
           <div id="producaoVendasWarnBox"></div>
           <div class="chart-with-insights">
             <div style="padding:6px 4px 0 0;">
@@ -4168,19 +4181,32 @@ function setMovementTab(tab){
   renderEstoque();
 }
 
-// ---- Gráficos de evolução do estoque (mês atual) — reconstrói o total de cada dia "desfazendo" as
+// ---- Gráficos de evolução do estoque (mês navegável) — reconstrói o total de cada dia "desfazendo" as
 // movimentações a partir do saldo de hoje, em vez de precisar de uma tabela de histórico diário à parte. ----
+let stockChartsMonthOffset = 0;
+function changeStockChartsMonth(delta){
+  stockChartsMonthOffset = Math.min(0, stockChartsMonthOffset + delta); // não deixa navegar pro futuro
+  renderEstoque();
+}
 async function renderStockCharts(items, isFinished){
   const evoBox = document.getElementById('stockEvolutionChart');
   const valBox = document.getElementById('stockValueChart');
   const inOutBox = document.getElementById('stockInOutChart');
   if(!evoBox) return;
   const now = new Date();
-  const year = now.getFullYear(), month = now.getMonth();
+  const base = new Date(now.getFullYear(), now.getMonth()+stockChartsMonthOffset, 1);
+  const year = base.getFullYear(), month = base.getMonth();
   const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
-  const todayDay = now.getDate();
-  const targetDays = Array.from({length: todayDay}, (_,i) => i+1); // todo dia do mês, do dia 1 até hoje
+  const isCurrentMonth = stockChartsMonthOffset===0;
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const lastDay = isCurrentMonth ? now.getDate() : daysInMonth; // mês atual: só até hoje; mês passado: mês inteiro
+  const targetDays = Array.from({length: lastDay}, (_,i) => i+1);
   const targetDates = targetDays.map(d=>monthPrefix+String(d).padStart(2,'0'));
+
+  const monthLabelEl = document.getElementById('stockChartsMonthLabel');
+  if(monthLabelEl){ const l = base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); monthLabelEl.textContent = l.charAt(0).toUpperCase()+l.slice(1); }
+  const nextBtn = document.getElementById('stockChartsNextBtn');
+  if(nextBtn) nextBtn.disabled = isCurrentMonth;
 
   const itemIds = new Set(items.map(i=>i.id));
   // Offline: essa consulta específica (por "date", sem limite) é diferente da que o loadAll() já cacheia
@@ -4189,6 +4215,10 @@ async function renderStockCharts(items, isFinished){
   // com um erro de rede, que era o que acontecia antes (chamada direta ao Supabase, ignorando o cache).
   // Atenção ao formato: state.movements já vem em camelCase (stockItemId), diferente do raw do Supabase
   // (stock_item_id) — por isso o filtro abaixo usa o nome de campo certo pra cada uma das duas origens.
+  // IMPORTANTE pra navegação por mês: a reconstrução abaixo sempre parte do saldo de HOJE — pra funcionar
+  // corretamente em qualquer mês navegado (não só o atual), a busca precisa cobrir do início do mês
+  // ESCOLHIDO até hoje (não só até o fim daquele mês), senão não tem como desfazer o que aconteceu depois
+  // dele pra voltar no tempo. Por isso o filtro continua sendo só "a partir de", sem limite superior.
   let monthMovements;
   if(appIsOnline){
     const { data, error } = await sb.from('stock_movements').select('*').gte('date', monthPrefix+'01').order('date');
@@ -4222,9 +4252,11 @@ async function renderStockCharts(items, isFinished){
   const qtySeries = targetDates.map(t => Object.values(perDateQty[t]).reduce((s,q)=>s+q,0));
   const valueSeries = targetDates.map(t => items.reduce((s,i)=> s + (perDateQty[t][i.id]||0) * (isFinished?(i.salePrice||0):(i.costPrice||0)), 0));
   const dayLabels = targetDays.map(d=>String(d));
+  const qtyFootLabel = isCurrentMonth ? 'hoje' : 'no fim do mês';
+  const valFootLabel = isCurrentMonth ? 'hoje' : 'no fim do mês';
 
-  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB', v=>Math.round(v).toLocaleString('pt-BR')+' un') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — hoje: ${qtySeries[qtySeries.length-1]??0} un</div>`;
-  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED', v=>'R$ '+Math.round(v).toLocaleString('pt-BR')) + `<div class="hint" style="margin-top:4px;">Valor em estoque hoje: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
+  evoBox.innerHTML = buildLineChartSvg(qtySeries, dayLabels, '#2563EB', v=>Math.round(v).toLocaleString('pt-BR')+' un') + `<div class="hint" style="margin-top:4px;">Quantidade total (un.) de ${isFinished?'produtos acabados':'matéria-prima'} — ${qtyFootLabel}: ${qtySeries[qtySeries.length-1]??0} un</div>`;
+  valBox.innerHTML = buildLineChartSvg(valueSeries, dayLabels, '#7C3AED', v=>'R$ '+Math.round(v).toLocaleString('pt-BR')) + `<div class="hint" style="margin-top:4px;">Valor em estoque ${valFootLabel}: ${fmtMoney(valueSeries[valueSeries.length-1]||0)}</div>`;
   attachLineChartHover('stockEvolutionChart', qtySeries, dayLabels, v=>fmtKgNum(v)+' un', '#2563EB', {padL:66});
   attachLineChartHover('stockValueChart', valueSeries, dayLabels, v=>fmtMoney(v), '#7C3AED', {padL:66});
 
@@ -12000,11 +12032,22 @@ function buildProducaoVendasSeries(year, month){
   }
   return { series, unconvertible };
 }
+let producaoVendasMonthOffset = 0;
+function changeProducaoVendasMonth(delta){
+  producaoVendasMonthOffset = Math.min(0, producaoVendasMonthOffset + delta); // não deixa navegar pro futuro
+  renderProducaoVendas();
+}
 function renderProducaoVendas(){
   const box = document.getElementById('producaoVendasStats');
   if(!box) return;
   const now = new Date();
-  const { series, unconvertible } = buildProducaoVendasSeries(now.getFullYear(), now.getMonth());
+  const base = new Date(now.getFullYear(), now.getMonth()+producaoVendasMonthOffset, 1);
+  const isCurrentMonth = producaoVendasMonthOffset===0;
+  const monthLabelEl = document.getElementById('producaoVendasMonthLabel');
+  if(monthLabelEl){ const l = base.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); monthLabelEl.textContent = l.charAt(0).toUpperCase()+l.slice(1); }
+  const nextBtn = document.getElementById('producaoVendasNextBtn');
+  if(nextBtn) nextBtn.disabled = isCurrentMonth;
+  const { series, unconvertible } = buildProducaoVendasSeries(base.getFullYear(), base.getMonth());
   const totalProdMes = series.reduce((s,d)=>s+d.producao,0);
   const totalVend = series.reduce((s,d)=>s+d.vendas,0);
   const saldo = totalProdMes - totalVend;
