@@ -14854,8 +14854,10 @@ function openAlertDetail(index, list){
   // telefone. Mostra telefone/WhatsApp/e-mail/Instagram direto, com um botão de abrir o WhatsApp já indo
   // pro número certo.
   const recorrenteClient = isRecorrente ? state.clients.find(c=>c.id===alert.entityId) : null;
+  const recorrenteStats = recorrenteClient ? clientStats(recorrenteClient.id) : null;
   const contactHtml = recorrenteClient ? `
     <div class="stat-row-list" style="margin-bottom:14px;">
+      <div class="stat-row"><span class="stat-row-label">Último pedido</span><span class="stat-row-value">${recorrenteStats.last ? `${fmtDate(recorrenteStats.last)} <span style="color:var(--muted);font-weight:400;">(há ${daysSince(recorrenteStats.last)} dia${daysSince(recorrenteStats.last)!==1?'s':''})</span>` : 'Nenhum pedido entregue ainda'}</span></div>
       ${recorrenteClient.phone ? `<div class="stat-row"><span class="stat-row-label">Telefone</span><span class="stat-row-value">${esc(recorrenteClient.phone)}</span></div>` : ''}
       ${recorrenteClient.whatsapp ? `<div class="stat-row"><span class="stat-row-label">WhatsApp</span><span class="stat-row-value">${esc(recorrenteClient.whatsapp)}</span></div>` : ''}
       ${recorrenteClient.email ? `<div class="stat-row"><span class="stat-row-label">E-mail</span><span class="stat-row-value">${esc(recorrenteClient.email)}</span></div>` : ''}
