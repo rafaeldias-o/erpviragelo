@@ -11969,9 +11969,13 @@ function renderDashTasks(){
     visible.map(t=>{
       const overdue = t.date < today;
       const dayLabel = overdue ? 'Vencida' : t.date===today ? 'Hoje' : 'Futura';
+      const lead = t.leadId ? state.leads.find(l=>l.id===t.leadId) : null;
       return `<div class="task-row">
-        <div><strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
-          <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''}${t.type?' · '+esc(t.type):''}</div></div>
+        <div>
+          <strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
+          ${lead ? `<div style="font-size:11.5px;font-weight:600;color:var(--accent);cursor:pointer;" onclick="openLeadModal('${lead.id}')">👤 ${esc(lead.name)}${lead.company?' · '+esc(lead.company):''}</div>` : (t.leadId ? '<div style="font-size:11px;color:var(--muted);">Lead não encontrado (pode ter sido excluído)</div>' : '')}
+          <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''}${t.type?' · '+esc(t.type):''}</div>
+        </div>
         <div style="display:flex;gap:6px;align-items:center;">
           <button class="icon-btn" onclick="setTaskStatus('${t.id}','concluida').then(renderDashTasks)" title="Concluir">✓</button>
           <input type="date" value="${t.date}" style="width:112px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="rescheduleTask('${t.id}', this.value).then(renderDashTasks)" title="Reagendar">
@@ -15047,9 +15051,13 @@ function renderNotifTasks(){
   wrap.innerHTML = tasks.length===0 ? '<div class="hint" style="padding:10px 0;">Nenhuma tarefa nesse período.</div>' : visible.map(t=>{
     const overdue = t.date < today;
     const dayLabel = overdue ? 'Vencida' : t.date===today ? 'Hoje' : 'Futura';
+    const lead = t.leadId ? state.leads.find(l=>l.id===t.leadId) : null;
     return `<div class="task-row">
-      <div><strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
-        <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''} · ${esc(t.type)}</div></div>
+      <div>
+        <strong>${esc(t.title)}</strong> <span class="badge ${overdue?'badge-danger':t.date===today?'badge-warn':'badge-muted'}">${dayLabel}</span>
+        ${lead ? `<div style="font-size:11.5px;font-weight:600;color:var(--accent);cursor:pointer;" onclick="openLeadModal('${lead.id}')">👤 ${esc(lead.name)}${lead.company?' · '+esc(lead.company):''}</div>` : (t.leadId ? '<div style="font-size:11px;color:var(--muted);">Lead não encontrado (pode ter sido excluído)</div>' : '')}
+        <div style="color:var(--muted);font-size:11px">${fmtDate(t.date)}${t.time?' '+t.time:''}${t.owner?' · '+esc(t.owner):''} · ${esc(t.type)}</div>
+      </div>
       <div style="display:flex;gap:6px;align-items:center;">
         <button class="icon-btn" onclick="setTaskStatus('${t.id}','concluida')" title="Concluir">✓</button>
         <input type="date" value="${t.date}" style="width:118px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;" onchange="rescheduleTask('${t.id}', this.value)" title="Reagendar">
