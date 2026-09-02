@@ -9390,6 +9390,14 @@ function sendLeadWhatsApp(id){
   const withCountry = raw.length<=11 ? '55'+raw : raw; // números brasileiros sem DDI cadastrados
   window.open(`https://wa.me/${withCountry}`, '_blank');
 }
+function sendClientWhatsApp(id){
+  const c = state.clients.find(x=>x.id===id);
+  if(!c) return;
+  const raw = (c.whatsapp || c.phone || '').replace(/\D/g,'');
+  if(!raw){ toast('Este cliente não tem telefone/WhatsApp cadastrado', true); return; }
+  const withCountry = raw.length<=11 ? '55'+raw : raw; // números brasileiros sem DDI cadastrados
+  window.open(`https://wa.me/${withCountry}`, '_blank');
+}
 // Motivos padrão de perda de lead — o motivo escolhido fica registrado em `lead_history` (mesma tabela
 // de timeline já usada pra outros eventos do lead, sem precisar criar tabela nova) e também gravado nos
 // campos lost_reason/lost_reason_detail do próprio lead, pra dar pra agregar depois ("por que estamos
@@ -14841,9 +14849,25 @@ function openAlertDetail(index, list){
   const isCustom = alert.type==='alerta_personalizado'; // esse tipo já tem seu próprio ciclo de vida (status/snooze), não usa o mecanismo genérico de ignorar
   const isMaintenance = ['manutencao_vencida','manutencao_proxima'].includes(alert.type);
   const isRecorrente = alert.type==='contato_recorrente_pendente';
+  // O usuário usa esse alerta também como atalho pra mandar mensagem pro cliente — sem os dados de
+  // contato aqui, precisava fechar o modal e ir procurar o cliente em outro lugar pra conseguir o
+  // telefone. Mostra telefone/WhatsApp/e-mail/Instagram direto, com um botão de abrir o WhatsApp já indo
+  // pro número certo.
+  const recorrenteClient = isRecorrente ? state.clients.find(c=>c.id===alert.entityId) : null;
+  const contactHtml = recorrenteClient ? `
+    <div class="stat-row-list" style="margin-bottom:14px;">
+      ${recorrenteClient.phone ? `<div class="stat-row"><span class="stat-row-label">Telefone</span><span class="stat-row-value">${esc(recorrenteClient.phone)}</span></div>` : ''}
+      ${recorrenteClient.whatsapp ? `<div class="stat-row"><span class="stat-row-label">WhatsApp</span><span class="stat-row-value">${esc(recorrenteClient.whatsapp)}</span></div>` : ''}
+      ${recorrenteClient.email ? `<div class="stat-row"><span class="stat-row-label">E-mail</span><span class="stat-row-value">${esc(recorrenteClient.email)}</span></div>` : ''}
+      ${recorrenteClient.instagram ? `<div class="stat-row"><span class="stat-row-label">Instagram</span><span class="stat-row-value">${esc(recorrenteClient.instagram)}</span></div>` : ''}
+      ${!recorrenteClient.phone && !recorrenteClient.whatsapp && !recorrenteClient.email && !recorrenteClient.instagram ? '<div class="hint">Nenhum contato cadastrado pra esse cliente ainda — cadastre em "Abrir cliente".</div>' : ''}
+    </div>
+    ${(recorrenteClient.whatsapp||recorrenteClient.phone) ? `<div style="margin-bottom:14px;"><button class="btn btn-ghost btn-sm" onclick="sendClientWhatsApp('${recorrenteClient.id}')">💬 Enviar mensagem no WhatsApp</button></div>` : ''}
+  ` : '';
   openModal(`
     <div class="modal-head"><h3>${alert.icon} Detalhe do alerta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <p style="font-size:14px;margin-bottom:16px;">${esc(alert.text)}</p>
+    ${contactHtml}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${(isMaintenance||isRecorrente)?'10px':'18px'};">${alertActionsHtml(alert)}</div>
     ${isMaintenance ? `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;">
