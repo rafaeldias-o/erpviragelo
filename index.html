@@ -7696,9 +7696,13 @@ function renderConciliacao(){
   const dispensados = getDismissedConciliacaoIssues();
   const visiveis = issues.filter(i=>!dispensados.has(i.dismissKey));
   _lastConciliacaoIssues = visiveis; // pra "Dispensar todos" saber exatamente o que está na tela agora
-  const totalDispensados = issues.length - visiveis.length;
+  // Contagens separadas de propósito: "dispensados" (restauráveis, mostra o link "restaurar") e
+  // "excluídos" (permanentes, só informativo, sem link nenhum — não tem como desfazer pela interface).
+  const hiddenIssues = issues.filter(i=>dispensados.has(i.dismissKey));
+  const totalDispensados = hiddenIssues.filter(i => (state.alertDismissals||[]).some(d=>d.key===CONCILIACAO_DISMISS_PREFIX+i.dismissKey)).length;
+  const totalExcluidos = hiddenIssues.length - totalDispensados;
   if(visiveis.length===0){
-    wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência pendente.</p></div>${totalDispensados>0?`<div class="hint" style="text-align:center;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
+    wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;"><p>✓ Nenhuma inconsistência pendente.</p></div>${totalDispensados>0?`<div class="hint" style="text-align:center;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}${totalExcluidos>0?`<div class="hint" style="text-align:center;">${totalExcluidos} alerta(s) excluído(s) permanentemente</div>`:''}`;
     return;
   }
   wrap.innerHTML = `
@@ -7708,9 +7712,10 @@ function renderConciliacao(){
     </div>
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${visiveis.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista">✕ Dispensar</button></td></tr>`).join('')}
+    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista (reversível, aparece em 'restaurar')">✕ Dispensar</button><button class="btn btn-ghost btn-sm" onclick="excludeConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Some dessa lista pra sempre — diferente de Dispensar, não tem como desfazer depois. Não altera nenhum dado real.">✕ Excluir</button></td></tr>`).join('')}
   </tbody></table>
-  ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}`;
+  ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}
+  ${totalExcluidos>0?`<div class="hint" style="text-align:center;margin-top:4px;">${totalExcluidos} alerta(s) excluído(s) permanentemente</div>`:''}`;
 }
 // Dispensar um alerta da Conciliação era guardado só no navegador de quem clicava (localStorage) — cada
 // dispositivo/usuário via a lista de novo, mesmo depois de alguém já ter revisado e decidido ignorar.
@@ -7720,16 +7725,25 @@ function renderConciliacao(){
 // alertas, que usam outro formato (tipo:entidade). `dismissed_until: null` = dispensado pra sempre (mesma
 // semântica já usada em dismissAlert quando chamado sem dias). Continua sem apagar nem alterar nenhum
 // dado real — só marca que aquele alerta específico já foi revisado.
+//
+// "Excluir" (prefixo separado, conciliacao_excluido:) é uma segunda forma de esconder um alerta,
+// intencionalmente DIFERENTE de "Dispensar": não entra na contagem "N alerta(s) dispensado(s)" nem no
+// link "restaurar" — uma vez excluído, não tem volta pela UI (só mexendo direto no banco). "Dispensar"
+// continua sendo o caminho reversível de sempre.
 const CONCILIACAO_DISMISS_PREFIX = 'conciliacao:';
+const CONCILIACAO_EXCLUDE_PREFIX = 'conciliacao_excluido:';
 function getDismissedConciliacaoIssues(){
   const now = todayStr();
   const set = new Set();
   (state.alertDismissals||[]).forEach(d=>{
-    if(!d.key || !d.key.startsWith(CONCILIACAO_DISMISS_PREFIX)) return;
+    if(!d.key) return;
+    const prefix = d.key.startsWith(CONCILIACAO_DISMISS_PREFIX) ? CONCILIACAO_DISMISS_PREFIX
+      : d.key.startsWith(CONCILIACAO_EXCLUDE_PREFIX) ? CONCILIACAO_EXCLUDE_PREFIX : null;
+    if(!prefix) return;
     // Suporta o mesmo campo "until" da tabela, embora aqui sempre gravemos null (pra sempre) — se um dia
     // alguém quiser "dispensar por X dias" também na Conciliação, já funciona sem mudar mais nada aqui.
     if(d.until != null && d.until < now) return; // prazo expirado — volta a aparecer
-    set.add(d.key.slice(CONCILIACAO_DISMISS_PREFIX.length));
+    set.add(d.key.slice(prefix.length));
   });
   return set;
 }
@@ -7737,6 +7751,17 @@ async function dismissConciliacaoIssue(key){
   const { error } = await sb.from('alert_dismissals').upsert({ alert_key: CONCILIACAO_DISMISS_PREFIX+key, dismissed_until: null, dismissed_by: myUser?.id||null, dismissed_at: new Date().toISOString() });
   if(error){ dbErr(error, 'Erro ao dispensar alerta'); return; }
   toast('Alerta dispensado pra todos os usuários — nada foi alterado nos dados');
+  await loadAll(); renderConciliacao();
+}
+// Diferente de "Dispensar": pede confirmação (é permanente) e usa um prefixo separado que o "restaurar"
+// nunca toca — depois de excluído, some da lista de vez, sem opção de trazer de volta pela interface.
+// Assim como Dispensar, isso só esconde o ALERTA (a análise da Conciliação) — nunca mexe em pedido,
+// estoque, receita ou qualquer outro dado real do sistema.
+async function excludeConciliacaoIssue(key){
+  if(!confirm('Excluir esse alerta de Conciliação? Diferente de "Dispensar", isso é permanente — não aparece na lista de "alertas dispensados" nem pode ser restaurado depois. Nenhum dado do sistema (pedido, estoque, receita) é alterado — só esse aviso específico some de vez.')) return;
+  const { error } = await sb.from('alert_dismissals').upsert({ alert_key: CONCILIACAO_EXCLUDE_PREFIX+key, dismissed_until: null, dismissed_by: myUser?.id||null, dismissed_at: new Date().toISOString() });
+  if(error){ dbErr(error, 'Erro ao excluir alerta'); return; }
+  toast('Alerta excluído permanentemente — nada foi alterado nos dados');
   await loadAll(); renderConciliacao();
 }
 // Dispensa TODOS os alertas visíveis no momento de uma vez — mesmo mecanismo do dispensar individual,
