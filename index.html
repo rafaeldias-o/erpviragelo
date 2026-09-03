@@ -4916,8 +4916,10 @@ function askIfDeliveredAlone(orderId){
 // motorista. `preselectOrderId`, quando informado, já entra marcado como 1ª parada (caso comum: o pedido
 // que acabou de virar "entregue" e disparou a pergunta "foi sozinha?").
 let routeConfirmSelectedIds = [];
+let routeConfirmManualLegs = null; // quando preenchido (fallback de geocodificação), guarda a km de cada trecho digitada à mão, em vez de calculada
 function openRouteConfirmModal(preselectOrderId){
   routeConfirmSelectedIds = preselectOrderId ? [preselectOrderId] : [];
+  routeConfirmManualLegs = null; // reseta qualquer km digitada à mão de uma rota anterior
   // Só o pedido pré-selecionado (se houver) já está "entregue" nesse ponto — os demais que forem
   // marcados na tela ainda estão "confirmado" e não precisam de reversão se o modal for abandonado.
   pendingDeliveryConfirmOrderIds = preselectOrderId ? [preselectOrderId] : [];
@@ -4927,6 +4929,7 @@ function toggleRouteConfirmOrder(orderId){
   const idx = routeConfirmSelectedIds.indexOf(orderId);
   if(idx>=0) routeConfirmSelectedIds.splice(idx,1);
   else routeConfirmSelectedIds.push(orderId);
+  routeConfirmManualLegs = null; // a lista de trechos muda — qualquer km manual digitada antes não vale mais
   renderRouteConfirmModal();
 }
 function renderRouteConfirmModal(){
@@ -4977,6 +4980,50 @@ function renderRouteConfirmModal(){
 // confirma cada pedido selecionado com a km do trecho que lhe cabe — não "fábrica -> cliente" isolado
 // pra cada um. Pedidos que ainda não estavam "entregue" (todos exceto, às vezes, o que disparou o fluxo)
 // são transicionados aqui, disparando o mesmo gatilho de baixa de estoque/receita de sempre.
+// Fallback pra quando a geocodificação automática falha em algum trecho da rota (endereço incompleto,
+// não encontrado no mapa, etc.) — em vez de obrigar a desmontar o lote e confirmar uma entrega de cada
+// vez, deixa digitar a km de cada trecho à mão, mantendo a confirmação em lote (todas de uma vez, cada
+// uma com sua própria forma de pagamento/conta, exatamente como o modal já promete no topo).
+function renderRouteConfirmManualLegsForm(orders, warningText){
+  const statusEl = document.getElementById('route-confirm-status');
+  if(!statusEl) return;
+  const driver = document.getElementById('route-driver')?.value || null;
+  const mode = state.company.routeCalcMode || 'ida';
+  const needsFinalLeg = mode==='ida_volta' || mode==='casa_motorista' || mode==='fabrica_volta';
+  const legLabels = orders.map((o,i)=>{
+    const c = state.clients.find(x=>x.id===o.clientId);
+    const prevLabel = i===0 ? 'Fábrica' : (state.clients.find(x=>x.id===orders[i-1].clientId)?.name || `parada ${i}`);
+    return `${esc(prevLabel)} → ${esc(c?c.name:`parada ${i+1}`)}`;
+  });
+  if(needsFinalLeg){
+    const lastClient = state.clients.find(x=>x.id===orders[orders.length-1].clientId);
+    const destino = mode==='fabrica_volta' ? 'Fábrica (volta)' : 'Casa do motorista';
+    legLabels.push(`${esc(lastClient?lastClient.name:'última parada')} → ${destino}`);
+  }
+  statusEl.innerHTML = `
+    <div class="hint" style="margin-top:8px;margin-bottom:10px;color:var(--danger);">⚠️ ${esc(warningText)} Digite a km de cada trecho abaixo pra confirmar essa rota mesmo assim, sem precisar sair do lote.</div>
+    <div class="field-row" style="flex-wrap:wrap;gap:8px;">
+      ${legLabels.map((label,i)=>`<div class="field" style="min-width:160px;flex:1;margin-bottom:8px;"><label style="font-size:11px;">${label}</label><input type="number" step="0.1" min="0" inputmode="decimal" id="route-manual-leg-${i}" placeholder="km"></div>`).join('')}
+    </div>
+    <button class="btn btn-primary btn-sm" style="margin-top:4px;" onclick="confirmRouteBatchManual(${orders.length}, ${needsFinalLeg})">Usar essas distâncias e confirmar a rota</button>
+  `;
+}
+function confirmRouteBatchManual(stopsCount, needsFinalLeg){
+  const legs = [];
+  for(let i=0;i<stopsCount;i++){
+    const val = parseFloat(document.getElementById(`route-manual-leg-${i}`)?.value);
+    if(!(val>=0)){ toast(`Preencha a km de todos os trechos (faltou o trecho ${i+1})`, true); return; }
+    legs.push(val);
+  }
+  let homeLegKm = null;
+  if(needsFinalLeg){
+    const val = parseFloat(document.getElementById(`route-manual-leg-${stopsCount}`)?.value);
+    if(!(val>=0)){ toast('Preencha a km do trecho final também', true); return; }
+    homeLegKm = val;
+  }
+  routeConfirmManualLegs = { perStop: legs, homeLegKm };
+  confirmRouteBatch();
+}
 async function confirmRouteBatch(){
   if(routeConfirmSelectedIds.length===0) return;
   const _btn = lockButton(); // trava o botão — esse fluxo fica com o modal aberto durante todo o cálculo
@@ -5009,25 +5056,35 @@ async function confirmRouteBatch(){
   }
 
   if(statusEl) statusEl.innerHTML = '<div class="hint" style="margin-top:8px;">📍 Calculando a distância da rota...</div>';
-  const stopsData = [];
-  for(const o of orders){
-    const client = state.clients.find(c=>c.id===o.clientId);
-    const result = client ? await ensureClientDistance(client.id) : null;
-    stopsData.push((result && result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null);
-  }
-  if(stopsData.some(s=>s===null)){
-    if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não localizei o endereço de um ou mais clientes selecionados no mapa. Confirme essas entregas individualmente (uma por vez) pra poder digitar a distância manualmente.</div>`;
-    unlockButton(_btn);
-    return;
-  }
-
-  const mode = state.company.routeCalcMode || 'ida';
-  const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
-  const legsResult = await computeRouteLegs(stopsData, mode, driverHome);
-  if(!legsResult){
-    if(statusEl) statusEl.innerHTML = `<div class="hint" style="margin-top:8px;color:var(--danger);">⚠️ Não consegui calcular a rota completa entre essas paradas. Confirme as entregas individualmente.</div>`;
-    unlockButton(_btn);
-    return;
+  let legsResult = null;
+  if(routeConfirmManualLegs){
+    // Usuário já digitou a km de cada trecho à mão (fallback de quando a geocodificação falhou) — usa
+    // direto, sem tentar geocodificar de novo.
+    legsResult = routeConfirmManualLegs;
+  } else {
+    const stopsData = [];
+    for(const o of orders){
+      const client = state.clients.find(c=>c.id===o.clientId);
+      const result = client ? await ensureClientDistance(client.id) : null;
+      stopsData.push((result && result.lat!=null && result.lng!=null) ? {lat:result.lat, lng:result.lng} : null);
+    }
+    if(stopsData.some(s=>s===null)){
+      // Antes disso travava a rota inteira e mandava confirmar uma entrega de cada vez — o que
+      // desmontava justamente o motivo de existir esse modal (várias entregas feitas numa mesma saída,
+      // sem duplicar o trajeto inicial). Agora oferece digitar a km de cada trecho à mão, sem sair do
+      // fluxo em lote — a rota continua sendo confirmada de uma vez só, só que sem cálculo automático.
+      renderRouteConfirmManualLegsForm(orders, 'Não localizei o endereço de um ou mais clientes selecionados no mapa.');
+      unlockButton(_btn);
+      return;
+    }
+    const mode = state.company.routeCalcMode || 'ida';
+    const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
+    legsResult = await computeRouteLegs(stopsData, mode, driverHome);
+    if(!legsResult){
+      renderRouteConfirmManualLegsForm(orders, 'Não consegui calcular a rota completa entre essas paradas.');
+      unlockButton(_btn);
+      return;
+    }
   }
   const { perStop, homeLegKm } = legsResult;
 
