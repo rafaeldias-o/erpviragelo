@@ -4968,6 +4968,13 @@ function renderRouteConfirmModal(){
       </tr>`).join('')}
       </tbody></table>
     </div>`}
+    <div class="field" style="margin-top:16px;"><label>Como calcular a distância dessa rota</label><select id="route-calc-mode" onchange="routeConfirmManualLegs=null;">
+      <option value="ida" ${(state.company.routeCalcMode||'ida')==='ida'?'selected':''}>Só ida (fábrica → cliente)</option>
+      <option value="ida_volta" ${state.company.routeCalcMode==='ida_volta'?'selected':''}>Ida e volta (casa do motorista → fábrica → cliente → casa do motorista)</option>
+      <option value="casa_motorista" ${state.company.routeCalcMode==='casa_motorista'?'selected':''}>Fábrica → cliente → casa do motorista</option>
+      <option value="fabrica_volta" ${state.company.routeCalcMode==='fabrica_volta'?'selected':''}>Ida e volta pela fábrica (fábrica → cliente → fábrica)</option>
+    </select></div>
+    <div class="hint" style="margin-top:-8px;margin-bottom:12px;">Vem pré-selecionado com o padrão configurado em Agenda de Entregas, mas pode trocar só pra essa rota.</div>
     <div class="field" style="margin-top:16px;"><label>Será entregue por:</label><select id="route-driver"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option><option value="retirada">🏪 Retirada no local (sem custo de entrega)</option></select></div>
     <div id="route-confirm-status"></div>
     <div class="modal-foot">
@@ -4988,7 +4995,7 @@ function renderRouteConfirmManualLegsForm(orders, warningText){
   const statusEl = document.getElementById('route-confirm-status');
   if(!statusEl) return;
   const driver = document.getElementById('route-driver')?.value || null;
-  const mode = state.company.routeCalcMode || 'ida';
+  const mode = document.getElementById('route-calc-mode')?.value || state.company.routeCalcMode || 'ida';
   const needsFinalLeg = mode==='ida_volta' || mode==='casa_motorista' || mode==='fabrica_volta';
   const legLabels = orders.map((o,i)=>{
     const c = state.clients.find(x=>x.id===o.clientId);
@@ -5077,7 +5084,7 @@ async function confirmRouteBatch(){
       unlockButton(_btn);
       return;
     }
-    const mode = state.company.routeCalcMode || 'ida';
+    const mode = document.getElementById('route-calc-mode')?.value || state.company.routeCalcMode || 'ida';
     const driverHome = driver==='beto' ? {lat:state.company.betoHomeLat,lng:state.company.betoHomeLng} : driver==='gui' ? {lat:state.company.guiHomeLat,lng:state.company.guiHomeLng} : null;
     legsResult = await computeRouteLegs(stopsData, mode, driverHome);
     if(!legsResult){
