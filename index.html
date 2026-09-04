@@ -1836,7 +1836,7 @@ async function renderAIQuickQuestions(){
   const suggestions = await getAssistantSuggestions();
   const suggHtml = suggestions.length ? `
     <div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px;width:100%;text-align:center;">Sugestões para agora</div>
-    ${suggestions.map(s=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${s.prompt.replace(/'/g,"\\'")}')">${esc(s.label)}</button>`).join('')}
+    ${suggestions.map(s=>`<button class="btn btn-ghost btn-sm" onclick="${esc(`sendAIQuestion('${s.prompt.replace(/'/g,"\\'")}')`)}">${esc(s.label)}</button>`).join('')}
   ` : '';
 
   const { data: sessionData } = await sb.auth.getSession();
@@ -1849,7 +1849,7 @@ async function renderAIQuickQuestions(){
         <div style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;margin:12px 0 6px;width:100%;text-align:center;">Seus atalhos</div>
         ${savedPrompts.map(p=>`
           <span style="display:inline-flex;align-items:center;">
-            <button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${p.prompt.replace(/'/g,"\\'")}')">⭐ ${esc(p.title)}</button>
+            <button class="btn btn-ghost btn-sm" onclick="${esc(`sendAIQuestion('${p.prompt.replace(/'/g,"\\'")}')`)}">⭐ ${esc(p.title)}</button>
             <button onclick="deleteSavedPrompt('${p.id}')" title="Excluir atalho" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;padding:0 4px;margin-left:-4px;">✕</button>
           </span>
         `).join('')}
@@ -2046,7 +2046,7 @@ function renderAIFollowUps(toolsUsed){
   if(followUps.length===0) return;
   const box = document.getElementById('aiChatMessages');
   if(!box) return;
-  const html = `<div id="ai-followups" style="align-self:stretch;display:flex;gap:8px;flex-wrap:wrap;padding:0 2px;">${followUps.map(f=>`<button class="btn btn-ghost btn-sm" onclick="sendAIQuestion('${f.prompt.replace(/'/g,"\\'")}')">${esc(f.label)}</button>`).join('')}</div>`;
+  const html = `<div id="ai-followups" style="align-self:stretch;display:flex;gap:8px;flex-wrap:wrap;padding:0 2px;">${followUps.map(f=>`<button class="btn btn-ghost btn-sm" onclick="${esc(`sendAIQuestion('${f.prompt.replace(/'/g,"\\'")}')`)}">${esc(f.label)}</button>`).join('')}</div>`;
   box.insertAdjacentHTML('beforeend', html);
   box.scrollTop = box.scrollHeight;
 }
@@ -2427,7 +2427,7 @@ function openAIConversationMenu(evt, id, currentTitle, isPinned){
   menu.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${Math.max(8,rect.left-120)}px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);z-index:300;min-width:140px;overflow:hidden;`;
   menu.innerHTML = `
     <button onclick="closeAIConvMenu(); toggleAIConversationPinned('${id}', ${!!isPinned})" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">${isPinned?'📌 Desafixar':'📌 Fixar'}</button>
-    <button onclick="closeAIConvMenu(); renameAIConversation('${id}', '${currentTitle.replace(/'/g,"\\'")}')" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">✏️ Renomear</button>
+    <button onclick="${esc(`closeAIConvMenu(); renameAIConversation('${id}', '${currentTitle.replace(/'/g,"\\'")}')`)}" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--ink);">✏️ Renomear</button>
     <button onclick="closeAIConvMenu(); deleteAIConversation('${id}')" style="display:block;width:100%;text-align:left;padding:9px 12px;background:none;border:none;font-size:12.5px;cursor:pointer;color:var(--danger);">🗑️ Excluir</button>
   `;
   document.body.appendChild(menu);
@@ -3605,9 +3605,9 @@ function renderPaginationControls(wrapId, page, perPage, total, goToPageFn, item
   wrap.innerHTML = `
     <div class="hint" style="margin:0;">Mostrando ${startIdx+1} a ${Math.min(startIdx+perPage,total)} de ${total} ${itemLabel||'registro(s)'}</div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-      <button class="btn btn-ghost btn-sm" onclick="${goToPageFn}(${prefix}${page-1})" ${page<=1?'disabled':''}>«</button>
-      ${Array.from({length:totalPages},(_,i)=>i+1).map(p=>`<button class="btn ${p===page?'btn-primary':'btn-ghost'} btn-sm" onclick="${goToPageFn}(${prefix}${p})">${p}</button>`).join('')}
-      <button class="btn btn-ghost btn-sm" onclick="${goToPageFn}(${prefix}${page+1})" ${page>=totalPages?'disabled':''}>»</button>
+      <button class="btn btn-ghost btn-sm" onclick="${esc(`${goToPageFn}(${prefix}${page-1})`)}" ${page<=1?'disabled':''}>«</button>
+      ${Array.from({length:totalPages},(_,i)=>i+1).map(p=>`<button class="btn ${p===page?'btn-primary':'btn-ghost'} btn-sm" onclick="${esc(`${goToPageFn}(${prefix}${p})`)}">${p}</button>`).join('')}
+      <button class="btn btn-ghost btn-sm" onclick="${esc(`${goToPageFn}(${prefix}${page+1})`)}" ${page>=totalPages?'disabled':''}>»</button>
     </div>
   `;
 }
@@ -7712,7 +7712,7 @@ function renderConciliacao(){
     </div>
     <table><thead><tr><th>Tipo</th><th>Detalhe</th><th>Severidade</th><th></th></tr></thead><tbody>
     ${visiveis.map(i=>`<tr><td><strong>${esc(i.tipo)}</strong></td><td style="color:var(--muted);">${esc(i.detalhe)}</td><td><span class="badge ${i.severidade==='alta'?'badge-danger':i.severidade==='média'?'badge-warn':'badge-muted'}">${i.severidade}</span></td>
-    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista (reversível, aparece em 'restaurar')">✕ Dispensar</button><button class="btn btn-ghost btn-sm" onclick="excludeConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')" title="Some dessa lista pra sempre — diferente de Dispensar, não tem como desfazer depois. Não altera nenhum dado real.">✕ Excluir</button></td></tr>`).join('')}
+    <td style="white-space:nowrap;">${i.txId?`<button class="btn btn-ghost btn-sm" onclick="fixPagoSemConta('${i.txId}')">Corrigir</button>`:''}${i.duplicateOrderId?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateReceitaFix('${i.duplicateOrderId}')">Ver e corrigir</button>`:''}${i.duplicateOrderIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateOrderFix('${i.duplicateOrderIds.join('_')}')">Ver e corrigir</button>`:''}${i.duplicateMovementIds?`<button class="btn btn-ghost btn-sm" onclick="openDuplicateMovementFix('${i.duplicateMovementIds.join('_')}')">Ver e corrigir</button>`:''}<button class="btn btn-ghost btn-sm" onclick="${esc(`dismissConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')`)}" title="Marca como já revisado — não apaga nem altera nada, só some dessa lista (reversível, aparece em 'restaurar')">✕ Dispensar</button><button class="btn btn-ghost btn-sm" onclick="${esc(`excludeConciliacaoIssue('${i.dismissKey.replace(/'/g,"\\'")}')`)}" title="Some dessa lista pra sempre — diferente de Dispensar, não tem como desfazer depois. Não altera nenhum dado real.">✕ Excluir</button></td></tr>`).join('')}
   </tbody></table>
   ${totalDispensados>0?`<div class="hint" style="text-align:center;margin-top:10px;">${totalDispensados} alerta(s) dispensado(s) — <a href="#" onclick="event.preventDefault(); restoreDismissedConciliacaoIssues();">restaurar</a></div>`:''}
   ${totalExcluidos>0?`<div class="hint" style="text-align:center;margin-top:4px;">${totalExcluidos} alerta(s) excluído(s) permanentemente</div>`:''}`;
