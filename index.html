@@ -2541,6 +2541,14 @@ const DELIVERY_STATUSES = [
   {v:'agendada',label:'Agendada',cls:'badge-info'}, {v:'em_rota',label:'Em rota',cls:'badge-warn'},
   {v:'entregue',label:'Entregue',cls:'badge-success'}, {v:'cancelada',label:'Cancelada',cls:'badge-danger'},
 ];
+// Usada em todo formulário de CRIAR/EDITAR entrega (Agenda, Clientes, "Agendar entrega" pela aba Pedidos,
+// assistente do CRM) — nunca deixa "Entregue" ser escolhido como um status qualquer nesses formulários.
+// "Entregue" só pode ser alcançado pelo fluxo correto (updateOrderStatus -> gatilho do banco baixa
+// estoque e cria a receita -> pede motorista/conta pra creditar o pagamento). Um formulário genérico de
+// edição gravando status='entregue' direto no banco deixava a entrega com a etiqueta "Entregue" sem
+// NADA disso acontecer — nem baixa de estoque, nem receita, nem conta vinculada — a causa raiz real por
+// trás de várias das inconsistências de Conciliação encontradas nesta sessão.
+const DELIVERY_STATUSES_EDITABLE = DELIVERY_STATUSES.filter(s=>s.v!=='entregue');
 const deliveryStatusInfo = v => DELIVERY_STATUSES.find(s=>s.v===v) || DELIVERY_STATUSES[0];
 
 function toast(msg, isError){
@@ -4865,7 +4873,7 @@ function promptScheduleDeliveryAfterOrder(orderId, clientId){
     <div class="field-row3">
       <div class="field"><label>Data</label><input id="dv-date" type="date" value="${todayStr()}"></div>
       <div class="field"><label>Horário</label><input id="dv-time" type="time"></div>
-      <div class="field"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES_EDITABLE.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
     </div>
     <input type="hidden" id="dv-order" value="${orderId}">
     <div id="deliveryItemsWrap"></div>
@@ -4961,7 +4969,7 @@ function renderRouteConfirmModal(){
         <td>${r.selected ? (()=>{
           const suggested = suggestedAccountForPaymentMethod(r.o.paymentMethod);
           return `<select id="route-account-${r.o.id}" style="min-width:140px;">
-            <option value="">— Não creditar —</option>
+            <option value="">— Selecione a conta —</option>
             ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
           </select>`;
         })() : '<span style="color:var(--muted);">—</span>'}</td>
@@ -5043,6 +5051,17 @@ async function confirmRouteBatch(){
   // pelo id de cada pedido, não um valor único compartilhado pra rota inteira.
   const accountByOrder = {};
   orders.forEach(o=>{ const el = document.getElementById(`route-account-${o.id}`); accountByOrder[o.id] = el ? (el.value||null) : null; });
+
+  // Confere ANTES de escrever qualquer coisa no banco — se faltar conta em qualquer pedido da rota,
+  // nem começa a marcar como entregue (evita ficar com uns pedidos já processados e outros travados no
+  // meio do lote por causa da falta de conta de só um deles).
+  const semConta = orders.filter(o=>!accountByOrder[o.id]);
+  if(semConta.length>0){
+    const nomes = semConta.map(o=>{ const c = state.clients.find(x=>x.id===o.clientId); return c?c.name:(o.orderNumber||o.id.slice(0,6)); });
+    toast(`Selecione a conta que vai receber o pagamento de: ${nomes.join(', ')} — antes de confirmar a rota`, true);
+    unlockButton(_btn);
+    return;
+  }
 
   // Retirada no local: não existe rota nenhuma pra calcular (cliente busca ele mesmo) — zera a distância
   // de todos os pedidos selecionados direto, sem tentar geocodificar nem chamar o OSRM.
@@ -5140,7 +5159,7 @@ function promptOrderDriver(orderId){
     <div id="odp-map" style="height:240px;border-radius:10px;background:var(--surface-2);margin-bottom:14px;"></div>
     <div class="field"><label>Será entregue por:</label><select id="odp-driver" onchange="renderOdpDistanceDisplay()"><option value="">— Não definido —</option><option value="beto">Beto</option><option value="gui">Gui</option><option value="retirada">🏪 Retirada no local (sem custo de entrega)</option></select></div>
     <div class="field"><label>Creditar pagamento na conta</label><select id="odp-account">
-      <option value="">— Não creditar em nenhuma conta —</option>
+      <option value="">— Selecione a conta —</option>
       ${activeAccounts.map(a=>`<option value="${a.id}" ${suggested&&suggested.id===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}
     </select></div>
     <div class="hint" style="margin-bottom:14px;">${suggested ? `Sugerido automaticamente com base na forma de pagamento (${esc(order?.paymentMethod)}). Pode trocar se precisar.` : 'Não há uma conta padrão pra essa forma de pagamento — escolha manualmente, ou deixe em branco pra ajustar depois em Financeiro.'}</div>
@@ -5358,15 +5377,28 @@ function suggestedAccountForPaymentMethod(paymentMethod){
 // campos em branco na tela de editar receita — corrigido chamando a mesma finalização, só sem motorista/
 // distância/conta (esses continuam podendo ser preenchidos depois, no pedido ou na Agenda de Entregas).
 async function skipOrderDriverPrompt(orderId){
+  // "Pular" só pula motorista/distância — a conta continua obrigatória, senão a receita fica pendurada
+  // sem conta pra sempre (essa era exatamente a falha real: antes esta função nem lia o campo de conta,
+  // sempre mandava null direto, não importava o que estivesse selecionado na tela).
+  const accountId = document.getElementById('odp-account')?.value || null;
+  if(!accountId){
+    toast('Selecione a conta que vai receber esse pagamento antes de confirmar (mesmo pulando o motorista)', true);
+    return;
+  }
   pendingDeliveryConfirmOrderIds = null; // resolvido — antes do closeModal(), mesmo motivo do confirmOrderDriver
   closeModal();
-  await finalizeOrderDelivery(orderId, null, null, null);
+  await finalizeOrderDelivery(orderId, null, null, accountId);
   await loadAll(); renderAll();
 }
 async function confirmOrderDriver(orderId){
   const _btn = lockButton(); // trava o botão pra evitar clique duplo disparar a confirmação duas vezes
   const driver = document.getElementById('odp-driver').value || null;
   const accountId = document.getElementById('odp-account').value || null;
+  if(!accountId){
+    toast('Selecione a conta que vai receber esse pagamento antes de confirmar a entrega', true);
+    unlockButton(_btn);
+    return;
+  }
   const autoEl = document.getElementById('odp-distance-auto');
   const manualEl = document.getElementById('odp-distance-manual');
   const homeLegEl = document.getElementById('odp-homeleg-auto');
@@ -5753,6 +5785,12 @@ async function updateOrderPaymentMethod(orderId, newMethod){
     if(novaConta && novaConta.id !== revenueTx.accountId){
       await sb.from('transactions').update({ account_id: novaConta.id }).eq('id', revenueTx.id);
       toast(`Forma de pagamento alterada — saldo realocado pra ${novaConta.name}`);
+    } else if(!novaConta){
+      // Sem nenhuma conta ativa do tipo certo pra essa forma de pagamento — a receita FICA como estava
+      // (com a conta antiga, ou sem conta nenhuma, se já estivesse assim). Avisa isso explicitamente, em
+      // vez de dizer só "alterado" como se estivesse tudo certo — essa era exatamente a falha real que
+      // deixava receitas com conta errada (ou nenhuma) sem ninguém perceber.
+      toast(`Forma de pagamento alterada, mas não há nenhuma conta ativa pra "${newMethod}" — confira e ajuste a conta manualmente em Financeiro`, true);
     } else {
       toast('Forma de pagamento alterada');
     }
@@ -9764,7 +9802,7 @@ function renderWizard(){
       <div class="field-row3">
         <div class="field"><label>Data</label><input id="wz-date" type="date" value="${todayStr()}"></div>
         <div class="field"><label>Horário</label><input id="wz-time" type="time"></div>
-        <div class="field"><label>Status</label><select id="wz-dstatus">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
+        <div class="field"><label>Status</label><select id="wz-dstatus">${DELIVERY_STATUSES_EDITABLE.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
       </div>
       <div id="wizardDeliveryItemsWrap"></div>
       <button class="btn btn-ghost btn-sm" onclick="addWizardDeliveryItem()">+ Adicionar produto</button>
@@ -11435,7 +11473,7 @@ function showDeliveryForm(clientId){
     <div class="field-row3" style="margin-top:8px;">
       <div class="field" style="margin-bottom:6px;"><label>Data</label><input id="dv-date" type="date" value="${todayStr()}"></div>
       <div class="field" style="margin-bottom:6px;"><label>Horário</label><input id="dv-time" type="time"></div>
-      <div class="field" style="margin-bottom:6px;"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
+      <div class="field" style="margin-bottom:6px;"><label>Status</label><select id="dv-status">${DELIVERY_STATUSES_EDITABLE.map(s=>`<option value="${s.v}">${s.label}</option>`).join('')}</select></div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="dv-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}">${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
     <div id="deliveryItemsWrap"></div>
@@ -11507,7 +11545,7 @@ function renderClientDeliveries(clientId){
     <div class="task-row">
       <div><strong>${fmtDate(d.date)}${d.time?' · '+d.time:''}</strong><div style="color:var(--muted);font-size:11px">${d.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(', ')||'—'}${d.notes?' · '+esc(d.notes):''}</div></div>
       <div style="display:flex;gap:6px;align-items:center;">
-        <select class="kanban-move" onchange="setDeliveryStatus('${d.id}', this.value)">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select>
+        <select class="kanban-move" onchange="setDeliveryStatus('${d.id}', this.value)" ${d.status==='entregue'?'disabled title="Entrega já concluída — pra desfazer, use Estornar no pedido"':''}>${(d.status==='entregue'?DELIVERY_STATUSES:DELIVERY_STATUSES_EDITABLE).map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select>
         <button class="icon-btn" onclick="deleteDelivery('${d.id}')">${iconTrash}</button>
       </div>
     </div>
@@ -11879,7 +11917,10 @@ function openDeliveryEditModal(id){
     <div class="field-row3">
       <div class="field"><label>Data</label><input id="ed-date" type="date" value="${d.date}"></div>
       <div class="field"><label>Horário</label><input id="ed-time" type="time" value="${d.time||''}"></div>
-      <div class="field"><label>Status</label><select id="ed-status">${DELIVERY_STATUSES.map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Status</label>${d.status==='entregue'
+        ? `<select id="ed-status" disabled><option value="entregue" selected>Entregue</option></select><div class="hint" style="margin-top:2px;">Entrega já concluída — pra desfazer, use "Estornar" no pedido vinculado.</div>`
+        : `<select id="ed-status">${DELIVERY_STATUSES_EDITABLE.map(s=>`<option value="${s.v}" ${s.v===d.status?'selected':''}>${s.label}</option>`).join('')}</select><div class="hint" style="margin-top:2px;">Pra marcar como entregue de verdade (baixar estoque e gerar a receita), use o status do pedido na aba Pedidos.</div>`
+      }</div>
     </div>
     ${clientOrders.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="ed-order"><option value="">—</option>${clientOrders.map(o=>`<option value="${o.id}" ${o.id===d.orderId?'selected':''}>${esc(o.orderNumber||('#'+o.id.slice(-5)))} — ${fmtMoney(o.total)}</option>`).join('')}</select></div>` : ''}
     <div id="editDeliveryItemsWrap"></div>
@@ -14517,9 +14558,17 @@ function renderDrilldown(){
 }
 async function markDeliveryDelivered(id){
   if(!canWrite('crm')){ toast('Seu perfil não tem permissão para editar entregas', true); return; }
-  const { error } = await sb.from('deliveries').update({ status: 'entregue' }).eq('id', id);
-  if(error){ dbErr(error, 'Erro ao marcar entrega'); return; }
-  toast('Entrega marcada como entregue'); await loadAll(); renderDrilldown();
+  const delivery = state.deliveries.find(d=>d.id===id);
+  // Antes gravava status='entregue' direto nessa tabela (deliveries) e parava por aí — a etiqueta virava
+  // "Entregue" no cartão, mas nada mais acontecia de verdade: sem baixa de estoque, sem receita gerada,
+  // sem conta creditada, porque só a MUDANÇA DE STATUS DO PEDIDO (orders.status) dispara o gatilho do
+  // banco que faz tudo isso. Agora sempre passa pelo mesmo fluxo usado em qualquer outro lugar do sistema
+  // — inclusive pedindo motorista/conta pra creditar o pagamento, exatamente como deveria.
+  if(!delivery || !delivery.orderId){
+    toast('Essa entrega não está vinculada a nenhum pedido — vincule um pedido antes de marcar como entregue, senão não tem como gerar a receita.', true);
+    return;
+  }
+  updateOrderStatus(delivery.orderId, 'entregue');
 }
 // ---- 🚚 Entregas do Dia ----
 function renderDrilldownEntregasDia(){
