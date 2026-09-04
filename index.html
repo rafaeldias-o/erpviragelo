@@ -7465,7 +7465,7 @@ function renderLancResumoMes(){
   }
 }
 function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
-  const w=280, chartH=120, padT=22, padB=22, labelGap=18;
+  const w=280, plotH=90, padT=22, padB=8, labelGap=20;
   const maxVal = Math.max(receita, despesa, Math.abs(saldo), 1);
   const bars = [
     { label:'Receita', value:receita, color:'#16A34A' },
@@ -7475,16 +7475,22 @@ function buildFluxoMesBarChart(receita, despesa, saldo, saldoContas){
   const barW = 46, gap = 20;
   const totalBarsW = bars.length*barW + (bars.length-1)*gap;
   const startX = (w-totalBarsW)/2;
-  const baseline = padT+chartH;
-  let svg = `<svg viewBox="0 0 ${w} ${padT+chartH+padB+labelGap}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;">`;
+  const baseline = padT+plotH;
+  // Reserva a MESMA altura (plotH) tanto acima quanto abaixo da linha de base — antes só existia espaço
+  // reservado pra barras positivas (crescendo pra cima); uma barra negativa (Saldo no vermelho, quando
+  // despesa > receita) crescia pra baixo sem ter pra onde ir, e o texto do valor dela acabava desenhado
+  // em cima do rótulo "Saldo" ou cortado fora da altura visível do gráfico — exatamente o problema
+  // relatado. Como abs(saldo) nunca é maior que o maior valor entre receita/despesa (é a diferença dos
+  // dois), a mesma escala usada pras barras positivas serve certinho pra o pior caso da negativa também.
+  let svg = `<svg viewBox="0 0 ${w} ${padT+plotH*2+labelGap+padB}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;">`;
   svg += `<line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--border)" stroke-width="1"/>`;
   bars.forEach((b,i)=>{
     const x = startX + i*(barW+gap);
-    const barH = Math.max(2, Math.abs(b.value)/maxVal*chartH);
+    const barH = Math.max(2, Math.abs(b.value)/maxVal*plotH);
     const y = b.value>=0 ? (baseline-barH) : baseline;
     svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="5" fill="${b.color}"/>`;
     svg += `<text x="${x+barW/2}" y="${b.value>=0?y-6:y+barH+16}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink)">${fmtMoney(b.value)}</text>`;
-    svg += `<text x="${x+barW/2}" y="${baseline+labelGap}" text-anchor="middle" font-size="10" fill="var(--muted)">${b.label}</text>`;
+    svg += `<text x="${x+barW/2}" y="${baseline+plotH+labelGap}" text-anchor="middle" font-size="10" fill="var(--muted)">${b.label}</text>`;
   });
   svg += `</svg>`;
   return svg + `<div class="hint" style="text-align:center;margin-top:6px;font-size:11px;">🏦 Saldo em contas: <strong style="color:var(--ink);">${fmtMoney(saldoContas)}</strong></div>`;
